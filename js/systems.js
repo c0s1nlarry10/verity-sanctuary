@@ -484,11 +484,13 @@ function checkDaily() {
 
 // ================= Prestige =================
 function shardsAvailable() { return Math.floor(Math.sqrt(Math.max(0, state.runEarned) / SHARD_DIVISOR)); }
-function doPrestige() {
+async function doPrestige() {
   if (!isUnlocked("prestige")) return;
   const gain = shardsAvailable();
   if (gain < 1) return hintOnce("Earn more coins this run to get Truth Shards.");
-  if (!confirm(`Start a New Sanctuary?\n\nYou keep: Variant Index, recipes, achievements and stats.\nYou lose: coins, park, variants, staff, land and park level.\n\nYou gain ${gain} Truth Shard${gain > 1 ? "s" : ""} (+${Math.round(gain * SHARD_BONUS * 100)}% income forever).`)) return;
+  const yes = await ask({ title: "NEW SANCTUARY", ok: "Start over",
+    text: `You keep: Variant Index, recipes, achievements and stats.\nYou lose: coins, park, variants, staff, land and park level.\n\nYou gain ${gain} Truth Shard${gain > 1 ? "s" : ""} (+${Math.round(gain * SHARD_BONUS * 100)}% income forever).` });
+  if (!yes) return;
   const keep = {
     discovered: state.discovered, recipesKnown: state.recipesKnown, achievements: state.achievements,
     stats: state.stats, settings: state.settings, daily: state.daily, goal: state.goal,
@@ -525,17 +527,18 @@ function downloadSnapshot() {
   g.fillStyle = "#f4f1ff";
   const placed = state.enclosures.reduce((s, e) => s + e.variants.length, 0);
   g.fillText(`LV ${state.level} · ${"★".repeat(starRating())} · ${placed} variants · ${discoveredCount()}/${VARIANT_KEYS.length} found`, c.width - 24, canvas.height + 48);
-  c.toBlob(b => {
-    if (!b) return;
+  const url = c.toDataURL("image/png");
+  $("snap-img").src = url;
+  $("snap-dialog").showModal();
+  // Also try a direct download (works on normal websites; embedded viewers ignore it).
+  try {
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(b);
+    a.href = url;
     a.download = `verity-sanctuary-${dayKey(new Date())}.png`;
     document.body.appendChild(a);
     a.click();
     a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-  });
-  toast("Snapshot saved to your downloads!", 3000, "publicity");
+  } catch (e) { /* the dialog still shows the picture */ }
 }
 
 // ================= Per-second hook =================

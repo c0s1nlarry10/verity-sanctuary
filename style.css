@@ -1,4 +1,5 @@
 :root {
+  color-scheme: dark;
   --bg: #1b1a2e;
   --bg-2: #22203a;
   --panel: #2c2947;
@@ -653,3 +654,16 @@ label.range input { flex: 1; max-width: 160px; accent-color: var(--yellow); }
 .loader-credits .small-credit b { font-size: 9px; color: #ff7eb6; }
 .credit-line { margin: 4px 0; font-size: 20px; }
 .credit-line b { font-family: "Press Start 2P", monospace; font-size: 10px; color: var(--yellow); font-weight: normal; }
+
+/* ---------- In-game dialogs ---------- */
+.ask-dialog { width: min(420px, calc(100vw - 32px)); }
+.ask-text { white-space: pre-line; font-size: 19px; line-height: 1.2; margin: 0 0 12px; }
+#ask-input {
+  width: 100%; margin-bottom: 12px; padding: 8px; font-family: "VT323", monospace; font-size: 20px;
+  background: #121124; color: var(--text); border: 3px solid #000; box-shadow: inset 0 0 0 2px var(--line);
+}
+#ask-input:focus { outline: none; box-shadow: inset 0 0 0 2px var(--yellow); }
+.ask-actions { justify-content: flex-end; }
+.snap-dialog { width: min(760px, calc(100vw - 24px)); }
+#snap-img { display: block; width: 100%; image-rendering: pixelated; border: 3px solid #000; margin-bottom: 8px; }
+button:focus-visible, .tab:focus-visible { outline: 3px solid var(--yellow); outline-offset: 2px; }

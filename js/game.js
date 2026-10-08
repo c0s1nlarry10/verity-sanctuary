@@ -674,10 +674,10 @@ function petInd(uid) {
   renderCard();
 }
 
-function renameInd(uid) {
+async function renameInd(uid) {
   const f = findInd(uid);
   if (!f) return;
-  const name = prompt(`New name for ${f.ind.name}:`, f.ind.name);
+  const name = await ask({ title: "RENAME", text: `New name for ${f.ind.name}:`, ok: "Rename", input: f.ind.name });
   if (name === null) return;
   const clean = name.trim().slice(0, 16);
   if (!clean || clean === f.ind.name) return;
@@ -1570,6 +1570,26 @@ function drawCard(dt, time) {
 const $ = id => document.getElementById(id);
 let hintTimer = 0;
 
+// In-game replacement for confirm()/prompt(), which embedded viewers block.
+// Resolves true/false, or the entered text/null when `input` is given.
+function ask({ title, text, ok = "OK", input = null }) {
+  return new Promise(resolve => {
+    const d = $("ask-dialog"), inp = $("ask-input");
+    $("ask-title").textContent = title;
+    $("ask-text").textContent = text;
+    $("ask-ok").textContent = ok;
+    inp.hidden = input === null;
+    inp.value = input ?? "";
+    d.returnValue = "";
+    d.onclose = () => {
+      const yes = d.returnValue === "ok";
+      resolve(input === null ? yes : yes ? inp.value : null);
+    };
+    d.showModal();
+    if (input !== null) { inp.focus(); inp.select(); } else $("ask-ok").focus();
+  });
+}
+
 function hintOnce(msg) {
   hintTimer = 2.5;
   $("hint").textContent = msg;
@@ -2076,7 +2096,7 @@ canvas.addEventListener("pointerdown", e => {
   if (ti >= 0 && (tool === "inspect" || tool === "bulldoze")) { cleanTrash(ti); sfx("click"); return; }
   if (inBounds(p.x, p.y) && !isOwned(p.x, p.y)) {
     const k = plotOf(p.x, p.y);
-    if (k && plotForSale(k)) { if (confirm(`Buy ${PLOTS[k].label} for ${fmt(PLOTS[k].cost)} coins?`)) buyPlot(k); }
+    if (k && plotForSale(k)) ask({ title: "BUY LAND", text: `Buy ${PLOTS[k].label} for ${fmt(PLOTS[k].cost)} coins?`, ok: "Buy" }).then(yes => { if (yes) buyPlot(k); });
     else hintOnce("This land isn't for sale yet. Keep levelling up your park!");
     return;
   }
@@ -2121,9 +2141,13 @@ $("card-move").addEventListener("click", () => {
 });
 $("card-release").addEventListener("click", () => {
   const f = findInd(cardUid);
-  if (!f || !confirm(`Release ${f.ind.name} for ${fmt(releaseValue(f.ind))} coins? This can't be undone.`)) return;
-  cardDialog.close();
-  releaseInd(cardUid);
+  if (!f) return;
+  const uid = cardUid;
+  ask({ title: "RELEASE", text: `Release ${f.ind.name} for ${fmt(releaseValue(f.ind))} coins? This can't be undone.`, ok: "Release" }).then(yes => {
+    if (!yes) return;
+    cardDialog.close();
+    releaseInd(uid);
+  });
 });
 $("card-close").addEventListener("click", () => cardDialog.close());
 
@@ -2172,10 +2196,12 @@ dialog.addEventListener("close", () => {
   try { importSave(code); toast("Save imported!"); } catch (e) { toast("That save code didn't work."); }
 });
 $("reset").addEventListener("click", () => {
-  if (!confirm("Delete your park and start over? This can't be undone.")) return;
-  resetting = true;
-  try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* ignore */ }
-  location.reload();
+  ask({ title: "RESET PARK", text: "Delete your park and start over? This can't be undone.", ok: "Delete park" }).then(yes => {
+    if (!yes) return;
+    resetting = true;
+    try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* ignore */ }
+    location.reload();
+  });
 });
 
 setInterval(saveGame, AUTOSAVE_MS);

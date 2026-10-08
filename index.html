@@ -296,6 +296,27 @@
     </div>
   </dialog>
 
+  <dialog id="ask-dialog" class="ask-dialog">
+    <form method="dialog">
+      <h2 id="ask-title"></h2>
+      <p id="ask-text" class="ask-text"></p>
+      <input id="ask-input" maxlength="16" autocomplete="off" hidden>
+      <div class="tools ask-actions">
+        <button id="ask-ok" value="ok" class="primary">OK</button>
+        <button id="ask-cancel" value="cancel">Cancel</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="snap-dialog" class="snap-dialog">
+    <form method="dialog">
+      <h2>PARK SNAPSHOT</h2>
+      <img id="snap-img" alt="A picture of your park">
+      <p class="small">Right-click (or long-press on a phone) the picture to save or share it.</p>
+      <div class="tools"><button value="close" class="primary">Close</button></div>
+    </form>
+  </dialog>
+
   <dialog id="save-dialog">
     <form method="dialog">
       <h2 id="save-dialog-title">EXPORT SAVE</h2>
