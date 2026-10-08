@@ -10,19 +10,26 @@
 </head>
 <body>
   <div id="loader" class="loader">
-    <div class="loader-stars"></div>
+    <canvas id="loader-scene" class="loader-scene" aria-hidden="true"></canvas>
     <div class="loader-box">
-      <canvas id="loader-verity" width="12" height="12"></canvas>
+      <i class="rivet tl"></i><i class="rivet tr"></i><i class="rivet bl"></i><i class="rivet br"></i>
+      <canvas id="loader-verity" width="52" height="52"></canvas>
       <h1 class="loader-title">VERITY<br>SANCTUARY</h1>
       <p class="loader-tag">a variant habitat tycoon</p>
       <p class="loader-version"><span id="loader-version">Version 1.1</span> · <button id="loader-notes" class="linkish" type="button">What's new?</button></p>
+      <div class="loader-roster">
+        <canvas id="loader-faces" width="168" height="26"></canvas>
+        <span>27 variants to discover</span>
+      </div>
       <div class="loader-bar">
         <div class="loader-track">
           <div id="loader-fill" class="loader-fill"></div>
-          <canvas id="loader-roller" class="loader-roller" width="12" height="12"></canvas>
+          <div class="loader-ticks"></div>
+          <canvas id="loader-roller" class="loader-roller" width="24" height="24"></canvas>
         </div>
         <div class="loader-pct"><span id="loader-step">Hatching eggs...</span><span id="loader-num">0%</span></div>
       </div>
+      <p class="loader-tip"><b>TIP</b><span id="loader-tip">Build at night. The park is closed from 10 PM to 8 AM.</span></p>
       <button id="loader-start" class="big loader-start" hidden>▶ ENTER THE SANCTUARY</button>
       <div class="loader-credits">
         <p>Created by <b>Liam R</b></p>
@@ -31,32 +38,258 @@
     </div>
   </div>
   <script>
-    // Draws the loader's Verity faces and fakes early progress until the game scripts finish.
+    // Loading screen: an animated night scene at the sanctuary, drawn before the game scripts load.
     (function () {
-      function face(id, size) {
-        var c = document.getElementById(id), g = c.getContext("2d"), r = size / 2;
-        for (var y = 0; y < size; y++) for (var x = 0; x < size; x++) {
-          var d = Math.hypot(x - r + 0.5, y - r + 0.5);
-          if (d > r - 0.2) continue;
-          g.fillStyle = d > r - 1.2 ? "#5a3f00" : (x + y < size * 0.55 ? "#fff09a" : "#ffd23f");
-          g.fillRect(x, y, 1, 1);
-        }
-        var k = size / 12;
-        g.fillStyle = "#2b1d00";
-        [[4,4],[4,5],[7,4],[7,5],[3,7],[4,8],[5,8],[6,8],[7,8],[8,7]].forEach(function (p) { g.fillRect(Math.round(p[0] * k), Math.round(p[1] * k), Math.max(1, Math.round(k)), Math.max(1, Math.round(k))); });
+      function shade(hex, amt) {
+        var n = parseInt(hex.slice(1), 16), f = function (v) { return Math.max(0, Math.min(255, Math.round(v + amt))); };
+        return "rgb(" + f(n >> 16) + "," + f((n >> 8) & 255) + "," + f(n & 255) + ")";
       }
-      face("loader-verity", 12); face("loader-roller", 12);
+      var BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+      function dith(x, y) { return (BAYER[(y & 3) * 4 + (x & 3)] + 0.5) / 16; }
+      function rng(seed) { var s = seed >>> 0; return function () { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
+
+      // ---- Verity faces (shaded spheres, features on an 8-radius grid) ----
+      var FEATURES = {
+        smile: [["i", -3, -3, 1, 2], ["i", 2, -3, 1, 2], ["i", -3, 1, 1, 1], ["i", -2, 2, 4, 1], ["i", 2, 1, 1, 1]],
+        love: [["h", -4, -3, 1, 1], ["h", -2, -3, 1, 1], ["h", -4, -2, 3, 1], ["h", -3, -1, 1, 1], ["h", 1, -3, 1, 1], ["h", 3, -3, 1, 1], ["h", 1, -2, 3, 1], ["h", 2, -1, 1, 1], ["i", -2, 2, 4, 1], ["i", -3, 1, 1, 1], ["i", 2, 1, 1, 1]],
+        shades: [["i", -5, -3, 4, 2], ["i", 1, -3, 4, 2], ["i", -1, -3, 2, 1], ["w", -4, -3, 1, 1], ["w", 2, -3, 1, 1], ["i", -1, 2, 3, 1], ["i", 2, 1, 1, 1]],
+        angry: [["i", -4, -4, 2, 1], ["i", -2, -3, 1, 1], ["i", 2, -4, 2, 1], ["i", 1, -3, 1, 1], ["i", -3, -2, 1, 1], ["i", 2, -2, 1, 1], ["i", -2, 2, 4, 1], ["i", -3, 3, 1, 1], ["i", 2, 3, 1, 1]],
+        wow: [["i", -3, -3, 1, 2], ["i", 2, -3, 1, 2], ["i", -1, 1, 2, 2]],
+        sleepy: [["i", -4, -2, 2, 1], ["i", 2, -2, 2, 1], ["i", -1, 2, 2, 1]],
+        lie: [["i", -3, -3, 1, 2], ["i", 2, -3, 1, 2], ["i", -3, 2, 6, 1], ["i", -3, 1, 1, 1]],
+      };
+      function face(color, kind, r, blush) {
+        var S = 2 * r + 4, c = document.createElement("canvas"); c.width = c.height = S;
+        var g = c.getContext("2d"), cx = S / 2, cy = S / 2;
+        var hi = shade(color, 55), lit = shade(color, 28), base = shade(color, 0), dk = shade(color, -38), dk2 = shade(color, -70), line = shade(color, -125);
+        for (var y = 0; y < S; y++) for (var x = 0; x < S; x++) {
+          var nx = (x + 0.5 - cx) / r, ny = (y + 0.5 - cy) / r, d = nx * nx + ny * ny;
+          if (d > 1) continue;
+          var col;
+          if (Math.sqrt(d) > 1 - 1.15 / r) col = line;
+          else {
+            var l = 1 - Math.hypot(nx + 0.42, ny + 0.5) / 1.75 + (dith(x, y) - 0.5) * 0.12;
+            col = l > 0.72 ? hi : l > 0.55 ? lit : l > 0.33 ? base : l > 0.18 ? dk : dk2;
+          }
+          g.fillStyle = col; g.fillRect(x, y, 1, 1);
+        }
+        var s = Math.max(1, Math.round(r / 8)), ox = Math.round(cx), oy = Math.round(cy);
+        if (blush) { g.fillStyle = "rgba(255,90,120,0.45)"; g.fillRect(ox - 5 * s, oy, 2 * s, s); g.fillRect(ox + 3 * s, oy, 2 * s, s); }
+        (FEATURES[kind] || FEATURES.smile).forEach(function (f) {
+          g.fillStyle = f[0] === "h" ? "#e0204a" : f[0] === "w" ? "rgba(255,255,255,0.8)" : shade(color, -150);
+          g.fillRect(ox + f[1] * s, oy + f[2] * s, f[3] * s, f[4] * s);
+        });
+        g.fillStyle = "rgba(255,255,255,0.9)";
+        g.fillRect(Math.round(cx - r * 0.5), Math.round(cy - r * 0.62), Math.max(1, s), Math.max(1, s));
+        g.fillRect(Math.round(cx - r * 0.62), Math.round(cy - r * 0.45), Math.max(1, s), Math.max(1, s));
+        return c;
+      }
+      var PARADE = [
+        ["#ffd23f", "smile", 8, 1], ["#ff7eb6", "love", 8, 1], ["#9d93c9", "lie", 8, 0], ["#e0453a", "angry", 8, 0],
+        ["#5fb4ff", "wow", 8, 1], ["#ffc21a", "smile", 11, 1], ["#7ddc7a", "sleepy", 8, 0], ["#ffd23f", "shades", 9, 0],
+        ["#3fc9b0", "wow", 8, 0], ["#e64ad6", "smile", 8, 1], ["#a347ff", "angry", 9, 0], ["#fff27a", "wow", 8, 0],
+        ["#2b4fd6", "sleepy", 9, 0], ["#c9b458", "lie", 8, 0],
+      ].map(function (p) { return { spr: face(p[0], p[1], p[2], p[3]), r: p[2] }; });
+
+      // logo, roller and roster
+      function put(id, spr, x, y) { var c = document.getElementById(id), g = c.getContext("2d"); g.clearRect(0, 0, c.width, c.height); g.drawImage(spr, x, y); }
+      put("loader-verity", face("#ffd23f", "smile", 24, 1), 0, 0);
+      put("loader-roller", face("#ffd23f", "smile", 10, 1), 0, 0);
+      var rosterSprites = PARADE.slice(0, 8).map(function (p, i) { return face(["#ffd23f", "#ff7eb6", "#9d93c9", "#e0453a", "#5fb4ff", "#ffd23f", "#7ddc7a", "#a347ff"][i], ["smile", "love", "lie", "angry", "wow", "shades", "sleepy", "angry"][i], 8, i % 2); });
+
+      // ---- Scene ----
+      var cv = document.getElementById("loader-scene"), g = cv.getContext("2d");
+      var W = 0, H = 0, PX = 3, sky = null, land = null, stars = [], flies = [], clouds = [], groundY = 0, pathY = 0, lanterns = [];
+      function layer() { var c = document.createElement("canvas"); c.width = W; c.height = H; return [c, c.getContext("2d")]; }
+      function R(gg, col, x, y, w, h) { gg.fillStyle = col; gg.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h)); }
+      function build() {
+        PX = window.innerWidth < 640 ? 2 : 3;
+        W = Math.ceil(window.innerWidth / PX); H = Math.ceil(window.innerHeight / PX);
+        cv.width = W; cv.height = H;
+        var horizon = Math.round(H * 0.6); groundY = Math.round(H * 0.74); pathY = Math.round(H * 0.87);
+        var r = rng(1234);
+        // sky with dithered bands, stars and moon
+        var s = layer(); sky = s[0]; var sg = s[1];
+        var SKY = [[13, 11, 31], [22, 18, 52], [36, 27, 78], [60, 38, 96], [102, 56, 112], [150, 82, 110]];
+        for (var y = 0; y < groundY; y++) {
+          var t = Math.min(0.999, y / horizon) * (SKY.length - 1), i = Math.floor(t), f = t - i;
+          for (var x = 0; x < W; x++) {
+            var c = SKY[f > dith(x, y) ? Math.min(SKY.length - 1, i + 1) : i];
+            sg.fillStyle = "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")"; sg.fillRect(x, y, 1, 1);
+          }
+        }
+        stars = [];
+        for (var k = 0; k < W * H / 260; k++) {
+          var sx = Math.floor(r() * W), sy = Math.floor(r() * horizon * 0.85);
+          stars.push({ x: sx, y: sy, p: r() * 6.28, big: r() < 0.12, col: ["#ffffff", "#fff09a", "#bfe3ff", "#ffc6e0"][Math.floor(r() * 4)] });
+        }
+        var mx = Math.round(W * 0.84), my = Math.round(H * 0.17), mr = Math.max(9, Math.round(H * 0.045));
+        for (var gr = mr * 3; gr > mr; gr -= 2) { sg.globalAlpha = 0.05; sg.fillStyle = "#fff4c9"; sg.beginPath(); sg.arc(mx, my, gr, 0, 7); sg.fill(); }
+        sg.globalAlpha = 1;
+        for (y = -mr; y <= mr; y++) for (x = -mr; x <= mr; x++) {
+          var d = x * x + y * y; if (d > mr * mr) continue;
+          var cut = (x - mr * 0.45) * (x - mr * 0.45) + (y + mr * 0.25) * (y + mr * 0.25) < mr * mr * 0.72;
+          if (cut) continue;
+          sg.fillStyle = d > (mr - 1.2) * (mr - 1.2) ? "#d9c98a" : (x + y < -mr * 0.6 ? "#fffbe6" : "#fff0b0");
+          sg.fillRect(mx + x, my + y, 1, 1);
+        }
+        R(sg, "#e8d68f", mx - mr * 0.6, my + mr * 0.1, 2, 2); R(sg, "#e8d68f", mx - mr * 0.3, my + mr * 0.5, 1, 1);
+
+        // land: hills, trees, fence, gate, ground, path
+        var l = layer(); land = l[0]; var lg = l[1];
+        function hills(base, amp, freq, col, top, seed) {
+          for (var x = 0; x < W; x++) {
+            var hy = base - amp * (0.55 * Math.sin(x * freq + seed) + 0.3 * Math.sin(x * freq * 2.3 + seed * 2) + 0.15 * Math.sin(x * freq * 5.1 + seed));
+            hy = Math.round(hy);
+            R(lg, top, x, hy, 1, 1); R(lg, col, x, hy + 1, 1, groundY - hy);
+          }
+        }
+        hills(horizon - 4, H * 0.07, 0.018, "#2a2350", "#3a3168", 1);
+        hills(horizon + 8, H * 0.05, 0.03, "#1d2f3c", "#2b4452", 4);
+        // tree line
+        for (var x = 0; x < W; x += 3 + Math.floor(r() * 6)) {
+          var th = 8 + Math.floor(r() * 12), tx = x, ty = groundY - 2;
+          if (r() < 0.6) { // pine
+            for (var j = 0; j < th; j++) { var half = Math.floor((j / th) * th * 0.32) + 1; R(lg, j % 4 === 0 ? "#1d3d33" : "#163128", tx - half, ty - th + j, half * 2 + 1, 1); }
+            R(lg, "#24493c", tx - 1, ty - th + 2, 1, th * 0.5);
+          } else { // round tree
+            var rr = Math.round(th * 0.35);
+            for (var yy = -rr; yy <= rr; yy++) for (var xx = -rr; xx <= rr; xx++) if (xx * xx + yy * yy <= rr * rr) R(lg, (xx + yy < -rr * 0.5) ? "#22473a" : "#18342b", tx + xx, ty - rr - 3 + yy, 1, 1);
+            R(lg, "#2a1d16", tx, ty - 3, 1, 3);
+          }
+        }
+        // ground
+        for (y = groundY; y < H; y++) for (x = 0; x < W; x++) {
+          var n = (Math.sin(x * 12.9898 + y * 78.233) * 43758.5453) % 1; n = n < 0 ? -n : n;
+          var inPath = y >= pathY - 3 && y <= pathY + 6;
+          var col2 = inPath ? (n > 0.85 ? "#7a5c3c" : n < 0.1 ? "#4f3a26" : "#654a30") : (n > 0.9 ? "#3d7a3a" : n < 0.12 ? "#1f4421" : (y - groundY < 2 ? "#356b34" : "#2c5a2e"));
+          if (inPath && (y === pathY - 3 || y === pathY + 6)) col2 = "#3e2e1e";
+          R(lg, col2, x, y, 1, 1);
+        }
+        // night darkening toward the bottom
+        for (y = groundY; y < H; y++) { lg.globalAlpha = (y - groundY) / (H - groundY) * 0.35; R(lg, "#0a0816", 0, y, W, 1); }
+        lg.globalAlpha = 1;
+        // fence
+        var fy = groundY - 1;
+        for (x = 0; x < W; x++) { if (x % 7 === 0) { R(lg, "#2a1a0c", x, fy - 7, 2, 8); R(lg, "#7a4a22", x, fy - 7, 1, 7); } }
+        R(lg, "#4e2c10", 0, fy - 5, W, 1); R(lg, "#4e2c10", 0, fy - 2, W, 1); R(lg, "#7a4a22", 0, fy - 6, W, 1); R(lg, "#7a4a22", 0, fy - 3, W, 1);
+        // gate with sign and lanterns
+        var gx = Math.round(W * 0.13), gw = 34, gh = 30;
+        R(lg, "#1b1530", gx - 4, fy - gh - 3, gw + 8, gh + 4);
+        R(lg, "#6b6b80", gx - 3, fy - gh + 4, 6, gh - 3); R(lg, "#9a9ab0", gx - 3, fy - gh + 4, 2, gh - 3);
+        R(lg, "#6b6b80", gx + gw - 3, fy - gh + 4, 6, gh - 3); R(lg, "#9a9ab0", gx + gw - 3, fy - gh + 4, 2, gh - 3);
+        R(lg, "#c9a227", gx - 4, fy - gh + 2, 8, 3); R(lg, "#c9a227", gx + gw - 4, fy - gh + 2, 8, 3);
+        R(lg, "#000", gx + 1, fy - gh - 4, gw - 2, 10); R(lg, "#ffd23f", gx + 2, fy - gh - 3, gw - 4, 8); R(lg, "#fff09a", gx + 2, fy - gh - 3, gw - 4, 1); R(lg, "#c9a227", gx + 2, fy - gh + 4, gw - 4, 1);
+        lg.drawImage(face("#ffd23f", "smile", 3, 0), gx + gw / 2 - 5, fy - gh - 4);
+        for (k = 0; k < 4; k++) { R(lg, "#7a4a22", gx + 5 + k * 2, fy - gh - 1, 1, 1); R(lg, "#7a4a22", gx + gw - 7 - k * 2, fy - gh - 1, 1, 1); }
+        var gatePath = function () { R(lg, "#6b5034", gx + 3, fy - 1, gw - 6, pathY + 6 - fy + 1); R(lg, "#4f3a26", gx + 3, fy - 1, 1, pathY - 3 - fy + 1); R(lg, "#4f3a26", gx + gw - 4, fy - 1, 1, pathY - 3 - fy + 1); };
+        lanterns = [[gx, fy - gh + 1], [gx + gw, fy - gh + 1]];
+        // a pen on the right with a bench and a lamp post
+        var px0 = Math.round(W * 0.72);
+        for (x = px0; x < px0 + 40; x++) if (x % 5 === 0) R(lg, "#2a1a0c", x, groundY + 4, 1, 6);
+        R(lg, "#7a4a22", px0, groundY + 5, 40, 1); R(lg, "#7a4a22", px0, groundY + 8, 40, 1);
+        var lpx = Math.round(W * 0.42);
+        R(lg, "#1b1b24", lpx, groundY - 18, 2, 18 + 2); R(lg, "#3a3a4a", lpx - 2, groundY - 20, 6, 3);
+        lanterns.push([lpx + 1, groundY - 18]);
+        // pebbles and tufts
+        for (k = 0; k < W / 3; k++) {
+          var ex = Math.floor(r() * W), ey = groundY + 2 + Math.floor(r() * (H - groundY - 2));
+          if (ey >= pathY - 3 && ey <= pathY + 6) { R(lg, "#8f7a5c", ex, ey, 1, 1); continue; }
+          R(lg, "#3f8a3c", ex, ey, 1, 2); R(lg, "#3f8a3c", ex + 1, ey - 1, 1, 3); R(lg, "#2c6a2c", ex + 2, ey, 1, 2);
+          if (r() < 0.15) R(lg, ["#ff7eb6", "#fff09a", "#bfe3ff"][Math.floor(r() * 3)], ex + 1, ey - 2, 1, 1);
+        }
+        gatePath();
+        clouds = []; for (k = 0; k < 5; k++) clouds.push({ x: r() * W, y: 8 + r() * horizon * 0.45, w: 18 + r() * 26, v: 1.5 + r() * 2.5 });
+        flies = []; for (k = 0; k < Math.max(10, W / 30); k++) flies.push({ x: r() * W, y: groundY - 20 + r() * (H - groundY + 10), p: r() * 6.28, s: 0.5 + r() });
+      }
+      function cloud(c) {
+        var x0 = Math.round(c.x), y0 = Math.round(c.y), w = Math.round(c.w);
+        for (var i = 0; i < 4; i++) {
+          var cx = x0 + (i + 0.5) * w / 4, rr = w / 5 + (i % 2 ? 2 : 0);
+          g.fillStyle = "#3d3470"; g.beginPath(); g.arc(Math.round(cx), y0, rr, 0, 7); g.fill();
+        }
+        g.fillStyle = "#4d4488"; for (i = 0; i < 4; i++) g.fillRect(Math.round(x0 + (i + 0.5) * w / 4 - w / 8), Math.round(y0 - w / 5 - (i % 2 ? 2 : 0)), Math.round(w / 4), 1);
+        g.fillStyle = "#2c2558"; g.fillRect(x0, y0 + Math.round(w / 6), w, 2);
+      }
+      var shoot = null, last = performance.now(), T = 0;
+      function frame(now) {
+        if (!document.getElementById("loader-scene")) return;
+        var dt = Math.min(0.1, (now - last) / 1000); last = now; T += dt;
+        if (!sky) build();
+        g.imageSmoothingEnabled = false;
+        g.drawImage(sky, 0, 0);
+        for (var i = 0; i < stars.length; i++) {
+          var s = stars[i], b = 0.5 + 0.5 * Math.sin(T * 2 + s.p);
+          g.globalAlpha = 0.35 + b * 0.65; g.fillStyle = s.col; g.fillRect(s.x, s.y, 1, 1);
+          if (s.big && b > 0.7) { g.globalAlpha = (b - 0.7) * 2; g.fillRect(s.x - 1, s.y, 3, 1); g.fillRect(s.x, s.y - 1, 1, 3); }
+        }
+        g.globalAlpha = 1;
+        if (!shoot && Math.random() < dt * 0.2) shoot = { x: W * (0.2 + Math.random() * 0.6), y: H * 0.05 + Math.random() * H * 0.15, t: 0 };
+        if (shoot) {
+          shoot.t += dt;
+          for (var k = 0; k < 12; k++) { g.globalAlpha = (1 - k / 12) * Math.max(0, 1 - shoot.t); g.fillStyle = "#fffbe6"; g.fillRect(Math.round(shoot.x + shoot.t * 160 - k * 2), Math.round(shoot.y + shoot.t * 60 - k * 0.75), 1, 1); }
+          g.globalAlpha = 1; if (shoot.t > 1) shoot = null;
+        }
+        for (i = 0; i < clouds.length; i++) { var c = clouds[i]; c.x += c.v * dt; if (c.x > W + 10) c.x = -c.w - 10; cloud(c); }
+        g.drawImage(land, 0, 0);
+        // lantern glow
+        for (i = 0; i < lanterns.length; i++) {
+          var L = lanterns[i], fl = 0.85 + 0.15 * Math.sin(T * 7 + i * 2) * Math.sin(T * 3.1 + i);
+          for (var rr = 12; rr > 2; rr -= 3) { g.globalAlpha = 0.07 * fl; g.fillStyle = "#ffcf5a"; g.beginPath(); g.arc(L[0], L[1], rr, 0, 7); g.fill(); }
+          g.globalAlpha = 1; g.fillStyle = "#fff09a"; g.fillRect(L[0] - 1, L[1] - 1, 2, 2);
+        }
+        // the variant parade
+        var gap = 30, total = PARADE.length * gap + W * 0.3, speed = 16;
+        for (i = 0; i < PARADE.length; i++) {
+          var p = PARADE[i], x = ((T * speed + W * 0.55 - i * gap) % (W + total) + (W + total)) % (W + total) - p.r * 2 - 6;
+          if (x < -40 || x > W + 40) continue;
+          var hopT = (T * 2.2 + i * 0.37) % 1, hop = Math.sin(hopT * Math.PI) * 6;
+          var sw = p.spr.width, y = pathY + 3 - sw + 2 - Math.round(hop);
+          g.globalAlpha = 0.35 - hop * 0.03; g.fillStyle = "#000";
+          g.beginPath(); g.ellipse(Math.round(x + sw / 2), pathY + 3, Math.max(2, p.r - hop * 0.4), 1.5, 0, 0, 7); g.fill(); g.globalAlpha = 1;
+          if (hopT < 0.08 || hopT > 0.94) g.drawImage(p.spr, Math.round(x - 1), y + 2, sw + 2, sw - 2);
+          else g.drawImage(p.spr, Math.round(x), y);
+        }
+        // fireflies
+        for (i = 0; i < flies.length; i++) {
+          var f = flies[i], fx = Math.round(f.x + Math.sin(T * f.s + f.p) * 10), fy = Math.round(f.y + Math.cos(T * f.s * 1.3 + f.p) * 5);
+          var a = Math.max(0, Math.sin(T * 2.5 * f.s + f.p));
+          g.globalAlpha = a * 0.25; g.fillStyle = "#e8ff8a"; g.fillRect(fx - 1, fy - 1, 3, 3);
+          g.globalAlpha = a; g.fillRect(fx, fy, 1, 1);
+        }
+        g.globalAlpha = 1;
+        // roster: the faces take turns bouncing
+        var rc = document.getElementById("loader-faces");
+        if (rc) {
+          var rg = rc.getContext("2d"); rg.clearRect(0, 0, rc.width, rc.height);
+          for (i = 0; i < rosterSprites.length; i++) {
+            var b2 = Math.max(0, Math.sin(T * 4 - i * 0.6)); b2 = b2 > 0.6 ? (b2 - 0.6) * 10 : 0;
+            rg.drawImage(rosterSprites[i], i * 21, 6 - Math.round(b2));
+          }
+        }
+        requestAnimationFrame(frame);
+      }
+      window.addEventListener("resize", function () { sky = null; });
+      requestAnimationFrame(frame);
+
+      // progress (main.js finishes it once the game is ready) and rotating tips
       window.__loader = { pct: 0 };
-      var steps = ["Hatching eggs...", "Polishing fences...", "Teaching Moggity to mog...", "Censoring Boobity...", "Mopping the Backrooms..."];
-      var i = 0;
+      var steps = ["Hatching eggs...", "Polishing fences...", "Teaching Moggity to mog...", "Censoring Boobity...", "Mopping the Backrooms...", "Paving the parking lot..."];
+      var tips = ["Build at night. The park is closed from 10 PM to 8 AM.", "Arrow keys or WASD move the camera. Scroll to zoom.", "A bigger parking lot brings in more guests.", "Fuse two variants in the Lab to discover new ones.", "Fed, happy variants earn more coins.", "Some variants love certain enclosure themes.", "Buy wild land to grow your sanctuary.", "He belongs to the Backrooms. Don't let him out."];
+      var i = 0, tipI = 0;
       window.__loaderTimer = setInterval(function () {
         if (!document.getElementById("loader-fill")) return clearInterval(window.__loaderTimer);
         if (window.__loader.pct < 70) window.__loader.pct += 3;
         document.getElementById("loader-fill").style.width = window.__loader.pct + "%";
-        document.getElementById("loader-roller").style.left = "calc(" + window.__loader.pct + "% - 14px)";
+        document.getElementById("loader-roller").style.left = "calc(" + window.__loader.pct + "% - 18px)";
         document.getElementById("loader-num").textContent = Math.floor(window.__loader.pct) + "%";
         if (window.__loader.pct % 15 === 0) document.getElementById("loader-step").textContent = steps[i++ % steps.length];
       }, 60);
+      var tipTimer = setInterval(function () {
+        var el = document.getElementById("loader-tip");
+        if (!el) return clearInterval(tipTimer);
+        tipI = (tipI + 1) % tips.length; el.textContent = tips[tipI];
+      }, 3200);
     })();
   </script>
   <header class="topbar">
@@ -264,6 +497,7 @@
           <label class="range">Music volume <input type="range" id="set-musicvol" min="0" max="1" step="0.05"></label>
           <label class="check"><input type="checkbox" id="set-effects"> Weather &amp; night effects</label>
           <label class="check"><input type="checkbox" id="set-shake"> Screen shake on rare hatches</label>
+          <button id="tut-replay" class="wide"><i class="ico" data-icon="info"></i> Replay tutorial</button>
           <button id="snapshot2" class="wide"><i class="ico" data-icon="camera"></i> Download park snapshot</button>
         </div>
         <div class="card">
@@ -281,6 +515,22 @@
   </main>
 
   <div id="toasts" class="toasts"></div>
+
+  <!-- Tutorial guide -->
+  <div id="tutorial" class="tutorial" role="dialog" aria-labelledby="tut-title" aria-live="polite" hidden>
+    <div class="tut-head">
+      <i class="ico" data-icon="logo"></i>
+      <span id="tut-step" class="tut-step"></span>
+      <button id="tut-skip" class="linkish" type="button">Skip tutorial</button>
+    </div>
+    <h3 id="tut-title"></h3>
+    <p id="tut-text"></p>
+    <p id="tut-task" class="tut-task" hidden><b>TRY IT</b><span id="tut-task-text"></span><em>DONE!</em></p>
+    <div class="tut-nav">
+      <button id="tut-back" type="button">Back</button>
+      <button id="tut-next" class="primary" type="button">Next</button>
+    </div>
+  </div>
 
   <!-- Hatch / fusion animation -->
   <div id="fx-overlay" class="overlay" hidden>
@@ -377,6 +627,7 @@
   <script src="js/game.js"></script>
   <script src="js/world.js"></script>
   <script src="js/systems.js"></script>
+  <script src="js/tutorial.js"></script>
   <script src="js/main.js"></script>
 </body>
 </html>

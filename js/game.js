@@ -73,6 +73,7 @@ function defaultState() {
     lotLevel: 1,
     day: null,
     seenVersion: "",
+    tutorialDone: false,
   };
   s.enclosures[0].variants.push(makeIndividual("verity", s, { shinyChance: 0 }));
   return s;
@@ -154,6 +155,7 @@ function sanitize(data) {
   s.lotLevel = Math.max(1, Math.min(LOT_LEVELS.length, Math.floor(Number(data.lotLevel) || 1)));
   s.day = data.day && typeof data.day === "object" ? data.day : null;
   s.seenVersion = typeof data.seenVersion === "string" ? data.seenVersion : "";
+  s.tutorialDone = data.tutorialDone === true;
   if (data.worldVersion !== WORLD_VERSION && Array.isArray(data.tiles) && data.tiles.length === CORE_W * CORE_H) {
     // v1.0 parks were 24x16 tiles: move everything into the middle of the bigger world
     const tiles = new Array(COLS * ROWS).fill(0);
@@ -1226,7 +1228,7 @@ function drawTug(time) {
   actors.forEach((a, i) => {
     const lean = Math.round(Math.sin(time * 7 + (i ? Math.PI : 0)));
     ctx.fillStyle = "rgba(0,0,0,0.25)"; ctx.fillRect(a.x, a.y + 13, 8, 2);
-    ctx.drawImage(a.spr, a.x + lean, a.y);
+    blit(ctx, a.spr, a.x + lean, a.y);
   });
   const bw = encSize(e) * TILE;
   ctx.fillStyle = "#000"; ctx.fillRect(e.x * TILE, e.y * TILE - 12, bw, 5);
@@ -1305,6 +1307,9 @@ function render(dt, time) {
   ctx.fillStyle = "#1c3a1a";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.setTransform(k, 0, 0, k, -Math.round(view.x * k), -Math.round(view.y * k));
+  // sprites hold RES pixels per unit: shrink them smoothly when zoomed out, keep them crisp otherwise
+  ctx.imageSmoothingEnabled = k < RES - 0.01;
+  ctx.imageSmoothingQuality = "high";
   if (terrainDirty) buildTerrain();
   if (treesDirty) buildTrees();
 
@@ -1343,7 +1348,7 @@ function render(dt, time) {
     for (const c of clouds) {
       const cx = ((c.x + time * c.speed) % (WORLD_W + 140)) - 70;
       if (cx > x1 || cx + 64 < x0 || c.y > y1 || c.y + 28 < y0) continue;
-      ctx.drawImage(cloudShadow, Math.round(cx), Math.round(c.y));
+      blit(ctx, cloudShadow, Math.round(cx), Math.round(c.y));
     }
     ctx.globalAlpha = 1;
   }

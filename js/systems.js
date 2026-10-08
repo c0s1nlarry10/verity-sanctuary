@@ -195,12 +195,12 @@ function trashNear(gx, gy) {
   return state.trash.findIndex(t => Math.abs(t.x * TILE + t.ox + 1 - gx) <= 4 && Math.abs(t.y * TILE + t.oy + 1 - gy) <= 4);
 }
 function drawTrash() {
-  for (const t of state.trash) ctx.drawImage(TRASH_SPR[t.k], t.x * TILE + t.ox, t.y * TILE + t.oy);
+  for (const t of state.trash) blit(ctx, TRASH_SPR[t.k], t.x * TILE + t.ox, t.y * TILE + t.oy);
 }
 
 // ================= Bubbles =================
 function drawBubble(icon, cx, bottomY) {
-  ctx.drawImage(BUBBLE_SPR[icon], Math.round(cx - 4), Math.round(bottomY - 9));
+  blit(ctx, BUBBLE_SPR[icon], Math.round(cx - 4), Math.round(bottomY - 9));
 }
 
 // ================= Day / night & weather =================
@@ -228,7 +228,7 @@ function secondsUntilChange() { const p = cyclePos(); return p < DAY_SECS ? DAY_
 
 function tickWorld(dt) {
   const wasOpen = isOpen();
-  state.worldClock += dt;
+  if (!tutorialActive()) state.worldClock += dt;
   const nowOpen = isOpen();
   if (wasOpen && !nowOpen) closeDay();
   else if (!wasOpen && nowOpen) openDay();
@@ -596,7 +596,7 @@ async function doPrestige() {
   const keep = {
     discovered: state.discovered, recipesKnown: state.recipesKnown, achievements: state.achievements,
     stats: state.stats, settings: state.settings, daily: state.daily, goal: state.goal,
-    shards: state.shards + gain, totalEarned: state.totalEarned, worldClock: Math.floor(state.worldClock / CYCLE_SECS) * CYCLE_SECS + DAY_SECS + 1, seenVersion: state.seenVersion,
+    shards: state.shards + gain, totalEarned: state.totalEarned, worldClock: Math.floor(state.worldClock / CYCLE_SECS) * CYCLE_SECS + DAY_SECS + 1, seenVersion: state.seenVersion, tutorialDone: true,
   };
   state = Object.assign(defaultState(), keep);
   state.stats.prestiges++;

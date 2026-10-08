@@ -11,19 +11,96 @@ function makeCanvas(w, h) {
 // ================= Hi-res canvases =================
 // Sprites are drawn at RES pixels per world unit. hiCanvas returns a canvas whose
 // context is pre-scaled, so drawing code keeps using world units (0.5 = one fine pixel).
-const RES = 2;
+const RES = 4;
 function hiCanvas(uw, uh) {
   const c = makeCanvas(Math.ceil(uw * RES), Math.ceil(uh * RES));
   c.uw = uw; c.uh = uh;
-  const g = c.getContext("2d");
+  const g = c.getContext("2d", { willReadFrequently: true });
   g.imageSmoothingEnabled = false;
   g.scale(RES, RES);
+  queueSmooth(c);
   return [c, g];
 }
 const uW = c => c.uw || c.width;
 const uH = c => c.uh || c.height;
 function blit(g, c, x, y, w, h) { g.drawImage(c, x, y, w ?? uW(c), h ?? uH(c)); }
 function raw(g, fn) { g.save(); g.setTransform(1, 0, 0, 1, 0, 0); fn(); g.restore(); }
+// Like raw, but on the classic half-unit art grid (2 px per unit), whatever RES is.
+function rawHalf(g, fn) { g.save(); g.setTransform(RES / 2, 0, 0, RES / 2, 0, 0); fn(); g.restore(); }
+
+// ================= Pixel smoothing (Scale2x) =================
+// Art is drawn on a half-unit grid and then smoothed with Scale2x, which rounds
+// stair-step corners and diagonals into finer pixels. Detail already drawn at full
+// resolution (cells that aren't a flat 2x2 block) is left alone.
+function scale2xCell(B, D, E, F, H) {
+  return [
+    D === B && B !== F && D !== H ? D : E,
+    B === F && B !== D && F !== H ? F : E,
+    D === H && D !== B && H !== F ? D : E,
+    H === F && D !== H && B !== F ? F : E,
+  ];
+}
+const MIXED = -1;
+function smoothCanvas(c) {
+  if (RES !== 4 || !c.width || !c.height) return;
+  const g = c.getContext("2d", { willReadFrequently: true });
+  const W = c.width, Hh = c.height;
+  const img = g.getImageData(0, 0, W, Hh);
+  const px = new Uint32Array(img.data.buffer);
+  const out = new Uint32Array(px);
+  const cw = W >> 1, ch = Hh >> 1;
+  const cells = new Float64Array(cw * ch);
+  for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) {
+    const i = y * 2 * W + x * 2, a = px[i];
+    cells[y * cw + x] = a === px[i + 1] && a === px[i + W] && a === px[i + W + 1] ? a : MIXED;
+  }
+  const at = (x, y) => (x < 0 || y < 0 || x >= cw || y >= ch) ? 0 : cells[y * cw + x];
+  let changed = false;
+  for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) {
+    const E = cells[y * cw + x];
+    if (E === MIXED) continue;
+    const B = at(x, y - 1), D = at(x - 1, y), F = at(x + 1, y), H = at(x, y + 1);
+    if (B === MIXED || D === MIXED || F === MIXED || H === MIXED) continue;
+    const q = scale2xCell(B, D, E, F, H);
+    const i = y * 2 * W + x * 2;
+    if (q[0] !== E || q[1] !== E || q[2] !== E || q[3] !== E) {
+      out[i] = q[0]; out[i + 1] = q[1]; out[i + W] = q[2]; out[i + W + 1] = q[3];
+      changed = true;
+    }
+  }
+  if (!changed) return;
+  new Uint32Array(img.data.buffer).set(out);
+  g.putImageData(img, 0, 0);
+}
+let smoothQueue = [];
+function queueSmooth(c) {
+  if (!smoothQueue.length) queueMicrotask(flushSmooth);
+  smoothQueue.push(c);
+}
+function flushSmooth() {
+  const q = smoothQueue; smoothQueue = [];
+  for (const c of q) smoothCanvas(c);
+}
+// Scales a 1-px-per-unit canvas up 4x with two Scale2x passes (still pixel art, less blocky).
+function upscale(src) {
+  let c = src;
+  for (let pass = 0; pass < 2; pass++) {
+    const w = c.width, h = c.height;
+    const sp = new Uint32Array(c.getContext("2d").getImageData(0, 0, w, h).data.buffer);
+    const d = makeCanvas(w * 2, h * 2), dg = d.getContext("2d");
+    const img = dg.createImageData(w * 2, h * 2), dp = new Uint32Array(img.data.buffer);
+    const at = (x, y) => sp[Math.min(h - 1, Math.max(0, y)) * w + Math.min(w - 1, Math.max(0, x))];
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const q = scale2xCell(at(x, y - 1), at(x - 1, y), at(x, y), at(x + 1, y), at(x, y + 1));
+      const i = y * 2 * w * 2 + x * 2;
+      dp[i] = q[0]; dp[i + 1] = q[1]; dp[i + w * 2] = q[2]; dp[i + w * 2 + 1] = q[3];
+    }
+    dg.putImageData(img, 0, 0);
+    c = d;
+  }
+  c.uw = src.uw || src.width; c.uh = src.uh || src.height;
+  return c;
+}
 
 function shade(hex, amt) {
   const n = parseInt(hex.slice(1), 16);
@@ -389,7 +466,7 @@ const PATH_EDGE = { 1: "#9c7a46", 2: "#5e5e72", 3: "#b8902a" };
 const pathTiles = {
   1: (() => {
     const [c, g] = hiCanvas(TILE, TILE);
-    raw(g, () => {
+    rawHalf(g, () => {
       const r = seeded(7);
       for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) {
         const n = r();
@@ -407,7 +484,7 @@ const pathTiles = {
   })(),
   2: (() => {
     const [c, g] = hiCanvas(TILE, TILE);
-    raw(g, () => {
+    rawHalf(g, () => {
       g.fillStyle = "#6f6f84"; g.fillRect(0, 0, 32, 32);
       const r = seeded(11);
       const stones = [];
@@ -427,7 +504,7 @@ const pathTiles = {
   })(),
   3: (() => {
     const [c, g] = hiCanvas(TILE, TILE);
-    raw(g, () => {
+    rawHalf(g, () => {
       g.fillStyle = "#b8902a"; g.fillRect(0, 0, 32, 32);
       for (let row = 0; row < 4; row++)
         for (let b = -1; b < 3; b++) {
@@ -662,7 +739,7 @@ const TREE_SPRITES = {};
 for (const k of TREE_KINDS) TREE_SPRITES[k] = [0, 1, 2, 3].map(v => makeTree(k, v));
 const TREES = TREE_SPRITES.oak;
 
-const cloudShadow = (() => {
+const cloudShadow = upscale((() => {
   const c = makeCanvas(64, 28);
   const g = c.getContext("2d");
   g.fillStyle = "#000";
@@ -671,7 +748,7 @@ const cloudShadow = (() => {
       for (let x = 0; x < 64; x++)
         if (Math.hypot(x - cx, y - cy) <= r) g.fillRect(x, y, 1, 1);
   return c;
-})();
+})());
 
 // ================= People (hi-res with walk frames) =================
 const SKINS = ["#f6d2ae", "#e8b98a", "#c98d5c", "#9a6440", "#6e4428"];
@@ -691,7 +768,7 @@ function randomLook(type) {
 function personFrame(look, frame) {
   const kid = look.type === "kid";
   const [c, g] = hiCanvas(7, 12);
-  raw(g, () => {
+  rawHalf(g, () => {
     const P = (col, x, y, w = 1, h = 1) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
     const top = kid ? 6 : 1;
     const hx = 3, hw = 8;
@@ -777,8 +854,8 @@ for (const t of ["janitor", "keeper", "mascot"]) STAFF_FRAMES[t] = [0, 1, 2].map
 const STAFF_SPR = { janitor: STAFF_FRAMES.janitor[0], keeper: STAFF_FRAMES.keeper[0], mascot: STAFF_FRAMES.mascot[0] };
 
 // Original blocky-guy and pirate characters for the tug-of-war event
-const STEVE_SPR = pixelArt(["kkkkkkkk", "kNNNNNNk", "kNppppNk", "kpwDDwpk", "kppNNppk", "kkkkkkkk", "kcccccck", "pccccccp", "pccccccp", "kcccccck", "kDDDDDDk", "kDDkkDDk", "kDDkkDDk", "kkk..kkk"], PAL);
-const PIRATE_SPR = pixelArt(["..kkkk..", ".kkwkkk.", "kkkkkkkk", "kppppppk", "kpkppkpk", "kmmmmmmk", ".kmmmmk.", "kddwwddk", "pddwwddp", "pddwwddp", "kddddddk", "kNNkkNNk", "kNNkkNNk", "kkk..kkk"], PAL);
+const STEVE_SPR = upscale(pixelArt(["kkkkkkkk", "kNNNNNNk", "kNppppNk", "kpwDDwpk", "kppNNppk", "kkkkkkkk", "kcccccck", "pccccccp", "pccccccp", "kcccccck", "kDDDDDDk", "kDDkkDDk", "kDDkkDDk", "kkk..kkk"], PAL));
+const PIRATE_SPR = upscale(pixelArt(["..kkkk..", ".kkwkkk.", "kkkkkkkk", "kppppppk", "kpkppkpk", "kmmmmmmk", ".kmmmmk.", "kddwwddk", "pddwwddp", "pddwwddp", "kddddddk", "kNNkkNNk", "kNNkkNNk", "kkk..kkk"], PAL));
 
 // ================= Cars =================
 const CAR_COLORS = ["#e94f4f", "#4f8ee9", "#f2a93b", "#f4f4f4", "#3a3a44", "#3fa34d", "#9b5de5", "#ffd23f", "#ff7eb6"];
@@ -934,7 +1011,7 @@ const ICONS = {
 const iconURLCache = {};
 function iconURL(name) {
   if (!iconURLCache[name]) {
-    const c = name === "logo" ? baseSprite("verity") : pixelArt(ICONS[name], PAL);
+    const c = name === "logo" ? baseSprite("verity") : upscale(pixelArt(ICONS[name], PAL));
     iconURLCache[name] = c.toDataURL();
   }
   return iconURLCache[name];
@@ -949,9 +1026,9 @@ function applyIcons(root = document) {
 
 // ================= Trash, bubbles, crown, eggs =================
 const TRASH_SPR = [
-  pixelArt(["kk.", "rrk", "wrk"], PAL),
-  pixelArt(["kkk", "yyk"], PAL),
-  pixelArt([".k.", "kbk", "kbk"], PAL),
+  upscale(pixelArt(["kk.", "rrk", "wrk"], PAL)),
+  upscale(pixelArt(["kkk", "yyk"], PAL)),
+  upscale(pixelArt([".k.", "kbk", "kbk"], PAL)),
 ];
 
 const BUBBLE_ICONS = {
@@ -971,7 +1048,7 @@ for (const [k, rows] of Object.entries(BUBBLE_ICONS)) {
   g.fillStyle = "#000"; g.fillRect(0, 0, 9, 7); g.fillRect(3, 7, 2, 1); g.fillRect(3, 8, 1, 1);
   g.fillStyle = "#fff"; g.fillRect(1, 1, 7, 5); g.fillRect(3, 6, 1, 1);
   g.drawImage(pixelArt(rows, PAL), 2, 1, 5, 5);
-  BUBBLE_SPR[k] = c;
+  BUBBLE_SPR[k] = upscale(c);
 }
 
 const CROWN_SPR = (() => {

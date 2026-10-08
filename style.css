@@ -600,28 +600,40 @@ label.range input { flex: 1; max-width: 160px; accent-color: var(--yellow); }
 /* ---------- Loading screen ---------- */
 .loader {
   position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; padding: 16px;
-  background: radial-gradient(circle at 50% 40%, #2a2350 0%, #120f24 70%);
+  background: #120f24; overflow: hidden;
   transition: opacity 0.6s ease;
 }
 .loader.done { opacity: 0; pointer-events: none; }
-.loader-stars {
-  position: absolute; inset: 0; opacity: 0.6;
-  background-image:
-    radial-gradient(2px 2px at 20% 30%, #fff09a 50%, transparent 51%),
-    radial-gradient(2px 2px at 70% 20%, #fff 50%, transparent 51%),
-    radial-gradient(2px 2px at 40% 80%, #ff7eb6 50%, transparent 51%),
-    radial-gradient(2px 2px at 85% 65%, #5fb4ff 50%, transparent 51%),
-    radial-gradient(2px 2px at 10% 75%, #6ee07a 50%, transparent 51%),
-    radial-gradient(2px 2px at 55% 50%, #fff 50%, transparent 51%);
-  animation: twinkle 2s steps(2) infinite;
-}
-@keyframes twinkle { 50% { opacity: 0.25; } }
 .loader-box {
-  position: relative; width: min(520px, 100%); padding: 28px 24px 22px; text-align: center;
+  position: relative; width: min(540px, 100%); max-height: calc(100% - 8px); overflow: auto; padding: 28px 24px 22px; text-align: center;
   background: var(--panel); border: 4px solid #000;
   box-shadow: inset 4px 4px 0 var(--panel-hi), inset -4px -4px 0 var(--panel-lo), 8px 8px 0 #000;
 }
-#loader-verity { width: 96px; height: 96px; image-rendering: pixelated; animation: bob 1.2s ease-in-out infinite; }
+#loader-verity { width: 104px; height: 104px; image-rendering: pixelated; animation: bob 1.2s ease-in-out infinite; filter: drop-shadow(0 6px 0 rgba(0,0,0,0.35)); }
+.loader-scene { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; }
+.loader-box::before {
+  content: ""; position: absolute; inset: 6px; pointer-events: none;
+  border: 2px solid rgba(255, 210, 63, 0.18);
+  background: repeating-linear-gradient(0deg, rgba(255,255,255,0.025) 0 2px, transparent 2px 4px);
+}
+.rivet { position: absolute; width: 8px; height: 8px; background: #8a86b8; border: 2px solid #000; box-shadow: inset 2px 2px 0 #d6d3f5; }
+.rivet.tl { top: 10px; left: 10px; } .rivet.tr { top: 10px; right: 10px; }
+.rivet.bl { bottom: 10px; left: 10px; } .rivet.br { bottom: 10px; right: 10px; }
+.loader-roster { display: flex; flex-direction: column; align-items: center; gap: 2px; margin: -6px 0 14px; }
+.loader-roster canvas { width: 252px; height: 39px; max-width: 100%; image-rendering: pixelated; }
+.loader-roster span { font-size: 16px; color: var(--muted); letter-spacing: 1px; }
+.loader-ticks {
+  position: absolute; inset: 0; pointer-events: none;
+  background: repeating-linear-gradient(90deg, transparent 0 calc(10% - 3px), rgba(0,0,0,0.45) calc(10% - 3px) 10%);
+}
+.loader-tip {
+  display: flex; gap: 10px; align-items: center; min-height: 44px; margin: 0 0 14px; padding: 6px 10px; text-align: left;
+  font-size: 18px; line-height: 1.1; color: var(--text); background: var(--panel-lo); border: 2px solid #000;
+}
+.loader-tip b {
+  flex-shrink: 0; font-family: "Press Start 2P", monospace; font-size: 8px; font-weight: normal;
+  color: #000; background: #7df9ff; padding: 4px 5px; border: 2px solid #000;
+}
 .loader-title {
   margin: 12px 0 6px; font-size: clamp(18px, 6vw, 30px); line-height: 1.3; color: var(--yellow);
   text-shadow: 3px 0 0 #000, -3px 0 0 #000, 0 3px 0 #000, 0 -3px 0 #000, 6px 6px 0 var(--yellow-lo);
@@ -640,7 +652,7 @@ label.range input { flex: 1; max-width: 160px; accent-color: var(--yellow); }
 }
 @keyframes stripes { to { background-position: 22px 0; } }
 .loader-roller {
-  position: absolute; top: -10px; left: -14px; width: 36px; height: 36px; image-rendering: pixelated;
+  position: absolute; top: -8px; left: -18px; width: 36px; height: 36px; image-rendering: pixelated; z-index: 1;
   animation: roll 0.8s linear infinite;
 }
 @keyframes roll { to { transform: rotate(360deg); } }
@@ -733,3 +745,31 @@ button.linkish { background: none; border: none; box-shadow: none; padding: 0; f
   .report-top { grid-template-columns: 1fr 1fr; }
   .report-cols { grid-template-columns: 1fr; }
 }
+
+/* ---------- Tutorial ---------- */
+.tutorial {
+  position: fixed; z-index: 15; width: 330px; padding: 12px 14px 12px;
+  background: var(--panel); border: 4px solid #000;
+  box-shadow: inset 3px 3px 0 var(--panel-hi), inset -3px -3px 0 var(--panel-lo), 6px 6px 0 #000, 0 0 0 3px #7df9ff;
+  transition: left 0.25s ease, top 0.25s ease;
+}
+.tutorial.docked { left: 12px !important; right: 12px; top: auto !important; bottom: 12px; width: auto; }
+.tut-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.tut-head .ico { width: 24px; height: 24px; }
+.tut-step { font-family: "Press Start 2P", monospace; font-size: 8px; color: #7df9ff; }
+.tut-head .linkish { margin-left: auto; font-size: 17px; color: var(--muted); }
+.tutorial h3 { margin: 0 0 6px; font-family: "Press Start 2P", monospace; font-size: 12px; font-weight: normal; color: var(--yellow); text-wrap: balance; }
+.tutorial p { margin: 0 0 10px; font-size: 19px; line-height: 1.15; }
+.tut-task { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: var(--panel-lo); border: 2px solid #000; }
+.tut-task b, .tut-task em {
+  flex-shrink: 0; font-family: "Press Start 2P", monospace; font-size: 7px; font-weight: normal; font-style: normal;
+  color: #000; background: #ffd23f; padding: 3px 4px; border: 2px solid #000;
+}
+.tut-task em { display: none; margin-left: auto; background: #6ee07a; }
+.tut-task.done em { display: inline-block; animation: pulse 0.6s ease-in-out infinite; }
+.tut-task.done span { text-decoration: line-through; color: var(--muted); }
+.tut-nav { display: flex; justify-content: space-between; gap: 8px; }
+.tut-nav button { min-width: 86px; }
+#tut-next.ready { animation: pulse 0.6s ease-in-out infinite; }
+.tut-target { outline: 3px solid #7df9ff !important; outline-offset: 2px; animation: tutglow 1s ease-in-out infinite; }
+@keyframes tutglow { 50% { outline-color: #ffd23f; } }
