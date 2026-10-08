@@ -6,6 +6,15 @@ const loaded = loadGame();
 rebuildGrids();
 syncStaff();
 if (loaded) applyOfflineEarnings();
+if (isOpen() && !state.day) openDay(true);
+$("ver-tag").textContent = "v" + GAME_VERSION;
+$("ver-small").textContent = GAME_VERSION;
+$("loader-version").textContent = "Version " + GAME_VERSION;
+resizeView();
+setZoom(2);
+homeView();
+buildTerrain();
+buildTrees();
 renderSettings();
 renderStars();
 applyLocks();
@@ -19,11 +28,12 @@ function frame(now) {
   const time = now / 1000;
   update(dt);
   render(dt, time);
+  updateCamera(dt);
   updateFx(dt);
   drawFx(time);
   drawCard(dt, time);
   uiTimer += dt;
-  if (uiTimer > 0.25) { uiTimer = 0; renderUI(false); }
+  if (uiTimer > 0.25) { uiTimer = 0; renderUI(false); drawMinimap(); }
   if (hintTimer > 0) { hintTimer -= dt; if (hintTimer <= 0) setTool(tool); }
   requestAnimationFrame(frame);
 }
@@ -64,7 +74,11 @@ requestAnimationFrame(frame);
     startMusic();
     sfx("fanfare", 1);
     checkDaily();
-    if (!loaded) toast("Welcome to Verity Sanctuary! Hatch eggs, build enclosures and lay paths so visitors can see your variants.", 7000);
+    resizeView();
+    if (!loaded) toast("Welcome to Verity Sanctuary! It's night, so the park is closed: hatch eggs, build pens and lay paths, then press Open park now.", 9000);
+    else if (state.seenVersion !== GAME_VERSION) showPatchNotes();
+    state.seenVersion = GAME_VERSION;
     renderUI(true);
+    canvas.focus();
   });
 })();

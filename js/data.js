@@ -1,11 +1,42 @@
 "use strict";
 
+// ================= Version =================
+const GAME_VERSION = "1.1";
+const PATCH_NOTES = [
+  {
+    version: "1.1", title: "Bigger, Brighter, Busier",
+    notes: [
+      "The world is about 9x bigger. Move around with the arrow keys or WASD, drag to pan, and zoom with the scroll wheel or - and + keys.",
+      "New minimap. Click it to jump anywhere.",
+      "Real opening hours: the park is open 8 AM to 10 PM (8 minutes) and closed at night (3 minutes).",
+      "Building, bulldozing and moving variants now happen at night while the park is closed.",
+      "End-of-day report at 10 PM with revenue, expenses, profit and everything that levelled up.",
+      "Guests now arrive by car. Upgrade the parking lot to fit more of them.",
+      "Wild land comes in 8 biomes with irregular shapes: pine, birch, autumn, mushroom, rocky, flower, swamp and jungle.",
+      "All art redrawn at double resolution with smoother shading and more detail.",
+      "More animation: blinking variants, walking guests, swaying trees, waving flags, water shimmer, butterflies and fireflies.",
+      "The mute button now silences everything, music included.",
+      "Version number on the loading screen, plus these patch notes.",
+    ],
+  },
+  {
+    version: "1.0", title: "Grand Opening",
+    notes: [
+      "27 Verity variants, fusion recipes, the Variant Index and individual variants.",
+      "Park levels, enclosure sizes and themes, land, staff, care, events, goals, achievements and prestige.",
+    ],
+  },
+];
+
 // ================= Core constants =================
-const TILE = 16;            // game pixels per tile
-const COLS = 24;
-const ROWS = 16;
-const SCALE = 3;            // canvas pixels per game pixel
-const GATE = { x: 0, y: 8 };
+const TILE = 16;            // world units per tile
+const COLS = 72;            // world size in tiles
+const ROWS = 48;
+const OX = 14, OY = 18;     // top-left tile of the original 24x16 park
+const CORE_W = 24, CORE_H = 16;
+const GATE = { x: OX, y: OY + 8 };
+const WORLD_W = COLS * TILE, WORLD_H = ROWS * TILE;
+const WORLD_VERSION = 2;
 const ENC_SIZE = 3;         // enclosures are 3x3 tiles
 const ENC_CAPACITY = 4;
 const SAVE_KEY = "verity-sanctuary-save";
@@ -14,7 +45,7 @@ const AUTOSAVE_MS = 10000;
 const OFFLINE_CAP_SEC = 8 * 3600;
 const OFFLINE_RATE = 0.5;
 const PATH_COST = 5;
-const MAX_VISITORS = 70;
+const MAX_VISITORS_CAP = 160;
 const SHINY_CHANCE = 0.01;
 const EGG_UNCOMMON_CHANCE = 0.06;
 const LAB_MAX_LEVEL = 5;
@@ -82,9 +113,9 @@ const VARIANTS = {
   infinity:  { name: "Infinity", rarity: "legendary", color: "#2b4fd6", value: 180, appeal: 35, face: "infinity",
                desc: "It never sleeps.", ability: "Endless: earns 1 coin per park visitor every second." },
   insanity:  { name: "Insanity", rarity: "legendary", color: "#a347ff", value: 200, appeal: 35, face: "crazy", move: "glitch",
-               desc: "Nobody is home.", ability: "Glitch: each viewer pays 0.5x to 2.5x. Earns double at night." },
+               desc: "Nobody is home.", ability: "Glitch: each viewer pays 0.5x to 2.5x. Earns double in the evening (6-10 PM)." },
   eternity:  { name: "Eternity", rarity: "legendary", color: "#fff7e0", ink: "#6b5a2a", value: 170, appeal: 40, face: "serene",
-               desc: "Has always been here.", ability: "Timeless: gains XP 3x faster. Earns double at night." },
+               desc: "Has always been here.", ability: "Timeless: gains XP 3x faster. Earns double in the evening (6-10 PM)." },
   backrooms: { name: "Backrooms Verity", rarity: "legendary", color: "#c9b458", value: 220, appeal: 35, face: "blank", pattern: "stripes",
                desc: "Found behind the yellow wallpaper.", ability: "Comfort: pen-mates earn +20%." },
 
@@ -250,6 +281,10 @@ const UNLOCKS = [
   { level: 15, id: "fuse:secret",  name: "Secret fusions" },
   { level: 16, id: "enc:9",        name: "+1 enclosure slot" },
   { level: 20, id: "enc:10",       name: "+1 enclosure slot" },
+  { level: 2,  id: "lot:2",        name: "Parking lot upgrade" },
+  { level: 5,  id: "lot:3",        name: "Parking lot upgrade" },
+  { level: 8,  id: "lot:4",        name: "Parking lot upgrade" },
+  { level: 12, id: "lot:5",        name: "Parking lot upgrade" },
   { level: 3,  id: "care",         name: "Variant care (keep them fed!)" },
   { level: 3,  id: "plot:east",    name: "New land for sale" },
   { level: 3,  id: "requests",     name: "Visitor requests" },
@@ -299,13 +334,102 @@ const PATH_TYPES = {
 };
 
 // ================= Land =================
+// The original park area keeps its rectangular plots; the wild land around it is split
+// into irregular plots by a noisy nearest-seed partition, each with its own biome.
 const PLOTS = {
-  start:  { label: "Starter Meadow", x0: 0,  y0: 0,  x1: 15, y1: 11, cost: 0 },
-  east:   { label: "East Woods",     x0: 16, y0: 0,  x1: 23, y1: 11, cost: 2500 },
-  south:  { label: "South Field",    x0: 0,  y0: 12, x1: 15, y1: 15, cost: 6000 },
-  corner: { label: "Far Corner",     x0: 16, y0: 12, x1: 23, y1: 15, cost: 15000 },
+  start:  { label: "Starter Meadow", rect: [OX, OY, OX + 15, OY + 11], cost: 0, level: 1, biome: "meadow" },
+  east:   { label: "East Woods",     rect: [OX + 16, OY, OX + 23, OY + 11], cost: 2500, level: 3, biome: "oak" },
+  south:  { label: "South Field",    rect: [OX, OY + 12, OX + 15, OY + 15], cost: 6000, level: 6, biome: "birch" },
+  corner: { label: "Far Corner",     rect: [OX + 16, OY + 12, OX + 23, OY + 15], cost: 15000, level: 9, biome: "autumn" },
 };
+const WILD_SEEDS = [
+  { key: "pines",  label: "Whispering Pines", x: 22, y: 8,  biome: "pine",     level: 7 },
+  { key: "hollow", label: "Birch Hollow",     x: 37, y: 6,  biome: "birch",    level: 8 },
+  { key: "bog",    label: "Misty Bog",        x: 22, y: 41, biome: "swamp",    level: 9 },
+  { key: "glade",  label: "Mushroom Glade",   x: 50, y: 9,  biome: "mushroom", level: 10 },
+  { key: "amber",  label: "Amber Woods",      x: 46, y: 26, biome: "autumn",   level: 11 },
+  { key: "ridge",  label: "Rocky Ridge",      x: 64, y: 7,  biome: "rocky",    level: 12 },
+  { key: "bloom",  label: "Bloom Thicket",    x: 61, y: 23, biome: "flower",   level: 13 },
+  { key: "tangle", label: "Tangle Jungle",    x: 38, y: 41, biome: "jungle",   level: 14 },
+  { key: "willow", label: "Willow Bend",      x: 54, y: 40, biome: "swamp",    level: 16 },
+  { key: "deep",   label: "The Deep Woods",   x: 67, y: 40, biome: "pine",     level: 18 },
+];
+for (const w of WILD_SEEDS) PLOTS[w.key] = { label: w.label, seed: [w.x, w.y], cost: Math.round(3000 * Math.pow(1.42, w.level - 5) / 100) * 100, level: w.level, biome: w.biome };
+
+function hash2(x, y, s = 0) {
+  let h = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263) ^ Math.imul(s | 0, 1442695041);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+function valueNoise(x, y, scale, s = 0) {
+  const fx = x / scale, fy = y / scale, ix = Math.floor(fx), iy = Math.floor(fy), tx = fx - ix, ty = fy - iy;
+  const sm = t => t * t * (3 - 2 * t);
+  const a = hash2(ix, iy, s), b = hash2(ix + 1, iy, s), c = hash2(ix, iy + 1, s), d = hash2(ix + 1, iy + 1, s);
+  return a + (b - a) * sm(tx) + (c - a) * sm(ty) + (a - b - c + d) * sm(tx) * sm(ty);
+}
+
+const PLOT_MAP = new Int8Array(COLS * ROWS).fill(-1);
 const PLOT_KEYS = Object.keys(PLOTS);
+(function buildPlotMap() {
+  for (let y = 0; y < ROWS; y++)
+    for (let x = 0; x < COLS; x++) {
+      if (x < OX) continue;
+      let key = null;
+      for (const k of ["start", "east", "south", "corner"]) {
+        const r = PLOTS[k].rect;
+        if (x >= r[0] && x <= r[2] && y >= r[1] && y <= r[3]) key = k;
+      }
+      if (!key) {
+        let best = Infinity;
+        WILD_SEEDS.forEach((w, i) => {
+          const d = Math.hypot(x - w.x, (y - w.y) * 1.15) + (valueNoise(x, y, 6, 3 + i * 7) - 0.5) * 14 + (valueNoise(x, y, 2.5, 50 + i) - 0.5) * 5;
+          if (d < best) { best = d; key = w.key; }
+        });
+      }
+      PLOT_MAP[y * COLS + x] = PLOT_KEYS.indexOf(key);
+    }
+  // smooth away specks: each wild tile takes the majority plot of its 3x3 neighbourhood
+  const wildIdx = new Set(WILD_SEEDS.map(w => PLOT_KEYS.indexOf(w.key)));
+  for (let pass = 0; pass < 3; pass++) {
+    const copy = PLOT_MAP.slice();
+    for (let y = 0; y < ROWS; y++)
+      for (let x = OX; x < COLS; x++) {
+        const cur = copy[y * COLS + x];
+        if (!wildIdx.has(cur)) continue;
+        const votes = {};
+        for (let dy = -1; dy <= 1; dy++)
+          for (let dx = -1; dx <= 1; dx++) {
+            const nx = x + dx, ny = y + dy;
+            if (nx < OX || ny < 0 || nx >= COLS || ny >= ROWS) continue;
+            const v = copy[ny * COLS + nx];
+            if (wildIdx.has(v)) votes[v] = (votes[v] || 0) + 1;
+          }
+        let best = cur, bc = votes[cur] || 0;
+        for (const [v, c] of Object.entries(votes)) if (c > bc) { best = +v; bc = c; }
+        PLOT_MAP[y * COLS + x] = best;
+      }
+  }
+  // label/sign position: the plot tile nearest its centroid
+  for (const k of PLOT_KEYS) {
+    const idx = PLOT_KEYS.indexOf(k);
+    let sx = 0, sy = 0, n = 0;
+    for (let i = 0; i < PLOT_MAP.length; i++) if (PLOT_MAP[i] === idx) { sx += i % COLS; sy += Math.floor(i / COLS); n++; }
+    const cx = sx / n, cy = sy / n;
+    let best = Infinity, bx = 0, by = 0;
+    for (let i = 0; i < PLOT_MAP.length; i++) {
+      if (PLOT_MAP[i] !== idx) continue;
+      const d = Math.hypot(i % COLS - cx, Math.floor(i / COLS) - cy);
+      if (d < best) { best = d; bx = i % COLS; by = Math.floor(i / COLS); }
+    }
+    Object.assign(PLOTS[k], { tiles: n, sign: [bx, by] });
+  }
+})();
+for (const w of WILD_SEEDS) {
+  UNLOCKS.push({ level: w.level, id: "plot:" + w.key, name: `New land for sale: ${w.label}` });
+  UNLOCK_LEVEL["plot:" + w.key] = w.level;
+}
+UNLOCKS.sort((a, b) => a.level - b.level);
 
 // ================= Staff =================
 const STAFF = {
@@ -334,7 +458,21 @@ const VISITOR_TYPES = {
 };
 
 // ================= World =================
-const DAY_LENGTH = 360;   // seconds for a full day
+// Park hours: open 8 AM to 10 PM (DAY_SECS real seconds), closed 10 PM to 8 AM (NIGHT_SECS).
+const DAY_SECS = 480;
+const NIGHT_SECS = 180;
+const CYCLE_SECS = DAY_SECS + NIGHT_SECS;
+
+// ================= Road & parking =================
+const ROAD_X = [1, 2];          // two-lane road along the west edge
+const LOT_LEVELS = [
+  { spaces: 6,  cost: 0,     rect: [10, 25, 13, 27] },
+  { spaces: 12, cost: 800,   rect: [10, 24, 13, 28] },
+  { spaces: 20, cost: 3000,  rect: [8, 24, 13, 28] },
+  { spaces: 30, cost: 9000,  rect: [8, 23, 13, 29] },
+  { spaces: 48, cost: 25000, rect: [7, 22, 13, 30] },
+];
+const GUESTS_PER_SPACE = 3;
 const WEATHER = {
   clear:  { label: "Sunny",  weight: 50, spawn: 1,   icon: "sun" },
   cloudy: { label: "Cloudy", weight: 25, spawn: 1.1, icon: "cloud" },

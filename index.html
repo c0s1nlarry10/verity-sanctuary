@@ -15,6 +15,7 @@
       <canvas id="loader-verity" width="12" height="12"></canvas>
       <h1 class="loader-title">VERITY<br>SANCTUARY</h1>
       <p class="loader-tag">a variant habitat tycoon</p>
+      <p class="loader-version"><span id="loader-version">Version 1.1</span> · <button id="loader-notes" class="linkish" type="button">What's new?</button></p>
       <div class="loader-bar">
         <div class="loader-track">
           <div id="loader-fill" class="loader-fill"></div>
@@ -63,7 +64,7 @@
       <i class="ico logo" data-icon="logo"></i>
       <div>
         <h1>VERITY SANCTUARY</h1>
-        <p class="tagline">a variant habitat tycoon</p>
+        <p class="tagline">a variant habitat tycoon <span class="ver" id="ver-tag">v1.1</span></p>
       </div>
       <div class="lvl-box" title="Park level: earn XP to unlock new items">
         <span class="lvl-badge" id="park-level">1</span>
@@ -96,7 +97,21 @@
           <span id="event-text"></span>
           <div class="event-timer"><div id="event-fill"></div></div>
         </div>
-        <canvas id="game"></canvas>
+        <div id="hours-bar" class="hours-bar">
+          <span id="hours-text"></span>
+          <button id="hours-btn" class="mini-text"></button>
+        </div>
+        <div class="map-wrap">
+          <canvas id="game" tabindex="0" aria-label="Park map. Arrow keys or WASD move the camera, plus and minus zoom."></canvas>
+          <canvas id="minimap" width="144" height="96" title="Minimap: click or drag to jump"></canvas>
+          <div class="map-controls">
+            <button id="zoom-in" class="mini" title="Zoom in (+)">+</button>
+            <span id="zoom-label">100%</span>
+            <button id="zoom-out" class="mini" title="Zoom out (-)">&minus;</button>
+            <button id="zoom-home" class="mini" title="Back to the gate">&#8962;</button>
+          </div>
+          <p class="map-help">Arrows/WASD or drag to move · scroll or +/- to zoom</p>
+        </div>
       </div>
       <div class="hint-bar"><i class="ico" data-icon="info"></i><p id="hint" class="hint"></p></div>
       <div class="card goal-strip">
@@ -126,6 +141,7 @@
             <button class="tool" data-tool="bulldoze"><i class="ico" data-icon="shovel"></i><span>Bulldoze</span><small>50% refund</small></button>
           </div>
           <div id="build-options" class="build-options" hidden></div>
+          <p id="build-lock" class="build-lock" hidden>The park is open. Building, bulldozing and moving variants unlock at 10 PM.</p>
         </div>
 
         <div class="card">
@@ -149,6 +165,11 @@
           <div id="special-eggs" class="special-eggs"></div>
           <h3>Unplaced variants <span id="inv-count"></span></h3>
           <div id="inventory" class="inventory"></div>
+        </div>
+
+        <div class="card" id="parking-card">
+          <h2><i class="ico" data-icon="car"></i>PARKING LOT <small id="lot-level"></small></h2>
+          <div id="parking"></div>
         </div>
 
         <div class="card" id="staff-card" hidden>
@@ -235,6 +256,7 @@
         </div>
         <div class="card">
           <h2><i class="ico" data-icon="sound"></i>SETTINGS</h2>
+          <label class="check"><input type="checkbox" id="set-muted"> Mute everything</label>
           <label class="check"><input type="checkbox" id="set-sound"> Sound effects</label>
           <label class="check"><input type="checkbox" id="set-coin"> Coin sounds</label>
           <label class="range">Sound volume <input type="range" id="set-sfxvol" min="0" max="1" step="0.05"></label>
@@ -243,6 +265,10 @@
           <label class="check"><input type="checkbox" id="set-effects"> Weather &amp; night effects</label>
           <label class="check"><input type="checkbox" id="set-shake"> Screen shake on rare hatches</label>
           <button id="snapshot2" class="wide"><i class="ico" data-icon="camera"></i> Download park snapshot</button>
+        </div>
+        <div class="card">
+          <h2><i class="ico" data-icon="scroll"></i>PATCH NOTES <small>v<span id="ver-small"></span></small></h2>
+          <div id="notes-card"></div>
         </div>
         <div class="card">
           <h2><i class="ico" data-icon="star"></i>CREDITS</h2>
@@ -296,6 +322,22 @@
     </div>
   </dialog>
 
+  <dialog id="day-dialog" class="day-dialog">
+    <form method="dialog">
+      <h2 id="day-title">DAY REPORT</h2>
+      <div id="day-report"></div>
+      <div class="tools ask-actions"><button value="ok" class="primary">Start the night shift</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="notes-dialog" class="notes-dialog">
+    <form method="dialog">
+      <h2>WHAT'S NEW</h2>
+      <div id="notes"></div>
+      <div class="tools ask-actions"><button value="ok" class="primary">Let's go!</button></div>
+    </form>
+  </dialog>
+
   <dialog id="ask-dialog" class="ask-dialog">
     <form method="dialog">
       <h2 id="ask-title"></h2>
@@ -333,6 +375,7 @@
   <script src="js/sprites.js"></script>
   <script src="js/audio.js"></script>
   <script src="js/game.js"></script>
+  <script src="js/world.js"></script>
   <script src="js/systems.js"></script>
   <script src="js/main.js"></script>
 </body>

@@ -5,11 +5,9 @@
 
 // ================= Land =================
 function plotOf(x, y) {
-  for (const k of PLOT_KEYS) {
-    const p = PLOTS[k];
-    if (x >= p.x0 && x <= p.x1 && y >= p.y0 && y <= p.y1) return k;
-  }
-  return null;
+  if (!inBounds(x, y)) return null;
+  const i = PLOT_MAP[y * COLS + x];
+  return i >= 0 ? PLOT_KEYS[i] : null;
 }
 function isOwned(x, y) {
   const k = plotOf(x, y);
@@ -19,42 +17,27 @@ function plotForSale(k) { return !state.plots[k] && isUnlocked("plot:" + k); }
 
 function buyPlot(k) {
   const p = PLOTS[k];
-  if (!p || !plotForSale(k)) return;
-  if (!spend(p.cost)) return hintOnce(`${p.label} costs ${fmt(p.cost)} coins.`);
+  if (!p || !plotForSale(k) || buildLocked()) return;
+  if (!spend(p.cost, "Land")) return hintOnce(`${p.label} costs ${fmt(p.cost)} coins.`);
   state.plots[k] = true;
-  forestDirty = true;
+  markWorldDirty();
   sfx("build");
   gainParkXp(50);
   toast(`You bought ${p.label}! The trees are cleared and ready to build on.`, 4500, "verity");
   renderUI(true);
 }
 
-let forestDirty = true;
-let forestLayer = null;
-const FOREST_PAD = 8;
-function getForestLayer() {
-  if (forestLayer && !forestDirty) return forestLayer;
-  forestLayer = makeCanvas(COLS * TILE, ROWS * TILE + FOREST_PAD);
-  const g = forestLayer.getContext("2d");
-  const spots = [];
-  for (let y = 0; y < ROWS; y++)
-    for (let x = 0; x < COLS; x++) if (!isOwned(x, y)) spots.push([x, y]);
-  for (const [x, y] of spots) {
-    g.fillStyle = "#2c6a2a";
-    g.fillRect(x * TILE, y * TILE + FOREST_PAD, TILE, TILE);
-  }
-  for (const [x, y] of spots) g.drawImage(TREES[tileHash(x + 9, y + 3) % TREES.length], x * TILE + ((tileHash(x, y) % 3) - 1), y * TILE - 6 + FOREST_PAD);
-  for (const k of PLOT_KEYS) {
-    if (!plotForSale(k)) continue;
-    const p = PLOTS[k];
-    const sx = p.x0 * TILE + 4, sy = p.y0 * TILE + 6 + FOREST_PAD;
-    g.fillStyle = "#2a1a0c"; g.fillRect(sx + 6, sy + 8, 2, 8);
-    g.fillStyle = "#000"; g.fillRect(sx, sy, 16, 9);
-    g.fillStyle = "#ffd23f"; g.fillRect(sx + 1, sy + 1, 14, 7);
-    g.fillStyle = "#2b1d00"; g.font = "7px 'VT323', monospace"; g.textAlign = "center"; g.fillText("SALE", sx + 8, sy + 7);
-  }
-  forestDirty = false;
-  return forestLayer;
+// ================= Parking =================
+function upgradeLot() {
+  const next = lotLevel() + 1;
+  if (next > LOT_LEVELS.length || !isUnlocked("lot:" + next) || buildLocked()) return;
+  if (!spend(LOT_LEVELS[next - 1].cost, "Parking")) return hintOnce(`The upgrade costs ${fmt(LOT_LEVELS[next - 1].cost)} coins.`);
+  state.lotLevel = next;
+  markWorldDirty();
+  sfx("build");
+  gainParkXp(40);
+  toast(`Parking lot upgraded! ${LOT_LEVELS[next - 1].spaces} spaces, room for ${maxGuests()} guests.`, 4000, "verity");
+  renderUI(true);
 }
 
 // ================= Care (hunger & happiness) =================
@@ -68,7 +51,7 @@ function careMult(ind) {
 function likesTheme(ind, e) { return !!e && THEMES[e.theme].likes.includes(ind.k); }
 
 function tickCare() {
-  if (!careActive()) return;
+  if (!careActive() || !isOpen()) return;
   for (const { ind, e } of placedList()) {
     if (isLost(e) || escapes.has(ind.id)) continue;
     ind.food = Math.max(0, ind.food - CARE.foodDecay * (ind.k === "obesity" ? 2 : 1));
@@ -84,7 +67,7 @@ function feedCost(e) { return hungryIn(e).length * CARE.feedCost; }
 function feedPen(e, free = false) {
   const hungry = hungryIn(e);
   if (!hungry.length) return false;
-  if (!free && !spend(feedCost(e))) { hintOnce("Not enough coins to buy food."); return false; }
+  if (!free && !spend(feedCost(e), "Food")) { hintOnce("Not enough coins to buy food."); return false; }
   for (const i of hungry) { i.food = 100; i.joy = Math.min(100, i.joy + 5); }
   state.stats.feeds += hungry.length;
   for (const i of hungry) {
@@ -104,7 +87,7 @@ function wagesPerSec() { return Object.keys(STAFF).reduce((s, t) => s + staffCou
 
 function hireStaff(t) {
   if (!isUnlocked("staff:" + t) || staffCount(t) >= STAFF[t].max) return;
-  if (!spend(hireCost(t))) return hintOnce(`Hiring a ${STAFF[t].label} costs ${fmt(hireCost(t))} coins.`);
+  if (!spend(hireCost(t), "Staff")) return hintOnce(`Hiring a ${STAFF[t].label} costs ${fmt(hireCost(t))} coins.`);
   state.staff[t] = staffCount(t) + 1;
   syncStaff();
   sfx("place");
@@ -163,10 +146,11 @@ function updateStaff(dt) {
 }
 
 function staffSecond() {
+  if (!isOpen()) return;
   staffTick++;
   const wages = wagesPerSec();
   if (wages > 0) {
-    if (state.money >= wages) state.money -= wages;
+    if (state.money >= wages) { state.money -= wages; logExpense(wages, "Wages"); }
     else {
       const t = Object.keys(STAFF).filter(k => staffCount(k)).sort((a, b) => STAFF[b].wage - STAFF[a].wage)[0];
       state.staff[t]--;
@@ -186,14 +170,15 @@ function staffSecond() {
 }
 
 function drawWalkerSprite(w) {
-  const spr = STAFF_SPR[w.type];
+  const walking = w.prog < 1;
+  const spr = STAFF_FRAMES[w.type][walking ? (Math.floor(w.phase) % 2 ? 1 : 2) : 0];
   const fx = w.tx + (w.nx - w.tx) * w.prog, fy = w.ty + (w.ny - w.ty) * w.prog;
-  const bob = w.prog < 1 ? Math.round(Math.abs(Math.sin(w.phase))) : 0;
-  const x = Math.round(fx * TILE + 8 - spr.width / 2), y = Math.round(fy * TILE + 13 - spr.height);
+  const SW = uW(spr), SH = uH(spr);
+  const x = Math.round((fx * TILE + 8 - SW / 2) * 2) / 2, y = Math.round((fy * TILE + 14 - SH) * 2) / 2;
   ctx.fillStyle = "rgba(0,0,0,0.25)";
-  ctx.fillRect(x + 1, y + spr.height - 1, spr.width - 2, 2);
-  ctx.drawImage(spr, x, y - bob);
-  if (w.bubble) drawBubble(w.bubble.icon, x + spr.width / 2, y - 2);
+  ctx.beginPath(); ctx.ellipse(x + SW / 2, y + SH - 0.5, SW / 2 - 1, 1.2, 0, 0, Math.PI * 2); ctx.fill();
+  blit(ctx, spr, x, y);
+  if (w.bubble) drawBubble(w.bubble.icon, x + SW / 2, y - 2);
 }
 
 // ================= Trash =================
@@ -222,19 +207,31 @@ function drawBubble(icon, cx, bottomY) {
 let weather = "clear";
 let weatherTimer = 150;
 let lightning = 0;
-function dayPhase() { return (state.worldClock % DAY_LENGTH) / DAY_LENGTH; }
-function hourOfDay() { return (dayPhase() * 24 + 6) % 24; }
+// Park hours: open 8 AM - 10 PM (DAY_SECS), closed 10 PM - 8 AM (NIGHT_SECS).
+const cyclePos = () => state.worldClock % CYCLE_SECS;
+const isOpen = () => cyclePos() < DAY_SECS;
+const dayNumber = () => Math.floor(state.worldClock / CYCLE_SECS) + 1;
+function hourOfDay() {
+  const p = cyclePos();
+  return p < DAY_SECS ? 8 + 14 * p / DAY_SECS : (22 + 10 * (p - DAY_SECS) / NIGHT_SECS) % 24;
+}
 function darkness() {
-  const p = dayPhase();
-  if (p < 0.6) return 0;
-  if (p < 0.7) return ((p - 0.6) / 0.1) * 0.5;
-  if (p < 0.92) return 0.5;
-  return ((1 - p) / 0.08) * 0.5;
+  const h = hourOfDay();
+  if (h >= 8 && h < 17) return 0;
+  if (h >= 17 && h < 22) return ((h - 17) / 5) * 0.38;
+  if (h >= 22 || h < 5) return 0.46;
+  return 0.46 * (1 - (h - 5) / 3);
 }
 const isNight = () => darkness() > 0.3;
+const isEvening = () => isOpen() && hourOfDay() >= 18;
+function secondsUntilChange() { const p = cyclePos(); return p < DAY_SECS ? DAY_SECS - p : CYCLE_SECS - p; }
 
 function tickWorld(dt) {
+  const wasOpen = isOpen();
   state.worldClock += dt;
+  const nowOpen = isOpen();
+  if (wasOpen && !nowOpen) closeDay();
+  else if (!wasOpen && nowOpen) openDay();
   weatherTimer -= dt;
   if (weatherTimer <= 0) {
     weatherTimer = 120 + Math.random() * 150;
@@ -243,58 +240,163 @@ function tickWorld(dt) {
     for (const [k, w] of Object.entries(WEATHER)) { roll -= w.weight; if (roll <= 0) { next = k; break; } }
     if (next !== weather) {
       weather = next;
-      if (weather === "rain") toast("It's starting to rain. Fewer visitors, but Humidity is thrilled.", 3500, "humidity");
-      if (weather === "storm") toast("A storm rolls in! Visitors are heading home.", 3500, "calamity");
+      if (weather === "rain" && isOpen()) toast("It's starting to rain. Fewer visitors, but Humidity is thrilled.", 3500, "humidity");
+      if (weather === "storm" && isOpen()) toast("A storm rolls in! Visitors are heading home.", 3500, "calamity");
     }
   }
   if (lightning > 0) lightning -= dt;
   else if (weather === "storm" && Math.random() < dt * 0.08) { lightning = 0.18; sfx("crack"); }
 }
-function spawnFactor() { return WEATHER[weather].spawn * (isNight() ? 1.8 : 1); }
+function spawnFactor() { return WEATHER[weather].spawn; }
+
+function totalParkXp() {
+  let t = state.xp;
+  for (let l = 1; l < state.level; l++) t += xpToNext(l);
+  return t;
+}
+
+function openDay(quiet = false) {
+  state.day = {
+    n: dayNumber(), revenue: {}, expenses: {}, visitors: 0,
+    xpStart: totalParkXp(), levelStart: state.level,
+    varLevels: Object.fromEntries(allIndividuals().map(i => [i.id, levelOf(i)])),
+    disc: discoveredCount(), ach: Object.keys(state.achievements).length,
+  };
+  if (quiet) return;
+  if (tool !== "inspect") setTool("inspect");
+  sfx("fanfare", 1);
+  toast(`Good morning! Day ${dayNumber()} begins and the park is open until 10 PM.`, 4500, "verity");
+  renderUI(true);
+}
+
+function closeDay() {
+  if (activeEvent) { activeEvent = null; eventTimer = 60; }
+  for (const v of visitors) v.leaving = true;
+  walkers = [];
+  for (const esc of escapes.values()) toast(`${esc.ind.name} wandered back home for the night.`, 2500, esc.ind.k);
+  escapes.clear();
+  const report = state.day;
+  state.day = null;
+  sfx("achievement");
+  if (report) showDayReport(report);
+  else toast("The park is closed for the night. Time to build!", 4000, "verity");
+  renderUI(true);
+}
+
+function openNow() {
+  if (isOpen()) return;
+  state.worldClock = Math.floor(state.worldClock / CYCLE_SECS + 1) * CYCLE_SECS;
+  openDay();
+}
+function closeNow() {
+  if (!isOpen()) return;
+  ask({ title: "CLOSE EARLY", text: "Close the park early? Guests head home and you get tonight's report. Building unlocks right away.", ok: "Close park" }).then(yes => {
+    if (!yes || !isOpen()) return;
+    state.worldClock = Math.floor(state.worldClock / CYCLE_SECS) * CYCLE_SECS + DAY_SECS;
+    closeDay();
+  });
+}
+
+function showDayReport(d) {
+  const box = $("day-report");
+  box.innerHTML = "";
+  const sum = o => Object.values(o).reduce((a, b) => a + b, 0);
+  const rev = sum(d.revenue), exp = sum(d.expenses), profit = rev - exp;
+  $("day-title").textContent = `DAY ${d.n} REPORT`;
+  const top = el("div", "report-top");
+  for (const [label, val, cls] of [["Visitors", fmt(d.visitors), ""], ["Revenue", "+" + fmt(rev), "good"], ["Expenses", "-" + fmt(exp), "bad"], ["Profit", (profit >= 0 ? "+" : "-") + fmt(Math.abs(profit)), profit >= 0 ? "good big" : "bad big"]]) {
+    const c = el("div", "report-stat " + cls);
+    c.appendChild(el("span", "", label));
+    c.appendChild(el("b", "", val));
+    top.appendChild(c);
+  }
+  box.appendChild(top);
+  const cols = el("div", "report-cols");
+  for (const [title, obj, sign] of [["Revenue", d.revenue, "+"], ["Expenses", d.expenses, "-"]]) {
+    const col = el("div", "report-col");
+    col.appendChild(el("h4", "", title));
+    const entries = Object.entries(obj).sort((a, b) => b[1] - a[1]);
+    if (!entries.length) col.appendChild(el("p", "small", "Nothing today."));
+    for (const [k, v] of entries) {
+      const row = el("div", "report-row");
+      row.appendChild(el("span", "", k));
+      row.appendChild(el("b", "", sign + fmt(v)));
+      col.appendChild(row);
+    }
+    cols.appendChild(col);
+  }
+  box.appendChild(cols);
+  const growth = el("div", "report-growth");
+  growth.appendChild(el("h4", "", "What levelled up"));
+  const xpGain = Math.max(0, Math.round(totalParkXp() - d.xpStart));
+  const parkLine = el("div", "report-row");
+  parkLine.appendChild(el("span", "", `Park: +${fmt(xpGain)} XP`));
+  parkLine.appendChild(el("b", "", state.level > d.levelStart ? `LV ${d.levelStart} to ${state.level}` : `LV ${state.level}`));
+  growth.appendChild(parkLine);
+  const ups = allIndividuals().filter(i => d.varLevels[i.id] !== undefined && levelOf(i) > d.varLevels[i.id]);
+  if (!ups.length) growth.appendChild(el("p", "small", "No variants levelled up today. Keep them on display to earn XP."));
+  for (const i of ups.slice(0, 12)) {
+    const row = el("div", "report-row variant");
+    row.appendChild(spriteImg(i));
+    row.appendChild(el("span", "", `${i.name} the ${VARIANTS[i.k].name}`));
+    row.appendChild(el("b", "", `LV ${d.varLevels[i.id]} to ${levelOf(i)}`));
+    growth.appendChild(row);
+  }
+  if (ups.length > 12) growth.appendChild(el("p", "small", `...and ${ups.length - 12} more.`));
+  const extras = [];
+  if (discoveredCount() > d.disc) extras.push(`${discoveredCount() - d.disc} new variant${discoveredCount() - d.disc > 1 ? "s" : ""} discovered`);
+  const achGain = Object.keys(state.achievements).length - d.ach;
+  if (achGain > 0) extras.push(`${achGain} achievement${achGain > 1 ? "s" : ""} unlocked`);
+  if (extras.length) growth.appendChild(el("p", "small", extras.join(" · ")));
+  box.appendChild(growth);
+  const dlg = $("day-dialog");
+  if (!dlg.open) dlg.showModal();
+}
 
 function drawSky(time) {
   if (!state.settings.effects) return;
-  const W = COLS * TILE, H = ROWS * TILE;
+  const vx = view.x - TILE, vy = view.y - TILE, vw = viewW() + TILE * 2, vh = viewH() + TILE * 2;
   if (weather === "rain" || weather === "storm") {
-    const n = weather === "storm" ? 140 : 80;
+    const n = Math.round((weather === "storm" ? 0.22 : 0.12) * vw * vh / 256);
     ctx.fillStyle = "rgba(170,200,255,0.55)";
     for (let i = 0; i < n; i++) {
-      const sx = (tileHash(i, 7) / 1000) * (W + 40);
-      const sy = (tileHash(i, 3) / 1000) * H;
-      const x = ((sx - time * 30) % (W + 40) + W + 40) % (W + 40) - 20;
-      const y = (sy + time * 160) % H;
-      ctx.fillRect(Math.round(x), Math.round(y), 1, 4);
+      const x = vx + (((hash2(i, 7, 2) * vw - time * 30) % vw) + vw) % vw;
+      const y = vy + (hash2(i, 3, 2) * vh + time * 160) % vh;
+      ctx.fillRect(x, y, 0.5, 4);
     }
   }
   const d = darkness() + (weather === "storm" ? 0.18 : weather === "rain" ? 0.1 : weather === "cloudy" ? 0.05 : 0);
   if (d > 0) {
     ctx.fillStyle = `rgba(12,16,52,${Math.min(0.7, d)})`;
-    ctx.fillRect(-TILE, -TILE, W + TILE * 2, H + TILE * 2);
+    ctx.fillRect(vx, vy, vw, vh);
   }
   const glow = darkness();
   if (glow > 0.05) {
     ctx.globalCompositeOperation = "lighter";
-    for (const o of state.objects) {
-      if (o.t !== "lamp" && OBJECTS[o.t].kind !== "stand") continue;
-      const r = o.t === "lamp" ? 22 : 12;
-      const grd = ctx.createRadialGradient(o.x * TILE + 8, o.y * TILE, 1, o.x * TILE + 8, o.y * TILE, r);
+    const lights = state.objects.filter(o => o.t === "lamp" || OBJECTS[o.t].kind === "stand").map(o => [o.x * TILE + 8, o.y * TILE, o.t === "lamp" ? 26 : 14]);
+    lights.push([GATE.x * TILE - 4, GATE.y * TILE - 4, 14], [GATE.x * TILE + 20, GATE.y * TILE - 4, 14]);
+    for (const c of cars) if (c.state !== "parked") lights.push([c.x + (c.dir === 1 ? 8 : c.dir === 3 ? -8 : 0), c.y + (c.dir === 2 ? 8 : c.dir === 0 ? -8 : 0), 10]);
+    for (const [lx, ly, r] of lights) {
+      if (lx < vx - r || lx > vx + vw + r || ly < vy - r || ly > vy + vh + r) continue;
+      const grd = ctx.createRadialGradient(lx, ly, 1, lx, ly, r);
       grd.addColorStop(0, `rgba(255,220,120,${glow * 0.9})`);
       grd.addColorStop(1, "rgba(255,220,120,0)");
       ctx.fillStyle = grd;
-      ctx.fillRect(o.x * TILE + 8 - r, o.y * TILE - r, r * 2, r * 2);
+      ctx.fillRect(lx - r, ly - r, r * 2, r * 2);
     }
     ctx.globalCompositeOperation = "source-over";
   }
   if (lightning > 0) {
     ctx.fillStyle = `rgba(255,255,255,${lightning * 3})`;
-    ctx.fillRect(-TILE, -TILE, W + TILE * 2, H + TILE * 2);
+    ctx.fillRect(vx, vy, vw, vh);
   }
 }
 
 function clockText() {
   const h = hourOfDay();
   const hh = Math.floor(h), mm = Math.floor((h - hh) * 6) * 10;
-  return `Day ${Math.floor(state.worldClock / DAY_LENGTH) + 1} · ${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+  const h12 = hh % 12 === 0 ? 12 : hh % 12;
+  return `Day ${dayNumber()} · ${h12}:${String(mm).padStart(2, "0")} ${hh < 12 ? "AM" : "PM"}`;
 }
 
 // ================= Visitor types, moods, critics, influencers =================
@@ -328,9 +430,9 @@ function leaveVisitor(v) {
 function criticReview(v) {
   const stars = Math.max(1, Math.min(5, Math.round(0.5 + v.pensSeen * 0.6 + v.mood / 40 + starRating() * 0.3)));
   const reward = Math.round(stars * stars * 8 * starRating() * globalMult());
-  earn(reward, v.tx * TILE + 8, v.ty * TILE - 10, "#c77dff");
-  if (stars >= 5) state.stats.reviews5++;
-  toast(`A food critic gave your park ${"★".repeat(stars)}${"☆".repeat(5 - stars)}. +${fmt(reward)} coins`, 4000, stars >= 4 ? "celebrity" : "falsity");
+  earn(reward, v.tx * TILE + 8, v.ty * TILE - 10, "#c77dff", "Reviews");
+  if (stars >= 5) { state.stats.reviews5++; toast(`A food critic gave your park ★★★★★! +${fmt(reward)} coins`, 4000, "celebrity"); }
+  floaters.push({ x: v.tx * TILE + 8, y: v.ty * TILE - 16, text: "★".repeat(stars), t: 0, color: "#c77dff" });
 }
 
 function influencerPost(v, e) {
@@ -362,7 +464,7 @@ function requestProgress() {
   return placedList().filter(p => p.ind.k === state.request.k && !isLost(p.e) && !escapes.has(p.ind.id)).length;
 }
 function tickRequests() {
-  if (!isUnlocked("requests")) return;
+  if (!isUnlocked("requests") || !isOpen()) return;
   const r = state.request;
   if (!r) {
     if (--requestTimer > 0) return;
@@ -389,7 +491,7 @@ function tickRequests() {
 // ================= Escapes =================
 const escapes = new Map();   // ind.id -> { ind, e, x, y, vx, vy, t }
 function tickEscapes() {
-  if (!isUnlocked("events")) return;
+  if (!isUnlocked("events") || !isOpen()) return;
   for (const { ind, e } of placedList()) {
     const chance = ESCAPERS[ind.k];
     if (!chance || escapes.has(ind.id) || isLost(e) || (activeEvent && activeEvent.ind === ind)) continue;
@@ -417,7 +519,7 @@ function updateEscapes(dt) {
       esc.vx = Math.cos(a) * sp; esc.vy = Math.sin(a) * sp;
     }
     const nx = esc.x + esc.vx * dt, ny = esc.y + esc.vy * dt;
-    if (isOwned(Math.floor(nx / TILE), Math.floor((ny - 4) / TILE)) && nx > 6 && ny > 14 && nx < COLS * TILE - 6 && ny < ROWS * TILE) { esc.x = nx; esc.y = ny; }
+    if (isOwned(Math.floor(nx / TILE), Math.floor((ny - 4) / TILE))) { esc.x = nx; esc.y = ny; }
     else { esc.vx = -esc.vx; esc.vy = -esc.vy; }
   }
 }
@@ -494,16 +596,16 @@ async function doPrestige() {
   const keep = {
     discovered: state.discovered, recipesKnown: state.recipesKnown, achievements: state.achievements,
     stats: state.stats, settings: state.settings, daily: state.daily, goal: state.goal,
-    shards: state.shards + gain, totalEarned: state.totalEarned, worldClock: state.worldClock,
+    shards: state.shards + gain, totalEarned: state.totalEarned, worldClock: Math.floor(state.worldClock / CYCLE_SECS) * CYCLE_SECS + DAY_SECS + 1, seenVersion: state.seenVersion,
   };
   state = Object.assign(defaultState(), keep);
   state.stats.prestiges++;
   visitors = []; floaters = []; particles = [];
   critterPos.clear(); escapes.clear();
-  staffWalkers = [];
+  staffWalkers = []; cars = []; walkers = [];
+  markWorldDirty();
   activeEvent = null; fx = null;
   fuseSel = [0, 0]; inspectedId = 0; selectedUid = 0;
-  forestDirty = true;
   rebuildGrids();
   applyLocks();
   saveGame();
@@ -702,10 +804,13 @@ function renderLand() {
     const row = el("div", "row-item");
     const g = el("div", "grow");
     g.appendChild(el("b", "", p.label));
-    g.appendChild(document.createTextNode(`${p.x1 - p.x0 + 1}x${p.y1 - p.y0 + 1} tiles of new land. Look for the SALE sign in the forest.`));
+    g.appendChild(document.createTextNode(`${p.tiles} tiles of ${BIOME_LABELS[p.biome]}. Look for the FOR SALE sign.`));
     row.appendChild(g);
     const b = el("button", "primary", `Buy ${fmt(p.cost)}c`);
-    b.disabled = state.money < p.cost;
+    b.disabled = state.money < p.cost || isOpen();
+    const go = el("button", "", "Show");
+    go.addEventListener("click", () => centerOn(p.sign[0] * TILE + 8, p.sign[1] * TILE + 8));
+    row.appendChild(go);
     b.addEventListener("click", () => buyPlot(k));
     row.appendChild(b);
     box.appendChild(row);
@@ -729,4 +834,25 @@ function renderPrestige() {
   box.appendChild(b);
   const next = Math.pow(gain + 1, 2) * SHARD_DIVISOR;
   box.appendChild(el("p", "small", `Coins earned this run: ${fmt(state.runEarned)}. Next shard at ${fmt(next)}.`));
+}
+
+const BIOME_LABELS = { meadow: "meadow", oak: "oak forest", pine: "pine forest", birch: "birch woods", autumn: "autumn forest", mushroom: "mushroom grove", rocky: "rocky hills", flower: "flower thicket", swamp: "swamp", jungle: "jungle" };
+
+function renderParking() {
+  const box = $("parking");
+  if (!box) return;
+  box.innerHTML = "";
+  const lvl = lotLevel(), cur = LOT_LEVELS[lvl - 1];
+  const parked = cars.filter(c => c.state === "parked").length;
+  $("lot-level").textContent = "LV " + lvl;
+  box.appendChild(el("p", "small", `${cur.spaces} spaces (${parked} in use) · room for up to ${maxGuests()} guests at once.`));
+  const next = LOT_LEVELS[lvl];
+  if (!next) { box.appendChild(el("p", "small", "Your parking lot is fully upgraded.")); return; }
+  if (!isUnlocked("lot:" + (lvl + 1))) { box.appendChild(el("p", "small locked-note", "The next upgrade unlocks at a higher park level.")); return; }
+  const b = el("button", "wide primary", `Upgrade to ${next.spaces} spaces (${fmt(next.cost)}c)`);
+  b.disabled = state.money < next.cost || isOpen();
+  b.title = isOpen() ? "Upgrades happen at night while the park is closed." : "";
+  b.addEventListener("click", upgradeLot);
+  box.appendChild(b);
+  if (isOpen()) box.appendChild(el("p", "small", "Upgrade at night while the park is closed."));
 }

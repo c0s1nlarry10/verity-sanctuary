@@ -6,7 +6,16 @@ A 2D pixel-art tycoon game that runs in your browser, inspired by the viral Veri
 
 Open `index.html` in a browser. There's nothing to install or build.
 
+### Controls
+
+- **Move the camera:** arrow keys or WASD, or drag the map (right-drag also works)
+- **Zoom:** scroll wheel, or the `-` and `+` keys
+- **Minimap:** click or drag to jump around the world
+- **Park hours:** open 8 AM to 10 PM (8 minutes), closed at night (3 minutes). Build at night, earn by day.
+
 ## Features
+
+Version 1.1. See the in-game patch notes for what changed.
 
 - 27 Verity variants to discover through eggs and fusion recipes, each with its own ability
 - Every variant you own is unique: name, size, color, markings, accessory, personality and level

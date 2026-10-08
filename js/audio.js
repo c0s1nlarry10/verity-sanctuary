@@ -4,16 +4,18 @@
 let actx = null;
 let lastCoinSfx = 0;
 
-let sfxGain = null, musicGain = null;
+let sfxGain = null, musicGain = null, masterGain = null;
 
 function getCtx() {
   if (!actx) {
     try {
       actx = new (window.AudioContext || window.webkitAudioContext)();
+      masterGain = actx.createGain();
       sfxGain = actx.createGain();
       musicGain = actx.createGain();
-      sfxGain.connect(actx.destination);
-      musicGain.connect(actx.destination);
+      masterGain.connect(actx.destination);
+      sfxGain.connect(masterGain);
+      musicGain.connect(masterGain);
       applyVolumes();
     } catch (e) { actx = null; return null; }
   }
@@ -23,12 +25,13 @@ function getCtx() {
 
 function applyVolumes() {
   if (!actx || typeof state === "undefined") return;
+  masterGain.gain.value = state.settings.muted ? 0 : 1;
   sfxGain.gain.value = state.settings.sfxVol ?? 0.8;
   musicGain.gain.value = (state.settings.musicVol ?? 0.5) * 0.6;
 }
 
 function audioCtx() {
-  if (typeof state === "undefined" || !state.settings.sound) return null;
+  if (typeof state === "undefined" || !state.settings.sound || state.settings.muted) return null;
   return getCtx();
 }
 
@@ -141,7 +144,7 @@ function scheduleMusic() {
 }
 
 function startMusic() {
-  if (musicTimer || typeof state === "undefined" || !state.settings.music) return;
+  if (musicTimer || typeof state === "undefined" || !state.settings.music || state.settings.muted) return;
   if (!getCtx()) return;
   nextNoteTime = actx.currentTime + 0.1;
   musicTimer = setInterval(scheduleMusic, 60);
