@@ -774,3 +774,15 @@ button.linkish { background: none; border: none; box-shadow: none; padding: 0; f
 .tut-target { outline: 3px solid #7df9ff !important; outline-offset: 2px; animation: tutglow 1s ease-in-out infinite; }
 @keyframes tutglow { 50% { outline-color: #ffd23f; } }
 .archive-link { color: #7df9ff; }
+
+/* ---------- Full-height map (desktop) ---------- */
+@media (min-width: 901px) {
+  .park {
+    position: sticky; top: 18px;
+    display: flex; flex-direction: column;
+    height: calc(100dvh - var(--topbar-h, 64px) - 36px); min-height: 480px;
+  }
+  .park-frame { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .park-frame .map-wrap { flex: 1; min-height: 0; }
+  #game { height: 100%; }
+}

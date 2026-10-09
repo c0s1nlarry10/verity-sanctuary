@@ -304,11 +304,18 @@ function resizeView() {
   canvas.height = Math.max(1, Math.round(r.height * view.dpr));
   view.x = cx - viewW() / 2; view.y = cy - viewH() / 2;
   clampView();
+  if (view.zoom < minZoom()) setZoom(minZoom());
 }
 function centerOn(wx, wy) { view.x = wx - viewW() / 2; view.y = wy - viewH() / 2; clampView(); }
+// The smallest zoom where the world still fills the whole map view (no empty borders).
+function minZoom() {
+  const need = Math.max(view.cssW / WORLD_W, view.cssH / WORLD_H);
+  return ZOOMS.find(z => z >= need - 0.001) ?? ZOOMS[ZOOMS.length - 1];
+}
 function setZoom(z, ax = view.cssW / 2, ay = view.cssH / 2) {
   // whole-number zooms only, so every art pixel covers the same number of screen pixels
-  z = ZOOMS.reduce((best, v) => Math.abs(v - z) < Math.abs(best - z) ? v : best, ZOOMS[0]);
+  const zooms = ZOOMS.filter(v => v >= minZoom());
+  z = zooms.reduce((best, v) => Math.abs(v - z) < Math.abs(best - z) ? v : best, zooms[0]);
   const wx = view.x + ax / view.zoom, wy = view.y + ay / view.zoom;
   view.zoom = z;
   view.x = wx - ax / z; view.y = wy - ay / z;
@@ -357,7 +364,14 @@ canvas.addEventListener("wheel", e => {
   zoomStep(wheelAcc < 0 ? 1 : -1, e.clientX - r.left, e.clientY - r.top);
   wheelAcc = 0; lastWheel = now;
 }, { passive: false });
-window.addEventListener("resize", resizeView);
+// keep the map filling the window: track the top bar's height and the canvas's size
+function syncLayout() {
+  const bar = document.querySelector(".topbar");
+  if (bar) document.documentElement.style.setProperty("--topbar-h", bar.offsetHeight + "px");
+}
+window.addEventListener("resize", () => { syncLayout(); resizeView(); });
+syncLayout();
+if (window.ResizeObserver) new ResizeObserver(() => resizeView()).observe(canvas);
 
 // ================= Minimap =================
 const minimap = document.getElementById("minimap");
