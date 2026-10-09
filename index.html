@@ -566,7 +566,7 @@
           <label class="check"><input type="checkbox" id="set-hovertips"> Explain things when I hover over them</label>
           <label class="check"><input type="checkbox" id="set-feedback"> Feedback reminders (every 10 min)</label>
           <button id="admin-btn" class="wide"><i class="ico" data-icon="staff"></i> Admin panel</button>
-          <button id="tut-replay" class="wide"><i class="ico" data-icon="info"></i> Replay tutorial</button>
+          <button id="tut-replay" class="wide"><i class="ico" data-icon="info"></i> Replay a tutorial</button>
           <button id="snapshot2" class="wide"><i class="ico" data-icon="camera"></i> Download park snapshot</button>
         </div>
         <div class="card">
@@ -641,6 +641,13 @@
       <button id="card-release" class="danger"></button>
       <button id="card-close">Close</button>
     </div>
+  </dialog>
+
+  <dialog id="tour-dialog" class="mode-dialog">
+    <h2>TAKE A TOUR?</h2>
+    <p class="small">Pick a tour. You can replay either one any time from the Save tab.</p>
+    <div id="tour-options" class="mode-options"></div>
+    <div class="tools ask-actions"><button id="tour-skip" type="button">Skip for now</button></div>
   </dialog>
 
   <dialog id="mode-dialog" class="mode-dialog">

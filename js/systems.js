@@ -404,6 +404,24 @@ function showDayReport(d) {
   box.appendChild(growth);
   const dlg = $("day-dialog");
   if (!dlg.open) dlg.showModal();
+  startReportCountdown(dlg);
+}
+
+// The report closes itself after a while, so the park can run without anyone at the keyboard.
+const REPORT_AUTOCLOSE_SECS = 30;
+let reportTimer = 0;
+function startReportCountdown(dlg) {
+  clearInterval(reportTimer);
+  const btn = dlg.querySelector("button[value=ok]"), label = btn.dataset.label || (btn.dataset.label = btn.textContent);
+  let left = REPORT_AUTOCLOSE_SECS;
+  const tick = () => {
+    if (!dlg.open) { clearInterval(reportTimer); btn.textContent = label; return; }
+    if (left <= 0) { clearInterval(reportTimer); btn.textContent = label; dlg.close("ok"); return; }
+    btn.textContent = `${label} (${left})`;
+    left--;
+  };
+  tick();
+  reportTimer = setInterval(tick, 1000);
 }
 
 const lightMap = document.createElement("canvas"), lightCtx = lightMap.getContext("2d");
@@ -500,14 +518,29 @@ function rollVisitorType() {
   return "normal";
 }
 
+// Each new tile a guest steps onto: litter, crowds, the mascot, and the odd dropped wrapper.
+// Litter and crowds count once per tile, so pacing back and forth doesn't pile it on.
 function visitorMoodStep(v) {
-  v.mood -= 2;
-  if (trashIndexAt(v.tx, v.ty) >= 0) { v.mood -= 8; if (++v.litter >= 3) gripe(v, "trash"); if (Math.random() < 0.3) v.bubble = { icon: "angry", t: 1.2 }; }
-  const crowd = visitors.filter(o => o !== v && !o.leaving && o.tx === v.tx && o.ty === v.ty).length;
-  if (crowd >= 3) { v.mood -= 4; if (++v.crowds >= 2) gripe(v, "crowded"); }
-  if (staffWalkers.some(w => w.type === "mascot" && Math.abs(w.tx - v.tx) + Math.abs(w.ty - v.ty) <= 1)) { v.mood += 10; if (Math.random() < 0.3) v.bubble = { icon: "heart", t: 1.2 }; }
-  if ((weather === "rain" || weather === "storm") && !isSimple()) { v.mood -= weather === "storm" ? 4 : 2; gripe(v, "weather"); }
+  const key = v.tx + "," + v.ty;
+  if (trashIndexAt(v.tx, v.ty) >= 0 && !v.littered.has(key)) {
+    v.littered.add(key);
+    v.mood -= 8;
+    if (v.littered.size >= 4) gripe(v, "trash");
+    if (Math.random() < 0.3) v.bubble = { icon: "angry", t: 1.2 };
+  }
+  const crowd = visitors.filter(o => o !== v && !o.leaving && o.tx === v.tx && o.ty === v.ty && !(v.carId && o.carId === v.carId)).length;   // your own group doesn't count
+  if (crowd >= 4 && !v.crowded.has(key)) { v.crowded.add(key); v.mood -= 4; if (v.crowded.size >= 2) gripe(v, "crowded"); }
+  if (v.age - (v.cheeredAt ?? -99) > 10 && staffWalkers.some(w => w.type === "mascot" && Math.abs(w.tx - v.tx) + Math.abs(w.ty - v.ty) <= 1)) {
+    v.cheeredAt = v.age;
+    v.mood += 10;
+    if (Math.random() < 0.3) v.bubble = { icon: "heart", t: 1.2 };
+  }
   if (Math.random() < 0.003) dropTrash(v.tx, v.ty);
+}
+// Over time a visit wears on: mood slowly falls, faster in the rain. At zero they go home.
+function visitorMoodTick(v, dt) {
+  v.mood -= dt * 1.2;
+  if ((weather === "rain" || weather === "storm") && !isSimple()) { v.mood -= dt * (weather === "storm" ? 5.6 : 2.8); gripe(v, "weather"); }
   if (v.mood <= 0 && !v.leaving) {
     v.bubble = { icon: v.pensSeen ? "bored" : "angry", t: 2 };
     leaveVisitor(v, true);
@@ -702,7 +735,7 @@ function tickEscapes() {
     if (!findInd(id)) { escapes.delete(id); continue; }
     if (--esc.t <= 0) { escapes.delete(id); toast(`${esc.ind.name} wandered back home.`, 3000, esc.ind.k); continue; }
     for (const v of visitors) {
-      const vx = (v.tx + (v.nx - v.tx) * v.prog) * TILE + 8, vy = (v.ty + (v.ny - v.ty) * v.prog) * TILE + 8;
+      const vx = v.x, vy = v.y - 4;
       if (!v.leaving && Math.hypot(vx - esc.x, vy - esc.y) < 18) { v.mood -= 12; v.bubble = { icon: "scared", t: 1.2 }; gripe(v, "scared"); }
     }
   }
