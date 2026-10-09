@@ -549,6 +549,51 @@ function drawBlondHair(g, ox, oy, D, inside, style) {
   if (style === 7) { for (const [sx, sy] of [[c - 4, top - 0.5], [c, top - 1.8], [c + 4, top - 0.5], [c - 6, top + 2.5], [c + 6, top + 2.5]]) litBlob(g, X + sx, Y + sy, 2.4, 2.2, pal); }   // curly puff
 }
 
+// Each body model also has its own little features, so the 8 versions of a variant look
+// clearly different (not just a slightly different outline).
+const MODEL_FEATURES = ["", "Sprout", "Belly patch", "Curl & freckles", "Little feet", "Tufts & blush", "Spots", "Ears & stripe"];
+function drawModelFeature(g, ox, oy, D, color, model, inside) {
+  const R = (col, x, y, w, h) => { g.fillStyle = col; g.fillRect(ox + x, oy + y, w, h); };
+  const top = inside.top, bot = inside.bottom, c = D / 2;
+  const light = shade(color, 45), dark = shade(color, -60), line = shade(color, -110);
+  const inBody = (x, y) => inside(Math.floor(ox + x), Math.floor(oy + y));
+  switch (model) {
+    case 1: // a leafy sprout on top
+      R("#1e4a1e", c - 0.5, top - 3.5, 1.5, 4); R("#3f8f3a", c, top - 3.5, 0.5, 4);
+      litBlob(g, ox + c - 2, oy + top - 3.5, 2, 1.2, ramp("#5fbf4a")); litBlob(g, ox + c + 2.5, oy + top - 4.5, 2, 1.2, ramp("#6ee07a"));
+      break;
+    case 2: // a lighter belly patch
+      for (let y = 0; y < D; y += 0.5) for (let x = 0; x < D; x += 0.5) {
+        const nx = (x - c) / (D * 0.3), ny = (y - D * 0.86) / (D * 0.12);
+        if (nx * nx + ny * ny <= 1 && inBody(x, y) && inBody(x, y + 1)) R(nx * nx + ny * ny > 0.7 ? shade(color, -35) : shade(color, 70), x, y, 0.5, 0.5);
+      }
+      break;
+    case 3: // a cowlick curl and freckles
+      R(line, c - 0.5, top - 2.5, 1, 3); R(line, c + 0.5, top - 3, 1.5, 1); R(line, c + 1.5, top - 2.5, 1, 1.5);
+      for (const [fx, fy] of [[0.24, 0.6], [0.3, 0.64], [0.28, 0.56], [0.7, 0.6], [0.76, 0.64], [0.72, 0.56]]) R(dark, D * fx, D * fy, 0.5, 0.5);
+      break;
+    case 4: // two little feet
+      for (const fx of [0.3, 0.7]) { litBlob(g, ox + D * fx, oy + bot + 0.3, 2.2, 1.4, ramp(shade(color, -20))); R(line, D * fx - 1.5, bot + 0.6, 3, 0.5); }
+      break;
+    case 5: // three tufts on top and rosy cheeks
+      for (const [tx, h] of [[c - 2.5, 2], [c, 3], [c + 2.5, 2]]) { R(line, tx - 0.5, top - h, 1.5, h + 0.5); R(color, tx, top - h + 0.5, 0.5, h); }
+      R("rgba(255,110,140,0.55)", D * 0.16, D * 0.6, 2, 1); R("rgba(255,110,140,0.55)", D * 0.84 - 2, D * 0.6, 2, 1);
+      break;
+    case 6: { // soft spots
+      const r = seeded(D * 13 + model);
+      for (let i = 0; i < 14; i++) {
+        const x = Math.round(D * (0.1 + r() * 0.75)), y = Math.round(D * (0.12 + r() * 0.75));
+        if (inBody(x, y) && inBody(x + 2, y + 2) && !(y > D * 0.3 && y < D * 0.75 && x > D * 0.22 && x < D * 0.72)) { R(shade(color, -55), x, y, 2, 2); R(shade(color, -25), x, y, 2, 0.5); }
+      }
+      break;
+    }
+    case 7: // little ears and a stripe across the back of the head
+      for (const ex of [0.2, 0.8]) { const x = D * ex; litBlob(g, ox + x, oy + top + 0.8, 1.8, 2, ramp(color)); R("rgba(255,140,160,0.6)", x - 0.5, top + 0.5, 1, 1); }
+      for (let x = 0; x < D; x += 0.5) if (inBody(x, top + 2)) R(shade(color, -30), x, top + 1.5, 0.5, 1);
+      break;
+  }
+}
+
 function buildVariantSprite(key, ind, blink = false, noChest = false, wink = false) {
   const def = VARIANTS[key];
   const D = bodySize(key, ind);
@@ -565,6 +610,7 @@ function buildVariantSprite(key, ind, blink = false, noChest = false, wink = fal
   const faceShift = Math.round(((inside.top + inside.bottom) / 2 - D / 2) * 2) / 2;
   const fx0 = SPR_PAD_X, fy0 = SPR_PAD_T + faceShift;
   const ink = def.ink || "#2b1d00";
+  if (ind && key !== CHEST_KEY && ind.model) drawModelFeature(g, SPR_PAD_X, SPR_PAD_T, D, color, ind.model, inside);
   if (key === CHEST_KEY) {
     drawTankTop(g, SPR_PAD_X, SPR_PAD_T, D, inside);
     if (!noChest) drawChest(g, SPR_PAD_X, SPR_PAD_T, D, color);

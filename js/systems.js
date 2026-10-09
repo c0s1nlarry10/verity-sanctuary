@@ -369,6 +369,17 @@ function showDayReport(d) {
   if (!dlg.open) dlg.showModal();
 }
 
+const lightMap = document.createElement("canvas"), lightCtx = lightMap.getContext("2d");
+// Every light source at night: [x, y, radius, warm?]. Radii are how far the light reaches.
+function nightLights() {
+  const L = state.objects.filter(o => o.t === "lamp" || OBJECTS[o.t].kind === "stand").map(o => [o.x * TILE + 8, o.y * TILE + 10, o.t === "lamp" ? 46 : 26]);
+  L.push([GATE.x * TILE + 8, GATE.y * TILE - 14, 34], [GATE.x * TILE + 8, GATE.y * TILE + 10, 34], [GATE.x * TILE - 9, GATE.y * TILE - 2, 18]);
+  for (const [lx, ly] of streetLamps()) L.push([lx + 1, ly - 4, 40]);
+  for (const ox of [2, VAULT.w * TILE - 2]) L.push([VAULT.x * TILE + ox, (VAULT.y + VAULT.h) * TILE - 10, 22]);   // the vault's gold orbs
+  for (const sec of securities) L.push([sec.c.x + sec.c.vx * 1.6, sec.c.y + sec.c.vy * 1.6, 16, false]);       // guards' flashlights
+  for (const c of cars) if (c.state !== "parked" && !(c.delay > 0)) L.push([c.x + (c.dir === 1 ? 18 : c.dir === 3 ? -18 : 0), c.y + (c.dir === 2 ? 18 : c.dir === 0 ? -18 : 0), 20, false]);   // headlights
+  return L;
+}
 function drawSky(time) {
   if (!state.settings.effects) return;
   const vx = view.x - TILE, vy = view.y - TILE, vw = viewW() + TILE * 2, vh = viewH() + TILE * 2;
@@ -382,30 +393,54 @@ function drawSky(time) {
       ctx.fillRect(x, y, 0.5, 4);
     }
   }
-  const d = darkness() + (weather === "storm" ? 0.18 : weather === "rain" ? 0.1 : weather === "cloudy" ? 0.05 : 0);
+  const d = Math.min(0.82, darkness() + (weather === "storm" ? 0.18 : weather === "rain" ? 0.1 : weather === "cloudy" ? 0.05 : 0));
   if (d > 0) {
-    ctx.fillStyle = `rgba(10,14,48,${Math.min(0.78, d)})`;
-    ctx.fillRect(vx, vy, vw, vh);
-  }
-  const glow = darkness();
-  if (glow > 0.05) {
-    ctx.globalCompositeOperation = "lighter";
-    const lights = state.objects.filter(o => o.t === "lamp" || OBJECTS[o.t].kind === "stand").map(o => [o.x * TILE + 8, o.y * TILE, o.t === "lamp" ? 26 : 14]);
-    lights.push([GATE.x * TILE + 8, GATE.y * TILE - 19, 16], [GATE.x * TILE + 8, GATE.y * TILE + 7, 16], [GATE.x * TILE + 8, GATE.y * TILE - 28, 22], [GATE.x * TILE - 9, GATE.y * TILE - 6, 10]);
-    for (const [lx, ly] of streetLamps()) lights.push([lx + 1, ly - 15, 22]);
-    for (const ox of [2, VAULT.w * TILE - 2]) lights.push([VAULT.x * TILE + ox, (VAULT.y + VAULT.h) * TILE - 15, 12]);   // the vault's gold orbs
-    for (const sec of securities) lights.push([sec.c.x + sec.c.vx * 0.6, sec.c.y - 4 + sec.c.vy * 0.6, 11]);   // guards' flashlights
-    for (const c of cars) if (c.state !== "parked") lights.push([c.x + (c.dir === 1 ? 8 : c.dir === 3 ? -8 : 0), c.y + (c.dir === 2 ? 8 : c.dir === 0 ? -8 : 0), 10]);
+    // Night lighting works like a light map: the scene is covered in darkness, and each light
+    // cuts a pool out of it (with soft, banded falloff), so the ground under a lamp shows its
+    // true colours instead of getting a glow painted on top. A faint warm tint follows.
+    const glow = darkness();
+    const lights = glow > 0.05 ? nightLights() : [];
+    const T = ctx.getTransform();
+    if (lightMap.width !== ctx.canvas.width || lightMap.height !== ctx.canvas.height) { lightMap.width = ctx.canvas.width; lightMap.height = ctx.canvas.height; }
+    lightCtx.setTransform(1, 0, 0, 1, 0, 0);
+    lightCtx.globalCompositeOperation = "source-over";
+    lightCtx.clearRect(0, 0, lightMap.width, lightMap.height);
+    lightCtx.fillStyle = `rgba(10,14,48,${d})`;
+    lightCtx.fillRect(0, 0, lightMap.width, lightMap.height);
+    lightCtx.setTransform(T);
+    lightCtx.globalCompositeOperation = "destination-out";
+    const strength = Math.min(1, glow / 0.5);
     for (const [lx, ly, r] of lights) {
       if (lx < vx - r || lx > vx + vw + r || ly < vy - r || ly > vy + vh + r) continue;
-      const grd = ctx.createRadialGradient(lx, ly, 1, lx, ly, r);
-      grd.addColorStop(0, `rgba(255,220,120,${glow * 0.9})`);
-      grd.addColorStop(1, "rgba(255,220,120,0)");
-      ctx.fillStyle = grd;
-      ctx.fillRect(lx - r, ly - r, r * 2, r * 2);
+      const grd = lightCtx.createRadialGradient(lx, ly, 0, lx, ly, r);
+      grd.addColorStop(0, `rgba(0,0,0,${0.95 * strength})`);
+      grd.addColorStop(0.35, `rgba(0,0,0,${0.9 * strength})`);
+      grd.addColorStop(0.36, `rgba(0,0,0,${0.7 * strength})`);
+      grd.addColorStop(0.65, `rgba(0,0,0,${0.55 * strength})`);
+      grd.addColorStop(0.66, `rgba(0,0,0,${0.3 * strength})`);
+      grd.addColorStop(1, "rgba(0,0,0,0)");
+      lightCtx.fillStyle = grd;
+      lightCtx.fillRect(lx - r, ly - r, r * 2, r * 2);
     }
-    drawCityLights(glow, vx, vy, vx + vw, vy + vh);
-    ctx.globalCompositeOperation = "source-over";
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(lightMap, 0, 0);
+    ctx.restore();
+    // warm tint where the light falls, and the lit city windows
+    if (lights.length) {
+      ctx.globalCompositeOperation = "soft-light";
+      for (const [lx, ly, r, warm] of lights) {
+        if (lx < vx - r || lx > vx + vw + r || ly < vy - r || ly > vy + vh + r) continue;
+        const grd = ctx.createRadialGradient(lx, ly, 0, lx, ly, r * 0.8);
+        grd.addColorStop(0, warm === false ? `rgba(220,235,255,${0.5 * strength})` : `rgba(255,200,110,${0.6 * strength})`);
+        grd.addColorStop(1, "rgba(255,200,110,0)");
+        ctx.fillStyle = grd;
+        ctx.fillRect(lx - r, ly - r, r * 2, r * 2);
+      }
+      ctx.globalCompositeOperation = "lighter";
+      drawCityLights(glow, vx, vy, vx + vw, vy + vh);
+      ctx.globalCompositeOperation = "source-over";
+    }
   }
   if (lightning > 0) {
     ctx.fillStyle = `rgba(255,255,255,${lightning * 3})`;

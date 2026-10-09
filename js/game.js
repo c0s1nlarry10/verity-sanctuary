@@ -1996,7 +1996,7 @@ function renderCard() {
   const rows = [
     ["Personality", TRAITS[ind.trait].label],
     ["Size", SIZES[ind.size].label],
-    ["Model", BODY_MODELS[ind.model || 0].name + (ind.k === CHEST_KEY ? ` · ${BLOND_STYLES[ind.model || 0]} hair` : "")],
+    ["Model", BODY_MODELS[ind.model || 0].name + (ind.k === CHEST_KEY ? ` · ${BLOND_STYLES[ind.model || 0]} hair` : MODEL_FEATURES[ind.model || 0] ? ` · ${MODEL_FEATURES[ind.model || 0]}` : "")],
     ["Markings", MARKINGS[ind.mark]],
     ["Per viewer", `+${fmtVal(expectedValue(ind, e))} coins`],
     ["Appeal", fmtVal(indAppeal(ind))],

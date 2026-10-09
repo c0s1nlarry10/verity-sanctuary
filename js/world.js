@@ -140,6 +140,7 @@ function buildTerrain() {
       } else {
         const v = 196 + ((n * 22) | 0);
         col = z === ZONE.PLAZA || z === ZONE.WALK ? [v + 14, v + 4, v - 20] : [v, v - 4, v - 16];
+        if (z === ZONE.WALK && inRect(tx, ty, lotRect())) { const a = 60 + ((n * 26) | 0); col = [a + 6, a + 6, a + 14]; }   // crossing: asphalt
         if (px % 16 === 0 || py % 16 === 0) col = [col[0] - 34, col[1] - 34, col[2] - 30];
       }
       d[o] = col[0]; d[o + 1] = col[1]; d[o + 2] = col[2]; d[o + 3] = 255;
@@ -195,7 +196,11 @@ function drawTerrainDetails(g) {
         continue;
       }
       if (z === ZONE.PLAZA) continue;
-      if (z === ZONE.WALK) { R("#9a8a6a", X, Y, TILE, 0.5); R("#9a8a6a", X, Y + 15.5, TILE, 0.5); for (let i = 0; i < TILE; i += 8) R("rgba(0,0,0,0.12)", X + i, Y, 0.5, TILE); continue; }
+      if (z === ZONE.WALK) {
+        if (inRect(tx, ty, lotRect())) for (let i = 1; i < TILE; i += 4) R("#e8e8e8", X + i, Y + 2, 2, 12);   // zebra crossing through the car park
+        else { R("#9a8a6a", X, Y, TILE, 0.5); R("#9a8a6a", X, Y + 15.5, TILE, 0.5); for (let i = 0; i < TILE; i += 8) R("rgba(0,0,0,0.12)", X + i, Y, 0.5, TILE); }
+        continue;
+      }
       const owned = z === ZONE.OUT || isOwned(tx, ty);
       const biome = owned && z !== ZONE.OUT ? biomeAt(tx, ty) : wildBiomeAt(X + 8, Y + 8);
       if (!owned) {

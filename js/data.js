@@ -10,11 +10,11 @@ const PATCH_NOTES = [
         "Over 20x bigger, with 42 plots of wild land in 11 biomes that blend into each other.",
         "A city surrounds the sanctuary, with traffic, pedestrians, crosswalks and lit windows at night.",
         "Minimap, a whole-map zoom, arrow keys/WASD to move, scroll or +/- to zoom.",
-        "A new front gate, street lamps, and darker nights where every light glows.",
+        "A new front gate, street lamps, and real night lighting: lamps light up the ground around them.",
       ] },
       { title: "Park & building", notes: [
         "Open 8 AM to 10 PM; build at night while closed. A report shows each day's profit.",
-        "Guests arrive by car. The parking lot now grows all the way down the park.",
+        "Guests arrive by car and park in random spaces. The parking lot grows all the way down the park, with a crosswalk for people on foot.",
         "Custom-shaped pens, seven fence styles, and remodelling.",
         "No limit on staff, and more pen slots as your park levels up.",
         "Locked items stay visible with the level that unlocks them.",
@@ -25,7 +25,7 @@ const PATCH_NOTES = [
       ] },
       { title: "Variants", notes: [
         "Every variant ends in -ity: meet Liminality, Blockity and Piratity.",
-        "8 rounded body models, so no two look alike. Accessories are retired.",
+        "8 rounded body models, each with its own features (sprouts, feet, ears, spots and more). Accessories are retired.",
         "Jelly-like jiggle, sleep at night, and unique emotes in close-up.",
         "Boobity traded the censor bar for a tank top and blond hair.",
       ] },
