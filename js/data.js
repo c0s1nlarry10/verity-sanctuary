@@ -584,7 +584,7 @@ const ROAD_X = [1, 2];          // two-lane road along the west edge
 // The car park grows out from the driveway until it runs the full height of the park.
 // Spaces = stall columns x rows (the driveway row has no stalls).
 const LOT_LEVELS = [
-  { cost: 0,       rect: [10, GATE.y - 1, 13, GATE.y + 1] },
+  { cost: 0,       rect: [10, GATE.y - 1, 13, GATE.y + 2] },
   { cost: 800,     rect: [10, GATE.y - 2, 13, GATE.y + 2] },
   { cost: 3000,    rect: [8, GATE.y - 2, 13, GATE.y + 2] },
   { cost: 9000,    rect: [8, GATE.y - 3, 13, GATE.y + 3] },
@@ -595,7 +595,18 @@ const LOT_LEVELS = [
   { cost: 1800000, rect: [7, GATE.y - 26, 13, GATE.y + 26] },
   { cost: 5000000, rect: [7, 0, 13, ROWS - 1] },
 ];
-for (const l of LOT_LEVELS) l.spaces = (l.rect[2] - l.rect[0]) * (l.rect[3] - l.rect[1]);
+// Stalls fill the lot except the driveway row and, in taller lots, a central aisle that cars
+// drive up and down (so they never drive through parked cars).
+const LOT_AISLE_X = 11;
+const isLotAisle = (x, y) => x === LOT_AISLE_X && Math.abs(y - GATE.y) >= 2;
+// A paved footpath runs along the row above the driveway, from the road pavement to the
+// gate, so people on foot never walk through traffic or parked cars.
+const LOT_WALK_Y = GATE.y - 1;
+for (const l of LOT_LEVELS) {
+  let n = 0;
+  for (let y = l.rect[1]; y <= l.rect[3]; y++) for (let x = l.rect[0]; x < l.rect[2]; x++) if (y !== GATE.y && y !== LOT_WALK_Y && !isLotAisle(x, y)) n++;
+  l.spaces = n;
+}
 const GUESTS_PER_SPACE = 3;
 const WEATHER = {
   clear:  { label: "Sunny",  weight: 50, spawn: 1,   icon: "sun" },

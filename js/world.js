@@ -5,7 +5,7 @@
 
 
 // ================= Zones =================
-const ZONE = { OUT: 0, ROAD: 1, SIDEWALK: 2, DRIVE: 3, LOT: 4, PLAZA: 5, PARK: 6 };
+const ZONE = { OUT: 0, ROAD: 1, SIDEWALK: 2, DRIVE: 3, LOT: 4, PLAZA: 5, PARK: 6, WALK: 7 };
 const lotLevel = () => Math.max(1, Math.min(LOT_LEVELS.length, state.lotLevel || 1));
 function lotRect(level = lotLevel()) { return LOT_LEVELS[level - 1].rect; }
 function inRect(x, y, r) { return x >= r[0] && x <= r[2] && y >= r[1] && y <= r[3]; }
@@ -39,6 +39,7 @@ function zoneAt(x, y) {
   if (x === 3 && y === GATE.y) return ZONE.DRIVE;       // car park driveway crossing the pavement
   if (x === 0 || x === 3) return ZONE.SIDEWALK;
   const r = lotRect();
+  if (y === LOT_WALK_Y && x >= 4 && x < r[2]) return ZONE.WALK;   // the car park footpath
   if (inRect(x, y, r)) return x === r[2] ? ZONE.PLAZA : ZONE.LOT;
   if (y === GATE.y && x > 3 && x < r[0]) return ZONE.DRIVE;
   return ZONE.OUT;
@@ -46,7 +47,7 @@ function zoneAt(x, y) {
 function lotStalls(level = lotLevel()) {
   const r = lotRect(level), out = [];
   for (let y = r[1]; y <= r[3]; y++)
-    for (let x = r[0]; x < r[2]; x++) if (y !== GATE.y) out.push({ x, y });
+    for (let x = r[0]; x < r[2]; x++) if (y !== GATE.y && y !== LOT_WALK_Y && !isLotAisle(x, y)) out.push({ x, y });
   return out.slice(0, LOT_LEVELS[level - 1].spaces);
 }
 function plotKeyAt(x, y) { const i = PLOT_MAP[y * COLS + x]; return i >= 0 ? PLOT_KEYS[i] : null; }
@@ -138,7 +139,7 @@ function buildTerrain() {
         col = z === ZONE.LOT ? [v + 6, v + 6, v + 14] : [v, v, v + 8];
       } else {
         const v = 196 + ((n * 22) | 0);
-        col = z === ZONE.PLAZA ? [v + 14, v + 4, v - 20] : [v, v - 4, v - 16];
+        col = z === ZONE.PLAZA || z === ZONE.WALK ? [v + 14, v + 4, v - 20] : [v, v - 4, v - 16];
         if (px % 16 === 0 || py % 16 === 0) col = [col[0] - 34, col[1] - 34, col[2] - 30];
       }
       d[o] = col[0]; d[o + 1] = col[1]; d[o + 2] = col[2]; d[o + 3] = 255;
@@ -182,7 +183,10 @@ function drawTerrainDetails(g) {
       if (z === ZONE.SIDEWALK) { R("rgba(0,0,0,0.25)", tx === 0 ? X + 15.5 : X, Y, 0.5, TILE); continue; }
       if (z === ZONE.DRIVE && tx === 3) { for (let i = 1; i < TILE; i += 3) R("#e8e8e8", X + 3, Y + i, 10, 1.5); continue; }
       if (z === ZONE.LOT || z === ZONE.DRIVE) {
-        if (z === ZONE.LOT && ty !== GATE.y) {
+        if (z === ZONE.LOT && isLotAisle(tx, ty)) {
+          // the aisle: a dashed centre line and arrows pointing away from the driveway
+          R("#e8e8e8", X + 7.5, Y + 2, 1, 5); R("#e8e8e8", X + 7.5, Y + 10, 1, 4);
+        } else if (z === ZONE.LOT && ty !== GATE.y) {
           R("#e8e8e8", X, Y + 1, 0.5, 14);
           R("#e8e8e8", X, ty < GATE.y ? Y + 1 : Y + 14.5, 16, 0.5);
         }
@@ -191,6 +195,7 @@ function drawTerrainDetails(g) {
         continue;
       }
       if (z === ZONE.PLAZA) continue;
+      if (z === ZONE.WALK) { R("#9a8a6a", X, Y, TILE, 0.5); R("#9a8a6a", X, Y + 15.5, TILE, 0.5); for (let i = 0; i < TILE; i += 8) R("rgba(0,0,0,0.12)", X + i, Y, 0.5, TILE); continue; }
       const owned = z === ZONE.OUT || isOwned(tx, ty);
       const biome = owned && z !== ZONE.OUT ? biomeAt(tx, ty) : wildBiomeAt(X + 8, Y + 8);
       if (!owned) {
@@ -285,22 +290,31 @@ let cars = [], walkers = [], nextCarId = 1, trafficTimer = 4;
 const CAR_SPEED = 70;
 const laneDownX = 1 * TILE + 8, laneUpX = 2 * TILE + 8, driveY = GATE.y * TILE + 8;
 const maxGuests = () => Math.min(MAX_VISITORS_CAP, LOT_LEVELS[lotLevel() - 1].spaces * GUESTS_PER_SPACE);
+// A random free stall, so cars spread out across the lot instead of filling it in order.
 function freeStall() {
   const taken = new Set(cars.filter(c => c.stall).map(c => c.stall.x + "," + c.stall.y));
-  return lotStalls().find(s => !taken.has(s.x + "," + s.y)) || null;
+  const free = lotStalls().filter(s => !taken.has(s.x + "," + s.y));
+  return free.length ? free[Math.floor(Math.random() * free.length)] : null;
+}
+const aisleX = LOT_AISLE_X * TILE + 8;
+const walkY = LOT_WALK_Y * TILE + 8, plazaX = 13 * TILE + 8;
+// Route between the driveway and a stall: straight in for the rows next to the driveway,
+// otherwise up or down the central aisle and then into the stall.
+function stallRoute(stall) {
+  const sx = stall.x * TILE + 8, sy = stall.y * TILE + 8;
+  return Math.abs(stall.y - GATE.y) >= 2 ? [[aisleX, driveY], [aisleX, sy], [sx, sy]] : [[sx, driveY], [sx, sy]];
 }
 function guestsOnSite() { return visitors.filter(v => !v.leaving).length + walkers.length + cars.reduce((s, c) => s + (c.state === "arrive" ? c.seats : 0), 0); }
 
-function spawnCar(seats) {
+function spawnCar(seats, delay = 0) {
   if (!isOpen()) return false;   // the car park is closed at night
   const stall = freeStall();
   if (!stall) return false;
   const fromNorth = Math.random() < 0.5;
-  const sx = stall.x * TILE + 8, sy = stall.y * TILE + 8;
   const path = fromNorth
-    ? [[laneDownX, -24], [laneDownX, driveY], [sx, driveY], [sx, sy]]
-    : [[laneUpX, WORLD_H + 24], [laneUpX, driveY], [sx, driveY], [sx, sy]];
-  cars.push({ id: nextCarId++, set: Math.floor(Math.random() * CAR_SPRITES.length), x: path[0][0], y: path[0][1], dir: fromNorth ? 2 : 0, path: path.slice(1), state: "arrive", stall, seats, parkedAt: 0 });
+    ? [[laneDownX, -24], [laneDownX, driveY], ...stallRoute(stall)]
+    : [[laneUpX, WORLD_H + 24], [laneUpX, driveY], ...stallRoute(stall)];
+  cars.push({ id: nextCarId++, set: Math.floor(Math.random() * CAR_SPRITES.length), x: path[0][0], y: path[0][1], dir: fromNorth ? 2 : 0, path: path.slice(1), state: "arrive", stall, seats, parkedAt: 0, delay });
   return true;
 }
 function spawnTraffic() {
@@ -308,9 +322,9 @@ function spawnTraffic() {
   cars.push({ id: nextCarId++, set: Math.floor(Math.random() * CAR_SPRITES.length), x: down ? laneDownX : laneUpX, y: down ? -24 : WORLD_H + 24, dir: down ? 2 : 0, path: [[down ? laneDownX : laneUpX, down ? WORLD_H + 30 : -30]], state: "pass", seats: 0 });
 }
 function carLeave(c) {
-  const sx = c.stall.x * TILE + 8;
   const north = Math.random() < 0.5;
-  c.path = [[sx, driveY], [north ? laneUpX : laneDownX, driveY], north ? [laneUpX, -30] : [laneDownX, WORLD_H + 30]];
+  const back = stallRoute(c.stall).reverse().slice(1);   // back out the way it came in
+  c.path = [...back, [north ? laneUpX : laneDownX, driveY], north ? [laneUpX, -30] : [laneDownX, WORLD_H + 30]];
   c.state = "leave";
   c.stall = null;
 }
@@ -336,6 +350,7 @@ function updateCars(dt) {
   trafficTimer -= dt;
   if (trafficTimer < 0) { trafficTimer = 5 + Math.random() * 10; if (state.settings.effects !== false) spawnTraffic(); }
   for (const c of cars) {
+    if (c.delay > 0) { c.delay -= dt; continue; }
     const wp = c.path[0];
     if (!wp) {
       if (c.state === "arrive") {
@@ -344,12 +359,20 @@ function updateCars(dt) {
         c.dir = c.stall.y < GATE.y ? 0 : 2;
         for (let i = 0; i < c.seats; i++) {
           const look = randomLook(rollVisitorType());
-          walkers.push({ look, frames: personFrames(look), x: c.x + (i - (c.seats - 1) / 2) * 4, y: c.y, path: [[c.x, driveY + (i % 2 ? 3 : -3)], [GATE.x * TILE - 1, driveY]], carId: c.id, delay: i * 0.35, phase: Math.random() * 6 });
+          // walk between the parked cars to the footpath, then along it and down the paving to the gate
+          const gapX = c.stall.x * TILE + (i % 2 ? 16 : 0), off = (i % 2 ? 2 : -2);
+          walkers.push({ look, frames: personFrames(look), x: gapX, y: c.y, path: [[gapX, walkY + off], [plazaX + off, walkY + off], [plazaX + off, driveY], [GATE.x * TILE - 1, driveY]], carId: c.id, delay: i * 0.35, phase: Math.random() * 6 });
         }
       } else if (c.state !== "parked") c.done = true;
       continue;
     }
     const dx = wp[0] - c.x, dy = wp[1] - c.y, dist = Math.hypot(dx, dy), step = CAR_SPEED * dt;
+    // keep a gap: wait if another moving car is just ahead in the direction we're going
+    if (dist > 0.5) {
+      const ux = dx / dist, uy = dy / dist;
+      const blocked = cars.some(o => o !== c && o.state !== "parked" && !o.done && (() => { const ox = o.x - c.x, oy = o.y - c.y, ahead = ox * ux + oy * uy, side = Math.abs(ox * uy - oy * ux); return ahead > 0 && ahead < 19 && side < 7 && o.id < c.id; })());
+      if (blocked) continue;
+    }
     if (dist <= step) { c.x = wp[0]; c.y = wp[1]; c.path.shift(); }
     else { c.x += (dx / dist) * step; c.y += (dy / dist) * step; }
     if (Math.abs(dx) > Math.abs(dy)) c.dir = dx > 0 ? 1 : 3; else if (dist > 0.5) c.dir = dy > 0 ? 2 : 0;
@@ -420,7 +443,7 @@ function spawnPed() {
   }
   if (visit && x === PAVE_R) {
     // walk up the driveway and in through the gate
-    path.push([PAVE_R, driveY + 4], [GATE.x * TILE - 1, driveY + 4]);
+    path.push([PAVE_R, walkY], [plazaX, walkY], [plazaX, driveY], [GATE.x * TILE - 1, driveY]);
     peds.push({ look, frames: personFrames(look), x: PAVE_R, y: y0, path, enter: true, speed: 20 + Math.random() * 8, phase: Math.random() * 6 });
     return;
   }
@@ -457,6 +480,7 @@ function drawCars(x0, y0, x1, y1) {
   drawBarrier();
   drawPeds(x0, y0, x1, y1);
   for (const c of cars.slice().sort((a, b) => a.y - b.y)) {
+    if (c.delay > 0) continue;
     if (c.x < x0 - 20 || c.x > x1 + 20 || c.y < y0 - 20 || c.y > y1 + 20) continue;
     const spr = CAR_SPRITES[c.set][c.dir];
     blit(ctx, spr, Math.round((c.x - uW(spr) / 2) * 2) / 2, Math.round((c.y - uH(spr) / 2) * 2) / 2);
@@ -577,7 +601,7 @@ function buildMinimapBase(zoneCache, ownCache) {
     const z = zoneCache[y * COLS + x];
     if (z === ZONE.ROAD || z === ZONE.DRIVE) return "#3c3c46";
     if (z === ZONE.LOT) return "#55555f";
-    if (z === ZONE.SIDEWALK || z === ZONE.PLAZA) return "#c9c4b6";
+    if (z === ZONE.SIDEWALK || z === ZONE.PLAZA || z === ZONE.WALK) return "#c9c4b6";
     if (z === ZONE.OUT) return "#3f7a36";
     if (ownCache[y * COLS + x]) return "#5bae4b";
     const p = BIOMES[biomeAt(x, y)].ground[1];

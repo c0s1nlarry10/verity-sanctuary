@@ -1094,7 +1094,7 @@ function startEvent(forceType, forceKey) {
   if (type === "viral") {
     activeEvent = { type, key: p.ind.k, t: 0, dur: 30, icon: p.ind.k, text: `${name} is going viral! 17M views. Every ${name} earns 3x.` };
     state.stats.virals++;
-    for (let i = 0; i < 3; i++) spawnCar(1 + Math.floor(Math.random() * 3));
+    for (let i = 0; i < 3; i++) spawnCar(1 + Math.floor(Math.random() * 3), i * 1.5);   // a burst of fans, not all at once
   } else if (type === "song") {
     activeEvent = { type, t: 0, dur: 20, icon: "verity", text: "A Verity song is trending! Every Verity earns 5x." };
   } else if (type === "parade") {

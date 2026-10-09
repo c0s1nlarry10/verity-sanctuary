@@ -1156,7 +1156,8 @@ function rotateCanvas(src, quarter) {
   return c;
 }
 // dir: 0 up, 1 right, 2 down, 3 left
-const CAR_SPRITES = CAR_COLORS.map(col => { const up = enlarge(makeCarUp(col), PROP_K); return [up, rotateCanvas(up, 1), rotateCanvas(up, 2), rotateCanvas(up, 3)]; });
+// cars are scaled to fit inside one 16-unit parking space
+const CAR_SPRITES = CAR_COLORS.map(col => { const up = enlarge(makeCarUp(col), 0.92); return [up, rotateCanvas(up, 1), rotateCanvas(up, 2), rotateCanvas(up, 3)]; });
 
 // ================= Gate =================
 // The park entrance, seen from above: stone pillars stand north and south of the

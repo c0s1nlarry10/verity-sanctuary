@@ -111,8 +111,12 @@ function fireStaff(t) {
   renderUI(true);
 }
 
+// Staff start on a random path tile, so they spread around the park instead of stacking at the gate.
 function newWalker(type) {
-  return { type, tx: GATE.x, ty: GATE.y, px: GATE.x, py: GATE.y, nx: GATE.x, ny: GATE.y, prog: 1, speed: type === "mascot" ? 0.7 : 0.9, phase: Math.random() * 6 };
+  const paths = [];
+  for (let y = 0; y < ROWS; y++) for (let x = OX; x < COLS; x++) if (isPath(x, y)) paths.push([x, y]);
+  const [x, y] = paths.length ? paths[Math.floor(Math.random() * paths.length)] : [GATE.x, GATE.y];
+  return { type, tx: x, ty: y, px: x, py: y, nx: x, ny: y, prog: 1, speed: (type === "mascot" ? 0.7 : 0.9) * (0.9 + Math.random() * 0.2), phase: Math.random() * 6 };
 }
 function syncStaff() {
   for (const t of Object.keys(STAFF)) {
