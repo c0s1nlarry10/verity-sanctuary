@@ -855,3 +855,7 @@ a.feedback-wide {
   border: 3px solid #000; box-shadow: 3px 3px 0 #000;
 }
 a.feedback-wide:hover { background: #a8fbff; }
+
+.feedback-toast { border-color: #7df9ff; }
+.feedback-toast a { color: #7df9ff; pointer-events: auto; }
+.toasts .toast.feedback-toast { pointer-events: auto; }

@@ -2194,6 +2194,31 @@ function toast(msg, ms = 3500, key = "verity") {
   setTimeout(() => { el.classList.add("out"); setTimeout(() => el.remove(), 300); }, ms);
 }
 
+// ---- feedback reminder: a small 10-second pop-up every 10 real-world minutes of play ----
+const FEEDBACK_URL = "https://forms.gle/N3EzvmrXTgRiWqSZ6";
+const FEEDBACK_EVERY_MS = 10 * 60 * 1000, FEEDBACK_SHOW_MS = 10 * 1000;
+let feedbackTimer = null;
+function showFeedbackReminder() {
+  // wait for a quiet moment: not during the tutorial, a hatch animation or an open dialog
+  if (tutorialActive() || fx || document.querySelector("dialog[open]")) { feedbackTimer = setTimeout(showFeedbackReminder, 20000); return; }
+  const el = document.createElement("div");
+  el.className = "toast feedback-toast";
+  el.appendChild(spriteImg("lovity"));
+  const txt = el.appendChild(document.createElement("span"));
+  txt.appendChild(document.createTextNode("Enjoying the sanctuary? Feedback is appreciated and helps improve the game! "));
+  const a = txt.appendChild(document.createElement("a"));
+  a.href = FEEDBACK_URL; a.target = "_blank"; a.rel = "noopener"; a.textContent = "Send feedback";
+  const box = $("toasts");
+  box.appendChild(el);
+  while (box.children.length > 3) box.firstElementChild.remove();
+  setTimeout(() => { el.classList.add("out"); setTimeout(() => el.remove(), 300); }, FEEDBACK_SHOW_MS);
+  feedbackTimer = setTimeout(showFeedbackReminder, FEEDBACK_EVERY_MS);
+}
+function startFeedbackReminders() {
+  clearTimeout(feedbackTimer);
+  feedbackTimer = setTimeout(showFeedbackReminder, FEEDBACK_EVERY_MS);
+}
+
 // Copies a sprite into a fresh canvas for the DOM. Accepts an individual, a variant key, or null (silhouette).
 function spriteImg(src) {
   const spr = src === null ? silhouetteSprite() : typeof src === "string" ? baseSprite(src) : spriteFor(src);

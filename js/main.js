@@ -74,6 +74,7 @@ requestAnimationFrame(frame);
     loader.classList.add("done");
     setTimeout(() => loader.remove(), 700);
     startMusic();
+    startFeedbackReminders();
     sfx("fanfare", 1);
     checkDaily();
     resizeView();
