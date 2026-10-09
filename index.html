@@ -16,7 +16,7 @@
       <canvas id="loader-verity" width="52" height="52"></canvas>
       <h1 class="loader-title">VERITY<br>SANCTUARY</h1>
       <p class="loader-tag">a variant habitat tycoon</p>
-      <p class="loader-version"><span id="loader-version">Version 1.1</span> · <button id="loader-notes" class="linkish" type="button">What's new?</button></p>
+      <p class="loader-version"><span id="loader-version">Version 2.0</span> · <button id="loader-notes" class="linkish" type="button">What's new?</button></p>
       <div class="loader-roster">
         <canvas id="loader-faces" width="168" height="26"></canvas>
         <span>27 variants to discover (... for now)</span>
@@ -219,9 +219,10 @@
         realParade = VARIANT_KEYS.map(function (k, i) {
           var def = VARIANTS[k], seed = 7000 + i * 131;
           var ind = { id: -3000 - i, k: k, seed: seed, model: Math.floor(Math.random() * BODY_MODELS.length), size: 0, hue: 0, light: 0, mark: "none", acc: "none", trait: "chill", shiny: false };
-          var spr = buildVariantSprite(k, ind, false);
+          var chest = k === CHEST_KEY;
+          var spr = buildVariantSprite(k, ind, false, chest);   // Boobity's chest is drawn live so it can jiggle
           var trick = k === "boobity" ? "shimmy" : def.move === "float" ? "float" : def.move === "glitch" ? "glitch" : def.move === "zoom" ? "dash" : def.move === "squash" ? "boing" : def.move === "jitter" ? "wiggle" : tricks[i % tricks.length];
-          return { spr: spr, trick: trick };
+          return { spr: spr, trick: trick, chest: chest ? { D: bodySize(k, ind), color: def.color } : null };
         });
         // shuffle so the line-up changes every visit
         for (var j = realParade.length - 1; j > 0; j--) { var q = Math.floor(Math.random() * (j + 1)), t = realParade[j]; realParade[j] = realParade[q]; realParade[q] = t; }
@@ -288,6 +289,14 @@
           if (rot) g.rotate(rot);
           g.scale(sx, sy);
           g.drawImage(p.spr, -Math.round(sw / 2), -Math.round(sh / 2));
+          if (p.chest) {
+            // the chest lags behind each hop and swings on its own: two springs, slightly out of step
+            var shim = p.trick === "shimmy" && tr < 0.22 ? 1 : 0;
+            var lag = (hopT - 0.18 + 1) % 1, bounce = Math.sin(lag * Math.PI * 2);
+            var jy = Math.round(bounce * 2.5 + Math.sin(T * 30) * 1.5 * shim), jy2 = Math.round(Math.sin((lag - 0.06) * Math.PI * 2) * 2.5 + Math.sin(T * 30 + 1) * 1.5 * shim);
+            var jx = Math.round(Math.sin(T * 9 + i) * 0.8 + Math.sin(T * 30) * 2 * shim);
+            drawChest(g, -Math.round(sw / 2) + SPR_PAD_X, -Math.round(sh / 2) + SPR_PAD_T, p.chest.D, p.chest.color, 1, 1, [jx, jy, -jx, jy2]);
+          }
           g.restore();
           g.globalAlpha = 1;
         }
@@ -338,7 +347,7 @@
       <i class="ico logo" data-icon="logo"></i>
       <div>
         <h1>VERITY SANCTUARY</h1>
-        <p class="tagline">a variant habitat tycoon <span class="ver" id="ver-tag">v1.1</span></p>
+        <p class="tagline">a variant habitat tycoon <span class="ver" id="ver-tag">v2.0</span></p>
       </div>
       <div class="lvl-box" title="Park level: earn XP to unlock new items">
         <span class="lvl-badge" id="park-level">1</span>

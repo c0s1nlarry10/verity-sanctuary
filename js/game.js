@@ -6,7 +6,7 @@ function makeIndividual(k, s, opts = {}) {
   const r = seeded(seed);
   const pickFrom = arr => arr[Math.floor(r() * arr.length)];
   const sizeRoll = r();
-  // accessories were retired in v1.1 (body models give the variety now); the rolls stay so
+  // accessories were retired in v2.0 (body models give the variety now); the rolls stay so
   // seeded individuals keep the same names, colours and traits
   const acc = "none";
   if (r() < 0.4) r();
@@ -1715,7 +1715,7 @@ function render(dt, time) {
 // Two guards (Verity-style, in navy caps and shades) walk a loop around the fence.
 const securities = [0, 1].map(i => {
   const ind = makeIndividual("verity", { nextUid: -900 - i }, { seed: 4242 + i * 97, shinyChance: 0 });
-  Object.assign(ind, { size: 0, model: i ? 3 : 0, hue: 0, light: i ? -6 : 0, mark: "none", trait: "chill" });
+  Object.assign(ind, { size: 0, model: i ? 3 : 0, hue: 0, light: i ? -6 : 0, mark: "none", trait: "chill", guard: true });
   return { ind, c: { x: 0, y: 0, vx: 0, vy: 0, phase: i * 3, timer: 0 }, s: i * 0.5 };
 });
 function patrolPoint(t) {
@@ -1727,14 +1727,7 @@ function patrolPoint(t) {
   return [X, Y + H - d, 0, -1];
 }
 function drawSecurity(g, sec, dt, time) {
-  const c = sec.c;
-  drawIndividual(g, sec.ind, c, dt, time, 1);
-  const x = Math.round(c.hx), y = Math.round(c.hy + SPR_PAD_T), w = Math.round(c.hw);   // top of the head
-  g.fillStyle = "#000"; g.fillRect(x + 1, y - 2.5, w - 2, 4);
-  g.fillStyle = "#1f2a5a"; g.fillRect(x + 1.5, y - 2, w - 3, 3);
-  g.fillStyle = "#111"; g.fillRect(x + (c.vx < 0 ? -1 : 2), y + 1, w - 1, 1);              // brim
-  g.fillStyle = "#ffd23f"; g.fillRect(x + w / 2 - 0.5, y - 1.5, 1, 1);                          // cap badge
-  g.fillStyle = "#111"; g.fillRect(x + 3, Math.round(y + w * 0.32), w - 6, 1.5);              // shades
+  drawIndividual(g, sec.ind, sec.c, dt, time, 1);
 }
 function drawVault(time, dt, x0, y0, x1, y1) {
   const X = VAULT.x * TILE, Y = VAULT.y * TILE;
@@ -1751,7 +1744,7 @@ function drawVault(time, dt, x0, y0, x1, y1) {
   for (const sec of behind) drawSecurity(ctx, sec, dt, time);
   blit(ctx, VAULT_BACK, X, Y);
   const step = Math.round(fill * 13);
-  blit(ctx, heapSprite(step), X + 5, Y + 12);
+  blit(ctx, heapSprite(step), X + 5, Y + 10);
   if (step > 0) for (let i = 0; i < 3; i++) {
     const t = (time * 0.9 + i / 3) % 1;
     if (t > 0.35) continue;
@@ -1759,11 +1752,12 @@ function drawVault(time, dt, x0, y0, x1, y1) {
     const sx = Math.round(X + 24 + (hash2(i, n, 61) - 0.5) * (4 + step * 1.8)), sy = Math.round(Y + 36 - hash2(i, n, 62) * (2 + step * 1.2));
     ctx.fillStyle = "#ffffff"; ctx.fillRect(sx, sy - 1, 1, 3); ctx.fillRect(sx - 1, sy, 3, 1);
   }
-  blit(ctx, VAULT_FRONT, X, Y + YARD - 10);
+  blit(ctx, VAULT_FRONT, X, Y + YARD - 12);
   // brass plaque with the pile's size
-  ctx.fillStyle = "#000"; ctx.fillRect(X + 15, Y + YARD + 4, 19, 7);
-  ctx.fillStyle = "#c9a227"; ctx.fillRect(X + 15.5, Y + YARD + 4.5, 18, 6);
-  pixelText(ctx, "LV" + state.bankLevel, X + 24.5, Y + YARD + 5, "#3a2a00");
+  ctx.fillStyle = "#000"; ctx.fillRect(X + 14, Y + YARD + 5, 21, 8);
+  ctx.fillStyle = "#c9a227"; ctx.fillRect(X + 14.5, Y + YARD + 5.5, 20, 7);
+  ctx.fillStyle = "#ffe680"; ctx.fillRect(X + 14.5, Y + YARD + 5.5, 20, 1);
+  pixelText(ctx, "LV" + state.bankLevel, X + 24.5, Y + YARD + 7, "#3a2a00");
   if (fill >= 1 && Math.floor(time * 2) % 2) { ctx.fillStyle = "#000"; ctx.fillRect(X + 15, Y - 10, 19, 8); ctx.fillStyle = "#e94f4f"; ctx.fillRect(X + 15.5, Y - 9.5, 18, 7); pixelText(ctx, "FULL", X + 24.5, Y - 8, "#ffffff"); }
   for (const sec of front) drawSecurity(ctx, sec, dt, time);
 }

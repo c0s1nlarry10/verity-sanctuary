@@ -1,10 +1,10 @@
 "use strict";
 
 // ================= Version =================
-const GAME_VERSION = "1.1";
+const GAME_VERSION = "2.0";
 const PATCH_NOTES = [
   {
-    version: "1.1", title: "Bigger, Brighter, Busier",
+    version: "2.0", title: "Bigger, Brighter, Busier",
     sections: [
       { title: "World", notes: [
         "Over 20x bigger, with 39 plots of wild land to buy.",

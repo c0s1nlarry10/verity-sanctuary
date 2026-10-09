@@ -594,6 +594,7 @@ function buildVariantSprite(key, ind, blink = false, noChest = false, wink = fal
 
 const spriteCache = new Map();
 function spriteFor(ind, blink = false, noChest = false, wink = false) {
+  if (ind.guard) { const key = "g" + ind.id; if (!spriteCache.has(key)) spriteCache.set(key, buildGuardSprite(ind)); return spriteCache.get(key); }
   if ((blink || wink) && !FACE_EYES[VARIANTS[ind.k].face]) blink = wink = false;
   noChest = noChest && ind.k === CHEST_KEY;
   if (blink) wink = false;
@@ -1442,42 +1443,98 @@ function ironFence(g, x, y, w, horiz) {
 const VAULT_BACK = (() => {
   const [c, g] = hiCanvas(YARD, YARD);
   const R = (col, x, y, w, h) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
-  g.fillStyle = "rgba(0,0,0,0.3)"; g.fillRect(2, 3, YARD, YARD);
-  for (let y = 0; y < YARD; y += 6) for (let x = 0; x < YARD; x += 6) { R(((x + y) / 6) % 2 ? "#a8a4b2" : "#9894a4", x, y, 6, 6); R("#b8b4c2", x, y, 6, 0.5); R("#7a7684", x + 5.5, y, 0.5, 6); }
-  litBlob(g, YARD / 2, YARD * 0.62, 17, 8, ["#3a3640", "#6a6674", "#7a7684", "#8a8694", "#9a96a4", "#aaa6b4"], { noOutline: true });
-  ironFence(g, 0, 0, YARD, true);
-  ironFence(g, 0.5, 4, YARD - 6, false); ironFence(g, YARD - 2, 4, YARD - 6, false);
-  for (const x of [0, YARD - 4]) { R("#000", x - 0.5, -2.5, 5, 6); R("#5a5e6a", x, -2, 4, 5); R("#ffd23f", x + 1, -3, 2, 1.5); }
+  g.fillStyle = "rgba(0,0,0,0.35)"; g.fillRect(2, 3, YARD, YARD);
+  // polished marble floor in gold and cream
+  for (let y = 0; y < YARD; y += 6) for (let x = 0; x < YARD; x += 6) {
+    const odd = ((x + y) / 6) % 2;
+    R(odd ? "#e8dcb8" : "#c9a868", x, y, 6, 6); R(odd ? "#fff6dc" : "#e0c080", x, y, 6, 0.5); R(odd ? "#c8bc98" : "#a8884c", x + 5.5, y, 0.5, 6);
+  }
+  // red carpet from the gate to the pile
+  R("#7a1020", YARD / 2 - 5, YARD * 0.6, 10, YARD * 0.4); R("#a3203a", YARD / 2 - 4, YARD * 0.6, 8, YARD * 0.4); R("#ffd23f", YARD / 2 - 5, YARD * 0.6, 0.5, YARD * 0.4); R("#ffd23f", YARD / 2 + 4.5, YARD * 0.6, 0.5, YARD * 0.4);
+  // back wall: stone base with spiked iron bars on top
+  R("#000", 0, 0, YARD, 10); R("#6a6474", 0.5, 4, YARD - 1, 5.5);
+  for (let x = 0; x < YARD; x += 4) { R("#8a8494", x + 0.5, 4.5, 3, 2); R("#7a7484", x + 2.5, 7, 3, 2); }
+  for (let x = 2; x < YARD - 2; x += 2.5) { R("#2a2e3a", x, -1, 1, 6); R("#ffd23f", x, -2, 1, 1); }
+  R("#2a2e3a", 0, 0, YARD, 1);
+  // side walls
+  for (const x of [0, YARD - 3.5]) { R("#000", x, 4, 3.5, YARD - 8); R("#6a6474", x + 0.5, 4, 2.5, YARD - 8); for (let y = 6; y < YARD - 4; y += 4) R("#8a8494", x + 0.5, y, 2.5, 1); }
   return c;
 })();
 const VAULT_FRONT = (() => {
-  const [c, g] = hiCanvas(YARD, 14);
+  const [c, g] = hiCanvas(YARD, 16);
   const R = (col, x, y, w, h) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
-  ironFence(g, 0, 3, YARD, true);
-  // locked double gate in the middle, with a plaque
-  R("#000", YARD / 2 - 7, 1.5, 14, 11); R("#3a3e4a", YARD / 2 - 6.5, 2, 13, 10);
-  for (let x = YARD / 2 - 6; x < YARD / 2 + 6; x += 2) R("#8a8e9a", x, 2, 1, 10);
-  R("#ffd23f", YARD / 2 - 1, 6, 2, 2); R("#c99a00", YARD / 2 - 0.5, 7, 1, 1);
-  for (const x of [0, YARD - 4]) { R("#000", x - 0.5, 0.5, 5, 13); R("#5a5e6a", x, 1, 4, 12); R("#ffd23f", x + 1, 0, 2, 1.5); }
+  // front wall with bars, either side of the vault door
+  R("#000", 0, 6, YARD, 10); R("#6a6474", 0.5, 9, YARD - 1, 6.5); R("#8a8494", 0.5, 9, YARD - 1, 1);
+  for (let x = 0; x < YARD; x += 4) R("#7a7484", x + 1, 12, 3, 2);
+  for (let x = 2; x < YARD - 2; x += 2.5) if (Math.abs(x - YARD / 2) > 9) { R("#2a2e3a", x, 2, 1, 7.5); R("#ffd23f", x, 1, 1, 1); }
+  // the vault door: a heavy round steel door with a gold dollar sign
+  R("#000", YARD / 2 - 9, 0, 18, 16); R("#3a3e4a", YARD / 2 - 8.5, 0.5, 17, 15);
+  litBlob(g, YARD / 2, 8, 7, 7, ["#1a1c24", "#4a4e5a", "#6a6e7a", "#8a8e9a", "#aab0bc", "#d0d6e0"]);
+  litBlob(g, YARD / 2, 8, 4.2, 4.2, ramp("#ffd23f"));
+  R("#5a3a00", YARD / 2 - 0.5, 4.5, 1, 7); R("#5a3a00", YARD / 2 - 2, 6, 3, 1); R("#5a3a00", YARD / 2 - 1, 8, 3, 1); R("#5a3a00", YARD / 2 - 2, 10, 3, 1);
+  for (const [bx, by] of [[YARD / 2 - 6.5, 2], [YARD / 2 + 5.5, 2], [YARD / 2 - 6.5, 13], [YARD / 2 + 5.5, 13]]) R("#d0d6e0", bx, by, 1, 1);
+  // corner pillars topped with gold orbs
+  for (const x of [-1, YARD - 5]) {
+    R("#000", x - 0.5, -2, 7, 18); R("#8a8494", x, -1.5, 6, 17); R("#b4aec0", x, -1.5, 1.5, 17); R("#5a5464", x + 4.5, -1.5, 1.5, 17);
+    litBlob(g, x + 3, -3, 2.6, 2.6, ramp("#ffd23f"));
+  }
   return c;
 })();
 const HEAP_SPR = [];
 function heapSprite(step) {
   if (HEAP_SPR[step]) return HEAP_SPR[step];
-  const f = step / 13, rx = 3 + 13.5 * Math.sqrt(f), ry = rx * 0.68;
+  const f = step / 13, rx = 4.5 + 12 * Math.sqrt(f), ry = rx * 0.68;
   const [c, g] = hiCanvas(38, 28);
   const cx = 19, cy = 26 - ry;
   const r = seeded(step * 17 + 3);
-  if (step > 0) {
-    litBlob(g, cx, cy, rx, ry, ramp("#ffd23f"));
+  {
+    litBlob(g, cx, cy, rx, ry, ["#5a3a00", "#a87a00", "#d9a826", "#ffd23f", "#ffe680", "#fff6c0"]);
     for (let i = 0; i < rx * ry * 0.7; i++) {
       const a = r() * Math.PI * 2, d = Math.sqrt(r());
       const x = cx + Math.cos(a) * rx * d * 0.92, y = cy + Math.sin(a) * ry * d * 0.9;
       g.fillStyle = r() < 0.5 ? "#c99a00" : "#fff09a"; g.fillRect(Math.round(x * 2) / 2, Math.round(y * 2) / 2, 1, 0.5);
     }
-    for (let i = 0; i < Math.min(6, step / 2); i++) { const x = cx - rx * 0.6 + r() * rx * 1.2; g.fillStyle = "#000"; g.fillRect(x - 0.5, cy - ry - 0.5 + r() * 3, 2, 2.5); g.fillStyle = "#ffd23f"; g.fillRect(x, cy - ry + r() * 3, 1, 1.5); }
+    for (let i = 0; i < Math.min(6, 1 + step / 2); i++) { const x = cx - rx * 0.6 + r() * rx * 1.2; g.fillStyle = "#000"; g.fillRect(x - 0.5, cy - ry - 0.5 + r() * 3, 2, 2.5); g.fillStyle = "#ffd23f"; g.fillRect(x, cy - ry + r() * 3, 1, 1.5); }
     if (step >= 6) { g.fillStyle = "#000"; g.fillRect(cx + rx * 0.3 - 0.5, cy - ry * 0.4 - 0.5, 4, 3); g.fillStyle = "#e94f4f"; g.fillRect(cx + rx * 0.3, cy - ry * 0.4, 3, 2); g.fillStyle = "#7df9ff"; g.fillRect(cx - rx * 0.4, cy - ry * 0.2, 1.5, 1.5); }  // gems
-  } else for (const [x, y] of [[16, 24], [20, 25], [22, 23]]) { g.fillStyle = "#000"; g.fillRect(x - 0.5, y - 0.5, 2.5, 1.5); g.fillStyle = "#ffd23f"; g.fillRect(x, y, 1.5, 0.5); }
+  }
   HEAP_SPR[step] = c;
+  return c;
+}
+
+
+// ================= Securities: the gold pile's guards =================
+// A Verity in uniform: peaked navy cap with a badge, black shades under heavy angry brows,
+// a scowl, a navy vest with a gold star, and a baton.
+function buildGuardSprite(ind, blink) {
+  const D = bodySize("verity", ind);
+  const [c, g] = hiCanvas(D + SPR_PAD_X * 2 + 3, D + SPR_PAD_T + SPR_PAD_B);
+  const R = (col, x, y, w, h) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
+  const ox = SPR_PAD_X, oy = SPR_PAD_T, body = ind.light ? "#e8b830" : "#f2c230";
+  const inside = drawBody(g, ox, oy, D, body, null, null, ind.model || 0);
+  // navy vest over the lower body
+  raw(g, () => {
+    for (let py = Math.floor((oy + D * 0.62) * RES); py < (oy + D) * RES; py++)
+      for (let px = ox * RES; px < (ox + D) * RES; px++) {
+        const ux = px / RES, uy = py / RES;
+        if (!inside(Math.floor(ux), Math.floor(uy))) continue;
+        const edge = !inside(Math.floor(ux + 0.5), Math.floor(uy)) || !inside(Math.floor(ux - 0.5), Math.floor(uy)) || !inside(Math.floor(ux), Math.floor(uy + 0.5));
+        g.fillStyle = edge ? "#0a0e24" : (ux - ox) / D > 0.7 ? "#16204a" : "#1f2a5a"; g.fillRect(px, py, 1, 1);
+      }
+  });
+  R("#3a4a8a", ox + D * 0.2, oy + D * 0.62, D * 0.6, 0.5);
+  R("#ffd23f", ox + D * 0.62, oy + D * 0.72, 2, 2); R("#fff6c0", ox + D * 0.62, oy + D * 0.72, 1, 0.5); R("#c99a00", ox + D * 0.62 + 1, oy + D * 0.72 + 1.5, 1, 0.5);
+  // face: heavy brows slanting down to the middle, black shades, a scowl
+  const k = D / 12, F = (col, x, y, w, h) => R(col, ox + x * k, oy + y * k, w * k, h * k);
+  F("#2b1d00", 2, 2.5, 3, 1); F("#2b1d00", 4.5, 3, 1.5, 1); F("#2b1d00", 7, 2.5, 3, 1); F("#2b1d00", 6, 3, 1.5, 1);
+  F("#111", 2, 3.6, 3.4, 1.8); F("#111", 6.6, 3.6, 3.4, 1.8); F("#111", 5.4, 4, 1.2, 0.6);
+  F("#5a6a8a", 2.4, 3.9, 1, 0.5); F("#5a6a8a", 7, 3.9, 1, 0.5);
+  F("#2b1d00", 3.5, 7.5, 5, 0.8); F("#2b1d00", 3, 8, 0.8, 0.8); F("#2b1d00", 8.2, 8, 0.8, 0.8);
+  // peaked cap with a gold badge
+  const top = oy + inside.top;
+  R("#000", ox + D * 0.12, top - 3.5, D * 0.76, 5); R("#1f2a5a", ox + D * 0.15, top - 3, D * 0.7, 3.5); R("#3a4a8a", ox + D * 0.15, top - 3, D * 0.7, 0.5);
+  R("#000", ox + D * 0.08, top + 1, D * 0.9, 1.5); R("#ffd23f", ox + D / 2 - 1, top - 2.5, 2, 2); R("#fff6c0", ox + D / 2 - 1, top - 2.5, 1, 0.5);
+  // baton held at the side
+  R("#000", ox + D + 0.5, oy + D * 0.45, 2, D * 0.55); R("#2a2a32", ox + D + 1, oy + D * 0.45, 1, D * 0.55); R("#8a8a96", ox + D + 1, oy + D * 0.45, 1, 0.5);
+  c.outline = true;
   return c;
 }

@@ -23,7 +23,7 @@ Every major version stays playable in [`versions/`](versions/index.html), each w
 
 ## Features
 
-Version 1.1. See the in-game patch notes for what changed.
+Version 2.0. See the in-game patch notes for what changed.
 
 - 27 Verity variants to discover through eggs and fusion recipes, each with its own ability
 - Every variant you own is unique: name, size, color, markings, accessory, personality and level
