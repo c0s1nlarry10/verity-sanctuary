@@ -551,16 +551,15 @@ function drawBlondHair(g, ox, oy, D, inside, style) {
 
 // Each body model also has its own little features, so the 8 versions of a variant look
 // clearly different (not just a slightly different outline).
-const MODEL_FEATURES = ["", "Sprout", "Belly patch", "Curl & freckles", "Little feet", "Tufts & blush", "Spots", "Ears & stripe"];
+const MODEL_FEATURES = ["", "Little arms", "Belly patch", "Curl & freckles", "Little feet", "Tufts & blush", "Spots", "Ears & stripe"];
 function drawModelFeature(g, ox, oy, D, color, model, inside) {
   const R = (col, x, y, w, h) => { g.fillStyle = col; g.fillRect(ox + x, oy + y, w, h); };
   const top = inside.top, bot = inside.bottom, c = D / 2;
   const light = shade(color, 45), dark = shade(color, -60), line = shade(color, -110);
   const inBody = (x, y) => inside(Math.floor(ox + x), Math.floor(oy + y));
   switch (model) {
-    case 1: // a leafy sprout on top
-      R("#1e4a1e", c - 0.5, top - 3.5, 1.5, 4); R("#3f8f3a", c, top - 3.5, 0.5, 4);
-      litBlob(g, ox + c - 2, oy + top - 3.5, 2, 1.2, ramp("#5fbf4a")); litBlob(g, ox + c + 2.5, oy + top - 4.5, 2, 1.2, ramp("#6ee07a"));
+    case 1: // two little stubby arms
+      for (const [ax, dir] of [[0, -1], [D, 1]]) { litBlob(g, ox + ax + dir * 0.6, oy + D * 0.62, 1.6, 2, ramp(shade(color, -12))); }
       break;
     case 2: // a lighter belly patch
       for (let y = 0; y < D; y += 0.5) for (let x = 0; x < D; x += 0.5) {

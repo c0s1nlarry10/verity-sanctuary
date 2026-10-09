@@ -25,7 +25,7 @@ const PATCH_NOTES = [
       ] },
       { title: "Variants", notes: [
         "Every variant ends in -ity: meet Liminality, Blockity and Piratity.",
-        "8 rounded body models, each with its own features (sprouts, feet, ears, spots and more). Accessories are retired.",
+        "8 rounded body models, each with its own features (arms, feet, ears, spots and more). Accessories are retired.",
         "Jelly-like jiggle, sleep at night, and unique emotes in close-up.",
         "Boobity traded the censor bar for a tank top and blond hair.",
       ] },
