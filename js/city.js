@@ -71,57 +71,130 @@ function makeCityBlock(bx, by) {
 }
 
 function cityBuilding(g, lg, r, x, y, w, h) {
-  if (w < 8 || h < 8) return;
+  if (w < 10 || h < 12) return;
   const R = (col, xx, yy, ww, hh, gg = g) => { gg.fillStyle = col; gg.fillRect(xx, yy, ww, hh); };
   const pick = a => a[Math.floor(r() * a.length)];
-  const tall = r();
-  const fh = Math.max(4, Math.min(h * 0.45, 5 + Math.floor(tall * 10)));   // visible front wall
+  const kind = r() < 0.22 && h > 34 ? "tower" : r() < 0.4 ? "brick" : r() < 0.6 ? "apartment" : "office";
+  // the visible front wall: taller buildings show more of it
+  const floors = kind === "tower" ? 4 + Math.floor(r() * 3) : 1 + Math.floor(r() * 3);
+  const fh = Math.min(h - 8, 4 + floors * 4);
   const rh = h - fh;
-  const roof = pick(ROOFS), wall = pick(WALLS);
-  // drop shadow on the sidewalk
-  R("rgba(0,0,0,0.28)", x + w, y + 2, 2, h - 1);
-  R("rgba(0,0,0,0.28)", x + 2, y + h, w, 1.5);
-  // roof
+  const roof = kind === "tower" ? pick(["#6a7a8a", "#5a6a7a", "#7a8a9a"]) : pick(ROOFS);
+  const wall = kind === "brick" ? pick(["#a85a48", "#9a4a3a", "#b86a50"]) : kind === "tower" ? "#3a5a7a" : pick(WALLS);
+  // long cast shadow (sun from the top left): longer for taller buildings
+  const sh = 2 + floors * 1.2;
+  g.fillStyle = "rgba(0,0,0,0.3)";
+  g.beginPath(); g.moveTo(x + w, y + 1); g.lineTo(x + w + sh, y + 1 + sh); g.lineTo(x + w + sh, y + h + sh * 0.5); g.lineTo(x + w, y + h); g.fill();
+  R("rgba(0,0,0,0.3)", x + 1, y + h, w + sh - 1, Math.min(2.5, sh * 0.4));
+
+  // ---- roof ----
   R("#000", x - 0.5, y - 0.5, w + 1, h + 1);
-  R(roof, x, y, w, rh);
-  R(shade(roof, 28), x, y, w, 1); R(shade(roof, 18), x, y, 1, rh);
-  R(shade(roof, -30), x, y + rh - 1.5, w, 1.5);
-  // rooftop details
-  const feat = r();
-  if (feat < 0.18 && w > 22 && rh > 22) {          // helipad
-    const cx = x + w / 2, cy = y + rh / 2;
-    litBlob(g, cx, cy, 8, 7, ["#3a3a44", "#4a4a54", "#5a5a64"]);
-    R("#ffd23f", cx - 3, cy - 3.5, 1, 7); R("#ffd23f", cx + 2, cy - 3.5, 1, 7); R("#ffd23f", cx - 2, cy - 0.5, 4, 1);
-  } else if (feat < 0.36 && rh > 14) {             // solar panels
-    for (let yy = y + 3; yy < y + rh - 5; yy += 5) for (let xx = x + 3; xx < x + w - 6; xx += 7) { R("#1a2a4a", xx, yy, 6, 4); R("#3a5a9a", xx + 0.5, yy + 0.5, 5, 3); R("#7a9ad8", xx + 0.5, yy + 0.5, 2, 0.5); }
-  } else if (feat < 0.5 && rh > 14) {              // rooftop garden
-    R("#3f7a3a", x + 3, y + 3, w - 6, rh - 7); R("#2f6a2c", x + 3, y + rh - 5, w - 6, 1);
-    for (let i = 0; i < 6; i++) litBlob(g, x + 5 + r() * (w - 10), y + 5 + r() * (rh - 12), 2, 1.8, ramp("#4f9a3a"));
-  } else {                                         // AC units, vents and maybe a water tower
-    const n = 1 + Math.floor(r() * 4);
-    for (let i = 0; i < n; i++) {
-      const ax = x + 3 + r() * Math.max(1, w - 10), ay = y + 3 + r() * Math.max(1, rh - 9);
-      R("#000", ax - 0.5, ay - 0.5, 6, 5); R("#c4c8d0", ax, ay, 5, 4); R("#8a8e98", ax, ay + 3, 5, 1); R("#5a5e68", ax + 1, ay + 1, 3, 1.5);
+  R(shade(roof, 34), x, y, w, rh);                                      // parapet rim
+  R(shade(roof, -8), x + 1.5, y + 1.5, w - 3, rh - 3);                  // roof deck
+  R(shade(roof, -34), x + 1.5, y + 1.5, w - 3, 0.5);                    // inner edge shadow
+  R(shade(roof, -22), x + 1.5, y + 1.5, 0.5, rh - 3);
+  for (let i = 0; i < w * rh / 30; i++) R(shade(roof, r() < 0.5 ? -18 : 6), x + 2 + Math.floor(r() * (w - 4) * 2) / 2, y + 2 + Math.floor(r() * (rh - 4) * 2) / 2, 0.5, 0.5);
+  R(shade(roof, -45), x, y + rh - 1, w, 1);                             // roof edge over the facade
+  roofDetails(g, r, x + 2, y + 2, w - 4, rh - 4, kind);
+
+  // ---- facade ----
+  const fy = y + rh;
+  R(wall, x, fy, w, fh);
+  if (kind === "brick") for (let yy = fy + 1; yy < y + h; yy += 1.5) for (let xx = x + ((yy - fy) % 3 ? 0 : 1.5); xx < x + w; xx += 3) R(shade(wall, -14), xx, yy, 0.5, 0.5);
+  if (kind === "tower") {
+    // glass curtain wall with mullions and a sky reflection
+    for (let yy = fy; yy < y + h - 4; yy += 1) R(shade("#3a6a9a", Math.round((yy - fy) / fh * -30) + 20), x, yy, w, 1);
+    for (let xx = x + 3; xx < x + w; xx += 3) R("#24384e", xx, fy, 0.5, fh - 4);
+    for (let yy = fy + 3.5; yy < y + h - 4; yy += 3.5) R("#24384e", x, yy, w, 0.5);
+    for (let i = 0; i < 3; i++) { const rx = x + 2 + r() * (w - 8); g.fillStyle = "rgba(220,240,255,0.35)"; g.beginPath(); g.moveTo(rx, fy); g.lineTo(rx + 3, fy); g.lineTo(rx - 2, y + h - 4); g.lineTo(rx - 5, y + h - 4); g.fill(); }
+    for (let yy = fy + 1; yy < y + h - 5; yy += 3.5) for (let xx = x + 1; xx < x + w - 2; xx += 3) if (r() < 0.45) R("#ffe6a0", xx, yy, 2, 2, lg);
+  } else {
+    // floor ledges and framed windows with sills
+    const winW = kind === "office" ? 3 : 2.5, step = kind === "office" ? 4 : 4.5;
+    for (let f = 0; f < floors; f++) {
+      const yy = fy + 1.5 + f * 4;
+      if (f > 0) { R(shade(wall, 22), x, yy - 1, w, 0.5); R(shade(wall, -30), x, yy - 0.5, w, 0.5); }
+      for (let xx = x + 2; xx + winW < x + w - 1; xx += step) {
+        R("#1a1a24", xx - 0.5, yy - 0.5, winW + 1, 3);                      // frame
+        R("#2a3e5e", xx, yy, winW, 2); R("#7aa0d0", xx, yy, winW * 0.4, 0.5); // glass + glint
+        R(shade(wall, 30), xx - 0.5, yy + 2.5, winW + 1, 0.5);               // sill
+        if (kind === "apartment" && f > 0 && r() < 0.35) { R("#2a2a32", xx - 1, yy + 1.5, winW + 2, 0.5); R("#2a2a32", xx - 1, yy + 1.5, 0.5, 1.5); R("#2a2a32", xx + winW + 0.5, yy + 1.5, 0.5, 1.5); }
+        if (r() < 0.5) R("#ffd98a", xx, yy, winW, 2, lg);
+      }
     }
-    if (r() < 0.35 && rh > 16) { const tx = x + w - 9, ty = y + 4; litBlob(g, tx, ty + 3, 3.5, 3.5, ramp("#9a6a3a")); R("#5a3a1e", tx - 3, ty + 6, 1, 3); R("#5a3a1e", tx + 2, ty + 6, 1, 3); }
   }
-  // front wall with windows
-  const wy = y + rh;
-  R(wall, x, wy, w, fh);
-  R(shade(wall, -25), x, wy, w, 1);
-  R(shade(wall, -40), x + w - 1, wy, 1, fh);
-  const shop = r() < 0.4;
-  for (let yy = wy + 2; yy < y + h - (shop ? 5 : 2.5); yy += 3.5)
-    for (let xx = x + 2; xx < x + w - 3; xx += 4) {
-      R("#1e2a44", xx, yy, 2.5, 2); R("#6a8ac0", xx, yy, 1, 0.5);
-      if (r() < 0.5) R("#ffd98a", xx, yy, 2.5, 2, lg);
-    }
-  if (shop) {
-    const aw = AWNINGS[Math.floor(r() * AWNINGS.length)];
-    for (let xx = x + 1; xx < x + w - 1; xx += 2) R(Math.round(xx) % 4 < 2 ? aw : "#f4f4f4", xx, y + h - 5, 2, 1.5);
-    R("#2a1a10", x + w / 2 - 1.5, y + h - 3.5, 3, 3.5); R("#ffd98a", x + w / 2 - 1.5, y + h - 3.5, 3, 3.5, lg);
-    R("#9ad0f0", x + 2, y + h - 3, w / 2 - 5, 2); R("#ffe9b0", x + 2, y + h - 3, w / 2 - 5, 2, lg);
-  } else R("#2a1a10", x + w / 2 - 1.5, y + h - 3, 3, 3);
+  R(shade(wall, -45), x + w - 1, fy, 1, fh);                              // right corner in shade
+  R(shade(wall, 18), x, fy, 0.5, fh);                                     // left corner catches light
+  // ground floor: shopfront with sign and awning, or a lobby with a canopy and steps
+  const gy = y + h - 4.5;
+  if (kind !== "tower" && r() < 0.5) {
+    const aw = pick(AWNINGS);
+    R("#1a1a24", x + 1, gy, w - 2, 4.5);
+    R("#8ac8e8", x + 1.5, gy + 1.5, w - 3, 2.5); R("#c8ecff", x + 1.5, gy + 1.5, 1.5, 2.5);
+    R("#ffe9b0", x + 1.5, gy + 1.5, w - 3, 2.5, lg);
+    for (let xx = x + 1; xx < x + w - 1; xx += 2) R(Math.round(xx - x) % 4 < 2 ? aw : "#f4f4f4", xx, gy - 0.5, 2, 1.5);
+    R(shade(aw, -50), x + 1, gy + 1, w - 2, 0.5);
+    const sw = Math.min(w - 6, 12); R("#000", x + w / 2 - sw / 2 - 0.5, gy - 3.5, sw + 1, 3); R(pick(["#ffd23f", "#ff7eb6", "#7df9ff", "#6ee07a"]), x + w / 2 - sw / 2, gy - 3, sw, 2);
+    R("#ffffff", x + w / 2 - sw / 2 + 1, gy - 2.5, sw - 2, 0.5, lg);
+  } else {
+    const dw = 5, dx = x + w / 2 - dw / 2;
+    R("#000", dx - 0.5, gy - 0.5, dw + 1, 5); R("#3a4a5a", dx, gy, dw, 4.5); R("#9ac8e8", dx + 0.5, gy + 0.5, 1.5, 3.5); R("#9ac8e8", dx + 3, gy + 0.5, 1.5, 3.5);
+    R("#ffe9b0", dx, gy, dw, 4.5, lg);
+    R("#2a2a32", dx - 1.5, gy - 1.5, dw + 3, 1); R(shade(roof, 20), dx - 1.5, gy - 1.5, dw + 3, 0.5);   // canopy
+    R("#c4c4ce", dx - 1, y + h, dw + 2, 1); R("#9a9aa8", dx - 1, y + h + 1, dw + 2, 0.5);               // steps
+  }
+  R("rgba(0,0,0,0.35)", x, y + h - 0.5, w, 0.5);                          // where the wall meets the pavement
+}
+
+function roofDetails(g, r, x, y, w, h, kind) {
+  const R = (col, xx, yy, ww, hh) => { g.fillStyle = col; g.fillRect(xx, yy, ww, hh); };
+  const box3d = (bx, by, bw, bh, depth, top, side) => {   // a little rooftop box with a visible front
+    R("rgba(0,0,0,0.3)", bx + bw, by + 1, 1.5, bh + depth);
+    R("#000", bx - 0.5, by - 0.5, bw + 1, bh + depth + 1);
+    R(top, bx, by, bw, bh); R(shade(top, 25), bx, by, bw, 0.5);
+    R(side, bx, by + bh, bw, depth); R(shade(side, -25), bx + bw - 0.5, by + bh, 0.5, depth);
+  };
+  const feat = r();
+  if (kind === "tower" && w > 18 && h > 14) {               // helipad
+    const cx = x + w / 2, cy = y + h / 2;
+    litBlob(g, cx, cy, Math.min(8, w / 2 - 1), Math.min(6, h / 2 - 1), ["#3a3a44", "#4a4a54", "#5a5a64"]);
+    R("#ffd23f", cx - 2.5, cy - 2.5, 1, 5); R("#ffd23f", cx + 1.5, cy - 2.5, 1, 5); R("#ffd23f", cx - 1.5, cy - 0.5, 3, 1);
+    R("#ff5c7a", x + 1, y + 1, 1, 1); R("#ff5c7a", x + w - 2, y + 1, 1, 1);
+    return;
+  }
+  if (feat < 0.22 && h > 10) {                             // solar panels
+    for (let yy = y + 1; yy < y + h - 4; yy += 5) for (let xx = x + 1; xx < x + w - 6; xx += 7) { R("#000", xx - 0.5, yy - 0.5, 7, 4.5); R("#2a4a8a", xx, yy, 6, 3.5); R("#4a6aba", xx, yy, 6, 0.5); R("#8aaae8", xx + 0.5, yy + 1, 1.5, 0.5); }
+    return;
+  }
+  if (feat < 0.36 && h > 10) {                             // rooftop garden with planters
+    R("#000", x + 0.5, y + 0.5, w - 1, h - 1); R("#4f8a3a", x + 1, y + 1, w - 2, h - 2);
+    for (let i = 0; i < 5; i++) litBlob(g, x + 3 + r() * (w - 6), y + 3 + r() * (h - 6), 2, 1.8, ramp(r() < 0.3 ? "#e984b0" : "#5aa04a"));
+    return;
+  }
+  // roof seams, skylights, a stair hut, AC units and maybe a water tower
+  for (let yy = y + 8; yy < y + h - 2; yy += 9) { R("rgba(0,0,0,0.18)", x, yy, w, 0.5); R("rgba(255,255,255,0.12)", x, yy + 0.5, w, 0.5); }
+  if (w > 20 && h > 16 && r() < 0.6) {
+    const cols = Math.floor((w - 6) / 7), sy2 = y + h / 2 - 2;
+    for (let i = 0; i < cols; i++) { const sx2 = x + 3 + i * 7; R("#000", sx2 - 0.5, sy2 - 0.5, 5, 4); R("#9ad0f0", sx2, sy2, 4, 3); R("#d8f0ff", sx2, sy2, 1.5, 1); R("#5a8ab0", sx2, sy2 + 2.5, 4, 0.5); }
+  }
+  if (w > 12 && h > 8) box3d(x + 1 + r() * (w * 0.4), y + 1, 6, 3, 2.5, "#9a9aa4", "#7a7a84");
+  for (let i = 0; i < Math.floor(w * h / 220); i++) {      // round vents
+    const vx = x + 2 + r() * (w - 4), vy = y + 2 + r() * (h - 4);
+    R("#000", vx - 0.5, vy - 0.5, 2.5, 2.5); R("#b4b8c0", vx, vy, 1.5, 1.5); R("#6a6e78", vx + 0.5, vy + 0.5, 1, 1);
+  }
+  const n = 1 + Math.floor(r() * 2) + Math.floor(w * h / 260);
+  for (let i = 0; i < n; i++) {
+    const ax = x + 2 + r() * Math.max(1, w - 8), ay = y + 2 + r() * Math.max(1, h - 6);
+    box3d(ax, ay, 4, 2, 1.5, "#c4c8d0", "#8a8e98");
+    R("#5a5e68", ax + 1, ay + 0.5, 2, 1);
+  }
+  if (r() < 0.4 && h > 10 && w > 12) {                    // wooden water tower on legs
+    const tx = x + w - 6, ty = y + 1;
+    R("#2a1a0c", tx, ty + 6, 0.5, 3); R("#2a1a0c", tx + 4, ty + 6, 0.5, 3); R("#2a1a0c", tx + 2, ty + 6, 0.5, 3);
+    R("#000", tx - 0.5, ty - 0.5, 5.5, 7); R("#9a6a3a", tx, ty, 4.5, 6); R("#b8844a", tx, ty, 1.5, 6); R("#6a4422", tx + 3.5, ty, 1, 6);
+    R("#5a3a1e", tx, ty + 2, 4.5, 0.5); R("#5a3a1e", tx, ty + 4, 4.5, 0.5);
+    R("#000", tx - 1, ty - 1.5, 6.5, 1.5); R("#7a4a22", tx - 0.5, ty - 1, 5.5, 0.5);
+  }
 }
 
 function cityPark(g, r, x, y, w, h) {

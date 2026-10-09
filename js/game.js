@@ -1659,9 +1659,11 @@ function renderCard() {
   const care = $("card-care");
   care.innerHTML = "";
   if (careActive()) care.appendChild(careBars(ind));
+  else care.appendChild(el("p", "small locked-note", `Feeding and happiness unlock at park level ${lvlNeeded("care")}.`));
   if (e && likesTheme(ind, e)) care.appendChild(el("p", "small", `Loves its ${THEMES[e.theme].label} home (+50% value)`));
-  $("card-feed").hidden = !careActive() || !e;
-  $("card-feed").disabled = ind.food >= 95;
+  $("card-feed").hidden = !e;
+  $("card-feed").classList.toggle("is-locked", !careActive());
+  $("card-feed").disabled = !careActive() || ind.food >= 95;
   $("card-ability").textContent = def.ability;
   $("card-desc").textContent = `"${def.desc}" ${TRAITS[ind.trait].desc}`;
   const badges = $("card-badges");
@@ -1828,6 +1830,11 @@ function renderInventory() {
   }
 }
 
+// Locked things stay visible, greyed out, with the level that unlocks them.
+const lvlNeeded = id => UNLOCK_LEVEL[id] || 1;
+const lvlTag = id => `LV ${lvlNeeded(id)}`;
+function lockedClick(id, what) { sfx("fail"); toast(`${what} unlocks at park level ${lvlNeeded(id)}.`, 2600); }
+
 const shopButtons = {};
 function renderShop() {
   for (const k of Object.keys(shopButtons)) delete shopButtons[k];
@@ -1835,7 +1842,19 @@ function renderShop() {
     const box = $(boxId);
     box.innerHTML = "";
     for (const [t, def] of Object.entries(OBJECTS)) {
-      if (def.kind !== kind || !isUnlocked("obj:" + t)) continue;
+      if (def.kind !== kind) continue;
+      if (!isUnlocked("obj:" + t)) {
+        const b = el("button", "shop-item is-locked");
+        const c = makeCanvas(16, 20);
+        c.getContext("2d").drawImage(OBJ_SPRITES[t], 0, 0);
+        b.appendChild(c);
+        b.appendChild(el("span", "", def.name));
+        b.appendChild(el("small", "lock-tag", lvlTag("obj:" + t)));
+        b.title = `Unlocks at park level ${lvlNeeded("obj:" + t)}`;
+        b.addEventListener("click", () => lockedClick("obj:" + t, def.name));
+        box.appendChild(b);
+        continue;
+      }
       const b = el("button", "shop-item");
       b.dataset.obj = t;
       const c = makeCanvas(16, 20);
@@ -1850,10 +1869,7 @@ function renderShop() {
       box.appendChild(b);
     }
   }
-  const hiddenCount = Object.keys(OBJECTS).filter(t => !isUnlocked("obj:" + t)).length;
-  const standsShown = Object.keys(OBJECTS).some(t => OBJECTS[t].kind === "stand" && isUnlocked("obj:" + t));
-  if (!standsShown) $("shop-stands").appendChild(el("p", "empty", "Locked. Keep growing your park!"));
-  $("shop-more").textContent = hiddenCount ? `${hiddenCount} more item${hiddenCount > 1 ? "s" : ""} unlock as your park levels up.` : "";
+  $("shop-more").textContent = "";
   renderShopState();
 }
 function renderShopState() {
@@ -1960,8 +1976,10 @@ function renderLab() {
   $("fuse-cost").textContent = p ? fmt(p.cost) + "c" : "";
   $("fuse-btn").disabled = !p || !!p.blocked || state.money < p.cost;
   const up = $("lab-upgrade");
-  up.hidden = !isUnlocked("labUpgrade");
-  if (state.labLevel >= LAB_MAX_LEVEL) { up.textContent = "Lab fully upgraded"; up.disabled = true; }
+  up.hidden = false;
+  up.classList.toggle("is-locked", !isUnlocked("labUpgrade"));
+  if (!isUnlocked("labUpgrade")) { up.textContent = `Lab upgrades unlock at park level ${lvlNeeded("labUpgrade")}`; up.disabled = true; }
+  else if (state.labLevel >= LAB_MAX_LEVEL) { up.textContent = "Lab fully upgraded"; up.disabled = true; }
   else {
     up.textContent = `Upgrade lab: +5% success (${fmt(labUpgradeCost())}c)`;
     up.disabled = state.money < labUpgradeCost();
@@ -2158,7 +2176,9 @@ function applyLocks() {
   if (!isUnlocked("theme:" + encChoice.theme)) encChoice.theme = "meadow";
   if (!isUnlocked("path:" + pathChoice)) pathChoice = 1;
   const labTab = document.querySelector('.tab[data-tab="lab"]');
-  labTab.hidden = !isUnlocked("lab");
+  labTab.hidden = false;
+  labTab.classList.toggle("is-locked", !isUnlocked("lab"));
+  labTab.title = isUnlocked("lab") ? "" : `Unlocks at park level ${lvlNeeded("lab")}`;
   if (activeTab === "lab" && !isUnlocked("lab")) switchTab("park");
 }
 
@@ -2362,7 +2382,10 @@ document.querySelectorAll(".tool").forEach(b => b.addEventListener("click", () =
   if (b.dataset.tool !== "inspect" && buildLocked()) return;
   setTool(b.dataset.tool);
 }));
-document.querySelectorAll(".tab").forEach(b => b.addEventListener("click", () => { sfx("click"); switchTab(b.dataset.tab); }));
+document.querySelectorAll(".tab").forEach(b => b.addEventListener("click", () => {
+  if (b.dataset.tab === "lab" && !isUnlocked("lab")) return lockedClick("lab", "The Fusion Lab");
+  sfx("click"); switchTab(b.dataset.tab);
+}));
 $("hatch").addEventListener("click", () => hatchEgg("regular"));
 $("fuse-btn").addEventListener("click", doFuse);
 $("lab-upgrade").addEventListener("click", upgradeLab);

@@ -675,12 +675,14 @@ function renderWorldInfo() {
   if (icon !== lastWeatherIcon) { lastWeatherIcon = icon; $("weather-ico").style.backgroundImage = `url(${iconURL(icon)})`; }
 }
 
-function chip(label, sub, active, onClick, art) {
-  const b = el("button", "chip" + (active ? " active" : ""));
+function chip(label, sub, active, onClick, art, lockId) {
+  const locked = lockId && !isUnlocked(lockId);
+  const b = el("button", "chip" + (active ? " active" : "") + (locked ? " is-locked" : ""));
   if (art) b.appendChild(art);
   b.appendChild(document.createTextNode(label));
-  if (sub) b.appendChild(el("small", "", sub));
-  b.addEventListener("click", () => { sfx("click"); onClick(); });
+  if (locked) b.appendChild(el("small", "lock-tag", lvlTag(lockId)));
+  else if (sub) b.appendChild(el("small", "", sub));
+  b.addEventListener("click", () => { if (locked) return lockedClick(lockId, label); sfx("click"); onClick(); });
   return b;
 }
 function thumb(src, w, h) {
@@ -693,27 +695,25 @@ function renderBuildOptions() {
   const box = $("build-options");
   box.innerHTML = "";
   if (tool === "path") {
-    const types = Object.keys(PATH_TYPES).map(Number).filter(t => isUnlocked("path:" + t));
-    if (types.length < 2) { box.hidden = true; return; }
+    const types = Object.keys(PATH_TYPES).map(Number);
     box.appendChild(el("h4", "", "PATH TYPE"));
     const chips = el("div", "chips");
-    for (const t of types) chips.appendChild(chip(PATH_TYPES[t].label, `${PATH_TYPES[t].cost}c · ${PATH_TYPES[t].speed}x speed`, pathChoice === t, () => { pathChoice = t; renderUI(true); }, thumb(pathTiles[t], 16, 16)));
+    for (const t of types) chips.appendChild(chip(PATH_TYPES[t].label, `${PATH_TYPES[t].cost}c · ${PATH_TYPES[t].speed}x speed`, pathChoice === t, () => { pathChoice = t; renderUI(true); }, thumb(pathTiles[t], 16, 16), "path:" + t));
     box.appendChild(chips);
     box.hidden = false;
   } else if (tool === "enclosure") {
-    const sizes = Object.keys(ENC_TYPES).filter(k => isUnlocked("size:" + k));
-    const themes = Object.keys(THEMES).filter(k => isUnlocked("theme:" + k));
-    if (sizes.length < 2 && themes.length < 2) { box.hidden = true; return; }
-    if (sizes.length > 1) {
+    const sizes = Object.keys(ENC_TYPES);
+    const themes = Object.keys(THEMES);
+    {
       box.appendChild(el("h4", "", "SIZE"));
       const chips = el("div", "chips");
-      for (const k of sizes) chips.appendChild(chip(`${ENC_TYPES[k].label} ${ENC_TYPES[k].size}x${ENC_TYPES[k].size}`, `holds ${ENC_TYPES[k].cap} · ${fmt(enclosureCost(k, encChoice.theme))}c`, encChoice.size === k, () => { encChoice.size = k; renderUI(true); }));
+      for (const k of sizes) chips.appendChild(chip(`${ENC_TYPES[k].label} ${ENC_TYPES[k].size}x${ENC_TYPES[k].size}`, `holds ${ENC_TYPES[k].cap} · ${fmt(enclosureCost(k, encChoice.theme))}c`, encChoice.size === k, () => { encChoice.size = k; renderUI(true); }, null, "size:" + k));
       box.appendChild(chips);
     }
-    if (themes.length > 1) {
+    {
       box.appendChild(el("h4", "", "THEME"));
       const chips = el("div", "chips");
-      for (const k of themes) chips.appendChild(chip(THEMES[k].label, `x${THEMES[k].costMult} cost`, encChoice.theme === k, () => { encChoice.theme = k; renderUI(true); }, thumb(makeEncGround(3, k), 24, 24)));
+      for (const k of themes) chips.appendChild(chip(THEMES[k].label, `x${THEMES[k].costMult} cost`, encChoice.theme === k, () => { encChoice.theme = k; renderUI(true); }, thumb(makeEncGround(3, k), 24, 24), "theme:" + k));
       box.appendChild(chips);
       box.appendChild(el("p", "opt-desc", THEMES[encChoice.theme].desc));
     }
@@ -726,28 +726,29 @@ function renderEggs() {
   const box = $("special-eggs");
   box.innerHTML = "";
   for (const t of ["golden", "cursed"]) {
-    if (!eggUnlocked(t) && !(t === "golden" && state.freeGolden)) continue;
-    const b = el("button", t === "golden" ? "gold" : "curse");
+    const locked = !eggUnlocked(t) && !(t === "golden" && state.freeGolden);
+    const b = el("button", (t === "golden" ? "gold" : "curse") + (locked ? " is-locked" : ""));
     const i = el("i", "ico");
     i.style.backgroundImage = `url(${iconURL(t === "golden" ? "goldegg" : "cursedegg")})`;
     b.appendChild(i);
     const free = freeEggsOf(t);
     const txt = el("span", "", EGGS[t].label);
-    txt.appendChild(el("small", "", free ? `FREE (${free})` : fmt(eggCostOf(t)) + "c"));
+    txt.appendChild(locked ? el("small", "lock-tag", lvlTag("egg:" + t)) : el("small", "", free ? `FREE (${free})` : fmt(eggCostOf(t)) + "c"));
     b.appendChild(txt);
-    b.title = EGGS[t].desc;
-    b.disabled = !!fx || (!free && state.money < eggCostOf(t));
-    b.addEventListener("click", () => hatchEgg(t));
+    b.title = locked ? `Unlocks at park level ${lvlNeeded("egg:" + t)}. ${EGGS[t].desc}` : EGGS[t].desc;
+    b.disabled = !locked && (!!fx || (!free && state.money < eggCostOf(t)));
+    b.addEventListener("click", () => locked ? lockedClick("egg:" + t, EGGS[t].label) : hatchEgg(t));
     box.appendChild(b);
   }
 }
 
 function renderRequest() {
   const card = $("request-card");
-  card.hidden = !isUnlocked("requests");
-  if (card.hidden) return;
+  card.hidden = false;
   const box = $("request");
   box.innerHTML = "";
+  card.classList.toggle("card-locked", !isUnlocked("requests"));
+  if (!isUnlocked("requests")) { box.appendChild(el("p", "empty", `Guests ask to see certain variants for big rewards. Unlocks at park level ${lvlNeeded("requests")}.`)); return; }
   const r = state.request;
   if (!r) { box.appendChild(el("p", "empty", "No requests right now. Check back soon!")); return; }
   const row = el("div", "row-item");
@@ -765,17 +766,27 @@ function renderRequest() {
 }
 
 function renderStaff() {
-  const types = Object.keys(STAFF).filter(t => isUnlocked("staff:" + t));
+  const types = Object.keys(STAFF);
   const card = $("staff-card");
-  card.hidden = !types.length;
-  if (card.hidden) return;
+  card.hidden = false;
   $("wages").textContent = wagesPerSec() ? `-${fmtVal(wagesPerSec())}c/s` : "";
   const box = $("staff");
   box.innerHTML = "";
   for (const t of types) {
     const def = STAFF[t];
-    const row = el("div", "row-item");
+    const row = el("div", "row-item" + (isUnlocked("staff:" + t) ? "" : " is-locked"));
     row.appendChild(thumb(STAFF_SPR[t], t === "mascot" ? 18 : 7, t === "mascot" ? 25 : 11));
+    if (!isUnlocked("staff:" + t)) {
+      const g = el("div", "grow");
+      g.appendChild(el("b", "", def.label));
+      g.appendChild(document.createTextNode(def.desc));
+      row.appendChild(g);
+      const b = el("button", "", lvlTag("staff:" + t));
+      b.addEventListener("click", () => lockedClick("staff:" + t, def.label));
+      row.appendChild(b);
+      box.appendChild(row);
+      continue;
+    }
     const g = el("div", "grow");
     g.appendChild(el("b", "", `${def.label} ×${staffCount(t)}`));
     g.appendChild(document.createTextNode(`${def.desc} Wage ${def.wage}c/s.`));
@@ -795,8 +806,9 @@ function renderStaff() {
 
 function renderLand() {
   const forSale = PLOT_KEYS.filter(plotForSale);
+  const later = PLOT_KEYS.filter(k => !state.plots[k] && !plotForSale(k)).sort((a, b) => PLOTS[a].level - PLOTS[b].level);
   const card = $("land-card");
-  card.hidden = !forSale.length;
+  card.hidden = !forSale.length && !later.length;
   if (card.hidden) return;
   const box = $("land");
   box.innerHTML = "";
@@ -816,12 +828,27 @@ function renderLand() {
     row.appendChild(b);
     box.appendChild(row);
   }
+  for (const k of later) {
+    const p = PLOTS[k];
+    const row = el("div", "row-item is-locked");
+    const g = el("div", "grow");
+    g.appendChild(el("b", "", p.label));
+    g.appendChild(document.createTextNode(`${p.tiles} tiles of ${BIOME_LABELS[p.biome]} · ${fmt(p.cost)}c`));
+    row.appendChild(g);
+    const go = el("button", "", "Show");
+    go.addEventListener("click", () => centerOn(p.sign[0] * TILE + 8, p.sign[1] * TILE + 8));
+    row.appendChild(go);
+    const b = el("button", "", `LV ${p.level}`);
+    b.addEventListener("click", () => lockedClick("plot:" + k, p.label));
+    row.appendChild(b);
+    box.appendChild(row);
+  }
 }
 
 function renderPrestige() {
   const card = $("prestige-card");
-  card.hidden = !isUnlocked("prestige") && !state.shards;
-  if (card.hidden) return;
+  card.hidden = false;
+  card.classList.toggle("card-locked", !isUnlocked("prestige") && !state.shards);
   $("shards").textContent = `${state.shards} shard${state.shards === 1 ? "" : "s"}`;
   const box = $("prestige");
   box.innerHTML = "";
@@ -829,7 +856,7 @@ function renderPrestige() {
   box.appendChild(el("p", "small", "Starting over keeps your Variant Index, recipes, achievements and stats. Everything else resets."));
   const gain = shardsAvailable();
   const b = el("button", "big", "");
-  b.appendChild(el("span", "", gain ? `Start a New Sanctuary (+${gain} shard${gain > 1 ? "s" : ""})` : "Earn more coins to get shards"));
+  b.appendChild(el("span", "", !isUnlocked("prestige") ? `Unlocks at park level ${lvlNeeded("prestige")}` : gain ? `Start a New Sanctuary (+${gain} shard${gain > 1 ? "s" : ""})` : "Earn more coins to get shards"));
   b.disabled = !gain || !isUnlocked("prestige");
   b.addEventListener("click", doPrestige);
   box.appendChild(b);
@@ -849,7 +876,12 @@ function renderParking() {
   box.appendChild(el("p", "small", `${cur.spaces} spaces (${parked} in use) · room for up to ${maxGuests()} guests at once.`));
   const next = LOT_LEVELS[lvl];
   if (!next) { box.appendChild(el("p", "small", "Your parking lot is fully upgraded.")); return; }
-  if (!isUnlocked("lot:" + (lvl + 1))) { box.appendChild(el("p", "small locked-note", "The next upgrade unlocks at a higher park level.")); return; }
+  if (!isUnlocked("lot:" + (lvl + 1))) {
+    const lb = el("button", "wide is-locked", `Upgrade to ${next.spaces} spaces · LV ${lvlNeeded("lot:" + (lvl + 1))}`);
+    lb.addEventListener("click", () => lockedClick("lot:" + (lvl + 1), "The next parking upgrade"));
+    box.appendChild(lb);
+    return;
+  }
   const b = el("button", "wide primary", `Upgrade to ${next.spaces} spaces (${fmt(next.cost)}c)`);
   b.disabled = state.money < next.cost || isOpen();
   b.title = isOpen() ? "Upgrades happen at night while the park is closed." : "";

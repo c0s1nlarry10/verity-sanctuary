@@ -7,7 +7,7 @@ const PATCH_NOTES = [
     version: "1.1", title: "Bigger, Brighter, Busier",
     notes: [
       "The world is over 20x bigger, with 39 new plots of wild land to buy. Move around with the arrow keys or WASD, drag to pan, and zoom with the scroll wheel or - and + keys. Zoom all the way out to see the whole map.",
-      "A city now surrounds the sanctuary, with traffic, rooftops and windows that light up at night.",
+      "A city now surrounds the sanctuary, with traffic, detailed buildings (shopfronts, glass towers, rooftop gardens, helipads) and windows that light up at night.",
       "New minimap. Click it to jump anywhere.",
       "Real opening hours: the park is open 8 AM to 10 PM (8 minutes) and closed at night (3 minutes).",
       "Building, bulldozing and moving variants now happen at night while the park is closed.",
@@ -17,6 +17,7 @@ const PATCH_NOTES = [
       "Variants jiggle like jelly: they squash when they land, stretch when they jump, lean as they move and wiggle when idle.",
       "Variants now sleep through the night (with drifting Zs) and wake up with a stretch when the park opens.",
       "Patch notes button in the top bar, and a link to the creator's Instagram (@jamesrobbizz).",
+      "Everything you haven't unlocked yet is now visible, greyed out, with the park level that unlocks it.",
       "New retro look: the whole world now shares one pixel grid (16x16 pixel tiles), so variants, people, buildings, trees, shadows and lighting all match. Variants got inked outlines.",
       "Every variant now ends in -ity: say hello to Liminality (formerly Backrooms Verity), Blockity (Steve) and Piratity (Pirate Clark).",
       "New tutorial for first-time players. Skip it any time, or replay it from the Save tab.",

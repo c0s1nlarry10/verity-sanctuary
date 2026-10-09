@@ -800,3 +800,12 @@ a.icon-btn:active { transform: translate(2px, 2px); box-shadow: inset 2px 2px 0 
 .insta-credit { font-size: 17px; color: var(--muted); }
 .insta-credit a { font-family: "Press Start 2P", monospace; font-size: 9px; color: #ff8fc0; }
 @media (max-width: 900px) { .text-btn { justify-content: center; font-size: 7px; } }
+
+/* ---------- Locked (not yet unlocked) items: visible but greyed out ---------- */
+.is-locked { opacity: 0.5; filter: grayscale(0.9); }
+button.is-locked { cursor: help; }
+button.is-locked:hover:not(:disabled) { background: var(--panel-2); }
+.tab.is-locked { opacity: 0.45; }
+.lock-tag { color: var(--muted) !important; letter-spacing: 1px; }
+.card-locked > :not(h2) { opacity: 0.55; filter: grayscale(0.9); }
+#land { max-height: 440px; overflow-y: auto; padding-right: 4px; }
