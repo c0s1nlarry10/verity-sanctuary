@@ -14,8 +14,9 @@ sed -i '' "s/const SAVE_KEY = \"verity-sanctuary-save\";/const SAVE_KEY = \"veri
 sed -i '' 's#href="versions/index.html"#href="../index.html"#' "$DEST/index.html"
 grep -q "archive-v$V" "$DEST/js/data.js" || { echo "Could not set the save slot"; exit 1; }
 LIST="$ROOT/versions/list.js"
+SAFE_TITLE="${TITLE//&/\\&}"   # "&" means "the matched text" to sed, so escape it
 if ! grep -q "v: \"$V\"" "$LIST"; then
-  sed -i '' "s#^];#  { v: \"$V\", title: \"$TITLE\", date: \"$(date +%Y-%m-%d)\" },\\
+  sed -i '' "s#^];#  { v: \"$V\", title: \"$SAFE_TITLE\", date: \"$(date +%Y-%m-%d)\" },\\
 ];#" "$LIST"
 fi
 echo "Archived v$V to versions/v$V"

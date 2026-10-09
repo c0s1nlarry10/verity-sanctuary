@@ -1,0 +1,721 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Verity Sanctuary</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="loader" class="loader">
+    <canvas id="loader-scene" class="loader-scene" aria-hidden="true"></canvas>
+    <div class="loader-box">
+      <i class="rivet tl"></i><i class="rivet tr"></i><i class="rivet bl"></i><i class="rivet br"></i>
+      <canvas id="loader-verity" width="52" height="52"></canvas>
+      <p class="loader-splash">Now with<br>Simple mode!</p>
+      <h1 class="loader-title">VERITY<br>SANCTUARY</h1>
+      <p class="loader-tag">a verity habitat tycoon</p>
+      <p class="loader-version"><span id="loader-version">Version 2.0</span> · <button id="loader-notes" class="linkish" type="button">What's new?</button></p>
+      <div class="loader-roster">
+        <canvas id="loader-faces" width="168" height="26"></canvas>
+        <span>27 variants to discover (... for now)</span>
+      </div>
+      <div class="loader-bar">
+        <div class="loader-track">
+          <div id="loader-fill" class="loader-fill"></div>
+          <div class="loader-ticks"></div>
+          <canvas id="loader-roller" class="loader-roller" width="24" height="24"></canvas>
+        </div>
+        <div class="loader-pct"><span id="loader-step">Hatching eggs...</span><span id="loader-num">0%</span></div>
+      </div>
+      <p class="loader-tip"><b>TIP</b><span id="loader-tip">In Pro mode you build at night, while the park is closed.</span></p>
+      <button id="loader-start" class="big loader-start" hidden>▶ ENTER THE SANCTUARY</button>
+      <div class="loader-credits">
+        <p>Created by <b>Liam R</b></p>
+        <p class="small-credit">Kinda helped with the idea: <b>Manny V</b></p>
+        <p class="insta-credit">Instagram: <a href="https://www.instagram.com/jamesrobbizz/" target="_blank" rel="noopener">@jamesrobbizz</a></p>
+        <p class="insta-credit">Found a bug or have an idea? <a class="feedback-link" href="https://forms.gle/N3EzvmrXTgRiWqSZ6" target="_blank" rel="noopener">Send feedback</a></p>
+      </div>
+    </div>
+  </div>
+  <script>
+    // Loading screen: an animated night scene at the sanctuary, drawn before the game scripts load.
+    (function () {
+      function shade(hex, amt) {
+        var n = parseInt(hex.slice(1), 16), f = function (v) { return Math.max(0, Math.min(255, Math.round(v + amt))); };
+        return "rgb(" + f(n >> 16) + "," + f((n >> 8) & 255) + "," + f(n & 255) + ")";
+      }
+      var BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+      function dith(x, y) { return (BAYER[(y & 3) * 4 + (x & 3)] + 0.5) / 16; }
+      function rng(seed) { var s = seed >>> 0; return function () { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
+
+      // ---- Verity faces (shaded spheres, features on an 8-radius grid) ----
+      var FEATURES = {
+        smile: [["i", -3, -3, 1, 2], ["i", 2, -3, 1, 2], ["i", -3, 1, 1, 1], ["i", -2, 2, 4, 1], ["i", 2, 1, 1, 1]],
+        love: [["h", -4, -3, 1, 1], ["h", -2, -3, 1, 1], ["h", -4, -2, 3, 1], ["h", -3, -1, 1, 1], ["h", 1, -3, 1, 1], ["h", 3, -3, 1, 1], ["h", 1, -2, 3, 1], ["h", 2, -1, 1, 1], ["i", -2, 2, 4, 1], ["i", -3, 1, 1, 1], ["i", 2, 1, 1, 1]],
+        shades: [["i", -5, -3, 4, 2], ["i", 1, -3, 4, 2], ["i", -1, -3, 2, 1], ["w", -4, -3, 1, 1], ["w", 2, -3, 1, 1], ["i", -1, 2, 3, 1], ["i", 2, 1, 1, 1]],
+        angry: [["i", -4, -4, 2, 1], ["i", -2, -3, 1, 1], ["i", 2, -4, 2, 1], ["i", 1, -3, 1, 1], ["i", -3, -2, 1, 1], ["i", 2, -2, 1, 1], ["i", -2, 2, 4, 1], ["i", -3, 3, 1, 1], ["i", 2, 3, 1, 1]],
+        wow: [["i", -3, -3, 1, 2], ["i", 2, -3, 1, 2], ["i", -1, 1, 2, 2]],
+        sleepy: [["i", -4, -2, 2, 1], ["i", 2, -2, 2, 1], ["i", -1, 2, 2, 1]],
+        lie: [["i", -3, -3, 1, 2], ["i", 2, -3, 1, 2], ["i", -3, 2, 6, 1], ["i", -3, 1, 1, 1]],
+      };
+      function face(color, kind, r, blush) {
+        var S = 2 * r + 4, c = document.createElement("canvas"); c.width = c.height = S;
+        var g = c.getContext("2d"), cx = S / 2, cy = S / 2;
+        var hi = shade(color, 55), lit = shade(color, 28), base = shade(color, 0), dk = shade(color, -38), dk2 = shade(color, -70), line = shade(color, -125);
+        for (var y = 0; y < S; y++) for (var x = 0; x < S; x++) {
+          var nx = (x + 0.5 - cx) / r, ny = (y + 0.5 - cy) / r, d = nx * nx + ny * ny;
+          if (d > 1) continue;
+          var col;
+          if (Math.sqrt(d) > 1 - 1.15 / r) col = line;
+          else {
+            var l = 1 - Math.hypot(nx + 0.42, ny + 0.5) / 1.75 + (dith(x, y) - 0.5) * 0.12;
+            col = l > 0.72 ? hi : l > 0.55 ? lit : l > 0.33 ? base : l > 0.18 ? dk : dk2;
+          }
+          g.fillStyle = col; g.fillRect(x, y, 1, 1);
+        }
+        var s = Math.max(1, Math.round(r / 8)), ox = Math.round(cx), oy = Math.round(cy);
+        if (blush) { g.fillStyle = "rgba(255,90,120,0.45)"; g.fillRect(ox - 5 * s, oy, 2 * s, s); g.fillRect(ox + 3 * s, oy, 2 * s, s); }
+        (FEATURES[kind] || FEATURES.smile).forEach(function (f) {
+          g.fillStyle = f[0] === "h" ? "#e0204a" : f[0] === "w" ? "rgba(255,255,255,0.8)" : shade(color, -150);
+          g.fillRect(ox + f[1] * s, oy + f[2] * s, f[3] * s, f[4] * s);
+        });
+        g.fillStyle = "rgba(255,255,255,0.9)";
+        g.fillRect(Math.round(cx - r * 0.5), Math.round(cy - r * 0.62), Math.max(1, s), Math.max(1, s));
+        g.fillRect(Math.round(cx - r * 0.62), Math.round(cy - r * 0.45), Math.max(1, s), Math.max(1, s));
+        return c;
+      }
+      var PARADE = [
+        ["#ffd23f", "smile", 8, 1], ["#ff7eb6", "love", 8, 1], ["#9d93c9", "lie", 8, 0], ["#e0453a", "angry", 8, 0],
+        ["#5fb4ff", "wow", 8, 1], ["#ffc21a", "smile", 11, 1], ["#7ddc7a", "sleepy", 8, 0], ["#ffd23f", "shades", 9, 0],
+        ["#3fc9b0", "wow", 8, 0], ["#e64ad6", "smile", 8, 1], ["#a347ff", "angry", 9, 0], ["#fff27a", "wow", 8, 0],
+        ["#2b4fd6", "sleepy", 9, 0], ["#c9b458", "lie", 8, 0],
+      ].map(function (p) { return { spr: face(p[0], p[1], p[2], p[3]), r: p[2] }; });
+
+      // logo, roller and roster
+      function put(id, spr, x, y) { var c = document.getElementById(id), g = c.getContext("2d"); g.clearRect(0, 0, c.width, c.height); g.drawImage(spr, x, y); }
+      put("loader-verity", face("#ffd23f", "smile", 24, 1), 0, 0);
+      put("loader-roller", face("#ffd23f", "smile", 10, 1), 0, 0);
+      var rosterSprites = PARADE.slice(0, 8).map(function (p, i) { return face(["#ffd23f", "#ff7eb6", "#9d93c9", "#e0453a", "#5fb4ff", "#ffd23f", "#7ddc7a", "#a347ff"][i], ["smile", "love", "lie", "angry", "wow", "shades", "sleepy", "angry"][i], 8, i % 2); });
+
+      // ---- Scene ----
+      var cv = document.getElementById("loader-scene"), g = cv.getContext("2d");
+      var W = 0, H = 0, PX = 3, sky = null, land = null, stars = [], flies = [], clouds = [], groundY = 0, pathY = 0, lanterns = [];
+      function layer() { var c = document.createElement("canvas"); c.width = W; c.height = H; return [c, c.getContext("2d")]; }
+      function R(gg, col, x, y, w, h) { gg.fillStyle = col; gg.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h)); }
+      function build() {
+        PX = window.innerWidth < 640 ? 2 : 3;
+        W = Math.ceil(window.innerWidth / PX); H = Math.ceil(window.innerHeight / PX);
+        cv.width = W; cv.height = H;
+        var horizon = Math.round(H * 0.6); groundY = Math.round(H * 0.74); pathY = Math.round(H * 0.87);
+        var r = rng(1234);
+        // sky with dithered bands, stars and moon
+        var s = layer(); sky = s[0]; var sg = s[1];
+        var SKY = [[13, 11, 31], [22, 18, 52], [36, 27, 78], [60, 38, 96], [102, 56, 112], [150, 82, 110]];
+        for (var y = 0; y < groundY; y++) {
+          var t = Math.min(0.999, y / horizon) * (SKY.length - 1), i = Math.floor(t), f = t - i;
+          for (var x = 0; x < W; x++) {
+            var c = SKY[f > dith(x, y) ? Math.min(SKY.length - 1, i + 1) : i];
+            sg.fillStyle = "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")"; sg.fillRect(x, y, 1, 1);
+          }
+        }
+        stars = [];
+        for (var k = 0; k < W * H / 260; k++) {
+          var sx = Math.floor(r() * W), sy = Math.floor(r() * horizon * 0.85);
+          stars.push({ x: sx, y: sy, p: r() * 6.28, big: r() < 0.12, col: ["#ffffff", "#fff09a", "#bfe3ff", "#ffc6e0"][Math.floor(r() * 4)] });
+        }
+        var mx = Math.round(W * 0.84), my = Math.round(H * 0.17), mr = Math.max(9, Math.round(H * 0.045));
+        for (var gr = mr * 3; gr > mr; gr -= 2) { sg.globalAlpha = 0.05; sg.fillStyle = "#fff4c9"; sg.beginPath(); sg.arc(mx, my, gr, 0, 7); sg.fill(); }
+        sg.globalAlpha = 1;
+        for (y = -mr; y <= mr; y++) for (x = -mr; x <= mr; x++) {
+          var d = x * x + y * y; if (d > mr * mr) continue;
+          var cut = (x - mr * 0.45) * (x - mr * 0.45) + (y + mr * 0.25) * (y + mr * 0.25) < mr * mr * 0.72;
+          if (cut) continue;
+          sg.fillStyle = d > (mr - 1.2) * (mr - 1.2) ? "#d9c98a" : (x + y < -mr * 0.6 ? "#fffbe6" : "#fff0b0");
+          sg.fillRect(mx + x, my + y, 1, 1);
+        }
+        R(sg, "#e8d68f", mx - mr * 0.6, my + mr * 0.1, 2, 2); R(sg, "#e8d68f", mx - mr * 0.3, my + mr * 0.5, 1, 1);
+
+        // land: hills, trees, fence, gate, ground, path
+        var l = layer(); land = l[0]; var lg = l[1];
+        function hills(base, amp, freq, col, top, seed) {
+          for (var x = 0; x < W; x++) {
+            var hy = base - amp * (0.55 * Math.sin(x * freq + seed) + 0.3 * Math.sin(x * freq * 2.3 + seed * 2) + 0.15 * Math.sin(x * freq * 5.1 + seed));
+            hy = Math.round(hy);
+            R(lg, top, x, hy, 1, 1); R(lg, col, x, hy + 1, 1, groundY - hy);
+          }
+        }
+        hills(horizon - 4, H * 0.07, 0.018, "#2a2350", "#3a3168", 1);
+        hills(horizon + 8, H * 0.05, 0.03, "#1d2f3c", "#2b4452", 4);
+        // tree line
+        for (var x = 0; x < W; x += 3 + Math.floor(r() * 6)) {
+          var th = 8 + Math.floor(r() * 12), tx = x, ty = groundY - 2;
+          if (r() < 0.6) { // pine
+            for (var j = 0; j < th; j++) { var half = Math.floor((j / th) * th * 0.32) + 1; R(lg, j % 4 === 0 ? "#1d3d33" : "#163128", tx - half, ty - th + j, half * 2 + 1, 1); }
+            R(lg, "#24493c", tx - 1, ty - th + 2, 1, th * 0.5);
+          } else { // round tree
+            var rr = Math.round(th * 0.35);
+            for (var yy = -rr; yy <= rr; yy++) for (var xx = -rr; xx <= rr; xx++) if (xx * xx + yy * yy <= rr * rr) R(lg, (xx + yy < -rr * 0.5) ? "#22473a" : "#18342b", tx + xx, ty - rr - 3 + yy, 1, 1);
+            R(lg, "#2a1d16", tx, ty - 3, 1, 3);
+          }
+        }
+        // ground
+        for (y = groundY; y < H; y++) for (x = 0; x < W; x++) {
+          var n = (Math.sin(x * 12.9898 + y * 78.233) * 43758.5453) % 1; n = n < 0 ? -n : n;
+          var inPath = y >= pathY - 3 && y <= pathY + 6;
+          var col2 = inPath ? (n > 0.85 ? "#7a5c3c" : n < 0.1 ? "#4f3a26" : "#654a30") : (n > 0.9 ? "#3d7a3a" : n < 0.12 ? "#1f4421" : (y - groundY < 2 ? "#356b34" : "#2c5a2e"));
+          if (inPath && (y === pathY - 3 || y === pathY + 6)) col2 = "#3e2e1e";
+          R(lg, col2, x, y, 1, 1);
+        }
+        // night darkening toward the bottom
+        for (y = groundY; y < H; y++) { lg.globalAlpha = (y - groundY) / (H - groundY) * 0.35; R(lg, "#0a0816", 0, y, W, 1); }
+        lg.globalAlpha = 1;
+        // fence
+        var fy = groundY - 1;
+        for (x = 0; x < W; x++) { if (x % 7 === 0) { R(lg, "#2a1a0c", x, fy - 7, 2, 8); R(lg, "#7a4a22", x, fy - 7, 1, 7); } }
+        R(lg, "#4e2c10", 0, fy - 5, W, 1); R(lg, "#4e2c10", 0, fy - 2, W, 1); R(lg, "#7a4a22", 0, fy - 6, W, 1); R(lg, "#7a4a22", 0, fy - 3, W, 1);
+        // gate with sign and lanterns
+        var gx = Math.round(W * 0.13), gw = 34, gh = 30;
+        R(lg, "#1b1530", gx - 4, fy - gh - 3, gw + 8, gh + 4);
+        R(lg, "#6b6b80", gx - 3, fy - gh + 4, 6, gh - 3); R(lg, "#9a9ab0", gx - 3, fy - gh + 4, 2, gh - 3);
+        R(lg, "#6b6b80", gx + gw - 3, fy - gh + 4, 6, gh - 3); R(lg, "#9a9ab0", gx + gw - 3, fy - gh + 4, 2, gh - 3);
+        R(lg, "#c9a227", gx - 4, fy - gh + 2, 8, 3); R(lg, "#c9a227", gx + gw - 4, fy - gh + 2, 8, 3);
+        R(lg, "#000", gx + 1, fy - gh - 4, gw - 2, 10); R(lg, "#ffd23f", gx + 2, fy - gh - 3, gw - 4, 8); R(lg, "#fff09a", gx + 2, fy - gh - 3, gw - 4, 1); R(lg, "#c9a227", gx + 2, fy - gh + 4, gw - 4, 1);
+        lg.drawImage(face("#ffd23f", "smile", 3, 0), gx + gw / 2 - 5, fy - gh - 4);
+        for (k = 0; k < 4; k++) { R(lg, "#7a4a22", gx + 5 + k * 2, fy - gh - 1, 1, 1); R(lg, "#7a4a22", gx + gw - 7 - k * 2, fy - gh - 1, 1, 1); }
+        var gatePath = function () { R(lg, "#6b5034", gx + 3, fy - 1, gw - 6, pathY + 6 - fy + 1); R(lg, "#4f3a26", gx + 3, fy - 1, 1, pathY - 3 - fy + 1); R(lg, "#4f3a26", gx + gw - 4, fy - 1, 1, pathY - 3 - fy + 1); };
+        lanterns = [[gx, fy - gh + 1], [gx + gw, fy - gh + 1]];
+        // a pen on the right with a bench and a lamp post
+        var px0 = Math.round(W * 0.72);
+        for (x = px0; x < px0 + 40; x++) if (x % 5 === 0) R(lg, "#2a1a0c", x, groundY + 4, 1, 6);
+        R(lg, "#7a4a22", px0, groundY + 5, 40, 1); R(lg, "#7a4a22", px0, groundY + 8, 40, 1);
+        var lpx = Math.round(W * 0.42);
+        R(lg, "#1b1b24", lpx, groundY - 18, 2, 18 + 2); R(lg, "#3a3a4a", lpx - 2, groundY - 20, 6, 3);
+        lanterns.push([lpx + 1, groundY - 18]);
+        // pebbles and tufts
+        for (k = 0; k < W / 3; k++) {
+          var ex = Math.floor(r() * W), ey = groundY + 2 + Math.floor(r() * (H - groundY - 2));
+          if (ey >= pathY - 3 && ey <= pathY + 6) { R(lg, "#8f7a5c", ex, ey, 1, 1); continue; }
+          R(lg, "#3f8a3c", ex, ey, 1, 2); R(lg, "#3f8a3c", ex + 1, ey - 1, 1, 3); R(lg, "#2c6a2c", ex + 2, ey, 1, 2);
+          if (r() < 0.15) R(lg, ["#ff7eb6", "#fff09a", "#bfe3ff"][Math.floor(r() * 3)], ex + 1, ey - 2, 1, 1);
+        }
+        gatePath();
+        clouds = []; for (k = 0; k < 5; k++) clouds.push({ x: r() * W, y: 8 + r() * horizon * 0.45, w: 18 + r() * 26, v: 1.5 + r() * 2.5 });
+        flies = []; for (k = 0; k < Math.max(10, W / 30); k++) flies.push({ x: r() * W, y: groundY - 20 + r() * (H - groundY + 10), p: r() * 6.28, s: 0.5 + r() });
+      }
+      function cloud(c) {
+        var x0 = Math.round(c.x), y0 = Math.round(c.y), w = Math.round(c.w);
+        for (var i = 0; i < 4; i++) {
+          var cx = x0 + (i + 0.5) * w / 4, rr = w / 5 + (i % 2 ? 2 : 0);
+          g.fillStyle = "#3d3470"; g.beginPath(); g.arc(Math.round(cx), y0, rr, 0, 7); g.fill();
+        }
+        g.fillStyle = "#4d4488"; for (i = 0; i < 4; i++) g.fillRect(Math.round(x0 + (i + 0.5) * w / 4 - w / 8), Math.round(y0 - w / 5 - (i % 2 ? 2 : 0)), Math.round(w / 4), 1);
+        g.fillStyle = "#2c2558"; g.fillRect(x0, y0 + Math.round(w / 6), w, 2);
+      }
+      // once the game scripts are loaded, the parade uses every variant's real sprite
+      var realParade = null;
+      function buildRealParade() {
+        var tricks = ["flip", "spin", "boing", "wiggle", "twirl"];
+        realParade = VARIANT_KEYS.map(function (k, i) {
+          var def = VARIANTS[k], seed = 7000 + i * 131;
+          var ind = { id: -3000 - i, k: k, seed: seed, model: Math.floor(Math.random() * BODY_MODELS.length), size: 0, hue: 0, light: 0, mark: "none", acc: "none", trait: "chill", shiny: false };
+          var chest = k === CHEST_KEY;
+          var spr = buildVariantSprite(k, ind, false, chest);   // Boobity's chest is drawn live so it can jiggle
+          var trick = k === "boobity" ? "shimmy" : def.move === "float" ? "float" : def.move === "glitch" ? "glitch" : def.move === "zoom" ? "dash" : def.move === "squash" ? "boing" : def.move === "jitter" ? "wiggle" : tricks[i % tricks.length];
+          return { spr: spr, trick: trick, chest: chest ? { D: bodySize(k, ind), color: def.color } : null };
+        });
+        // shuffle so the line-up changes every visit
+        for (var j = realParade.length - 1; j > 0; j--) { var q = Math.floor(Math.random() * (j + 1)), t = realParade[j]; realParade[j] = realParade[q]; realParade[q] = t; }
+      }
+      var shoot = null, last = performance.now(), T = 0;
+      function frame(now) {
+        if (!document.getElementById("loader-scene")) return;
+        var dt = Math.min(0.1, (now - last) / 1000); last = now; T += dt;
+        if (!sky) build();
+        g.imageSmoothingEnabled = false;
+        g.drawImage(sky, 0, 0);
+        for (var i = 0; i < stars.length; i++) {
+          var s = stars[i], b = 0.5 + 0.5 * Math.sin(T * 2 + s.p);
+          g.globalAlpha = 0.35 + b * 0.65; g.fillStyle = s.col; g.fillRect(s.x, s.y, 1, 1);
+          if (s.big && b > 0.7) { g.globalAlpha = (b - 0.7) * 2; g.fillRect(s.x - 1, s.y, 3, 1); g.fillRect(s.x, s.y - 1, 1, 3); }
+        }
+        g.globalAlpha = 1;
+        if (!shoot && Math.random() < dt * 0.2) shoot = { x: W * (0.2 + Math.random() * 0.6), y: H * 0.05 + Math.random() * H * 0.15, t: 0 };
+        if (shoot) {
+          shoot.t += dt;
+          for (var k = 0; k < 12; k++) { g.globalAlpha = (1 - k / 12) * Math.max(0, 1 - shoot.t); g.fillStyle = "#fffbe6"; g.fillRect(Math.round(shoot.x + shoot.t * 160 - k * 2), Math.round(shoot.y + shoot.t * 60 - k * 0.75), 1, 1); }
+          g.globalAlpha = 1; if (shoot.t > 1) shoot = null;
+        }
+        for (i = 0; i < clouds.length; i++) { var c = clouds[i]; c.x += c.v * dt; if (c.x > W + 10) c.x = -c.w - 10; cloud(c); }
+        g.drawImage(land, 0, 0);
+        // lantern glow
+        for (i = 0; i < lanterns.length; i++) {
+          var L = lanterns[i], fl = 0.85 + 0.15 * Math.sin(T * 7 + i * 2) * Math.sin(T * 3.1 + i);
+          for (var rr = 12; rr > 2; rr -= 3) { g.globalAlpha = 0.07 * fl; g.fillStyle = "#ffcf5a"; g.beginPath(); g.arc(L[0], L[1], rr, 0, 7); g.fill(); }
+          g.globalAlpha = 1; g.fillStyle = "#fff09a"; g.fillRect(L[0] - 1, L[1] - 1, 2, 2);
+        }
+        // the variant parade: simple faces until the game has loaded, then every variant's
+        // real sprite in a random body model, bouncing along with its own trick now and then
+        if (!realParade && typeof buildVariantSprite === "function" && typeof VARIANT_KEYS !== "undefined") buildRealParade();
+        var list = realParade || PARADE, gap = realParade ? 30 : 30, total = list.length * gap + W * 0.25, speed = 16;
+        for (i = 0; i < list.length; i++) {
+          var p = list[i], sw = p.spr.width, sh = p.spr.height;
+          var x = ((T * speed + W * 0.55 - i * gap) % (W + total) + (W + total)) % (W + total) - sw - 6;
+          var hopT = (T * 2.2 + i * 0.37) % 1, hop = Math.sin(hopT * Math.PI) * 6, sx = 1, sy = 1, rot = 0, dx = 0, alpha = 1;
+          if (hopT < 0.08 || hopT > 0.94) { sx = 1.12; sy = 0.86; }                 // squash on landing
+          else if (hopT < 0.25) { sx = 0.92; sy = 1.08; }                           // stretch on take-off
+          var tr = p.trick ? (T * 0.22 + i * 0.137) % 1 : 1, pr = tr / 0.22;
+          if (tr < 0.22) {
+            switch (p.trick) {
+              case "flip": hop = Math.sin(pr * Math.PI) * 18; rot = pr * Math.PI * 2; break;
+              case "spin": sx = Math.cos(pr * Math.PI * 4); break;
+              case "boing": hop = Math.sin(pr * Math.PI) * 22; sy = 1 + Math.sin(pr * Math.PI * 3) * 0.25; sx = 2 - sy; break;
+              case "wiggle": rot = Math.sin(pr * Math.PI * 10) * 0.35; hop *= 0.4; break;
+              case "dash": dx = Math.sin(pr * Math.PI) * 26; hop *= 0.3; break;
+              case "float": hop = 6 + Math.sin(pr * Math.PI) * 12; rot = Math.sin(pr * Math.PI * 4) * 0.15; sx = sy = 1; break;
+              case "glitch": dx = (Math.random() < 0.3 ? (Math.random() - 0.5) * 8 : 0); alpha = Math.random() < 0.2 ? 0.4 : 1; break;
+              case "shimmy": dx = Math.sin(pr * Math.PI * 14) * 2; rot = Math.sin(pr * Math.PI * 14) * 0.12; hop *= 0.3; break;
+              case "twirl": rot = -pr * Math.PI * 2; hop = Math.sin(pr * Math.PI) * 10; break;
+            }
+          } else if (p.trick === "float") { hop = 5 + Math.sin(T * 2 + i) * 2; sx = sy = 1; }
+          x += dx;
+          if (x < -50 || x > W + 50) continue;
+          var footY = pathY + 3 + (realParade ? 3 : 0);   // real sprites have 3px of padding under the body
+          g.globalAlpha = Math.max(0.08, 0.35 - hop * 0.012); g.fillStyle = "#000";
+          g.beginPath(); g.ellipse(Math.round(x + sw / 2), pathY + 3, Math.max(2, sw * 0.35 - hop * 0.15), 1.5, 0, 0, 7); g.fill();
+          g.globalAlpha = alpha;
+          g.save();
+          g.translate(Math.round(x + sw / 2), Math.round(footY - hop - sh / 2));
+          if (rot) g.rotate(rot);
+          g.scale(sx, sy);
+          g.drawImage(p.spr, -Math.round(sw / 2), -Math.round(sh / 2));
+          if (p.chest) {
+            // the chest lags behind each hop and swings on its own: two springs, slightly out of step
+            var shim = p.trick === "shimmy" && tr < 0.22 ? 1 : 0;
+            var lag = (hopT - 0.18 + 1) % 1, bounce = Math.sin(lag * Math.PI * 2);
+            var jy = Math.round(bounce * 2.5 + Math.sin(T * 30) * 1.5 * shim), jy2 = Math.round(Math.sin((lag - 0.06) * Math.PI * 2) * 2.5 + Math.sin(T * 30 + 1) * 1.5 * shim);
+            var jx = Math.round(Math.sin(T * 9 + i) * 0.8 + Math.sin(T * 30) * 2 * shim);
+            drawChest(g, -Math.round(sw / 2) + SPR_PAD_X, -Math.round(sh / 2) + SPR_PAD_T, p.chest.D, p.chest.color, 1, 1, [jx, jy, -jx, jy2]);
+          }
+          g.restore();
+          g.globalAlpha = 1;
+        }
+        // fireflies
+        for (i = 0; i < flies.length; i++) {
+          var f = flies[i], fx = Math.round(f.x + Math.sin(T * f.s + f.p) * 10), fy = Math.round(f.y + Math.cos(T * f.s * 1.3 + f.p) * 5);
+          var a = Math.max(0, Math.sin(T * 2.5 * f.s + f.p));
+          g.globalAlpha = a * 0.25; g.fillStyle = "#e8ff8a"; g.fillRect(fx - 1, fy - 1, 3, 3);
+          g.globalAlpha = a; g.fillRect(fx, fy, 1, 1);
+        }
+        g.globalAlpha = 1;
+        // roster: the faces take turns bouncing
+        var rc = document.getElementById("loader-faces");
+        if (rc) {
+          var rg = rc.getContext("2d"); rg.clearRect(0, 0, rc.width, rc.height);
+          for (i = 0; i < rosterSprites.length; i++) {
+            var b2 = Math.max(0, Math.sin(T * 4 - i * 0.6)); b2 = b2 > 0.6 ? (b2 - 0.6) * 10 : 0;
+            rg.drawImage(rosterSprites[i], i * 21, 6 - Math.round(b2));
+          }
+        }
+        requestAnimationFrame(frame);
+      }
+      window.addEventListener("resize", function () { sky = null; });
+      requestAnimationFrame(frame);
+
+      // progress (main.js finishes it once the game is ready) and rotating tips
+      window.__loader = { pct: 0 };
+      var steps = ["Hatching eggs...", "Polishing fences...", "Teaching Moggity to mog...", "Fitting Boobity's tank top...", "Mopping the Backrooms...", "Paving the parking lot..."];
+      var tips = ["In Pro mode you build at night, while the park is closed.", "Arrow keys or WASD move the camera. Scroll to zoom.", "A bigger parking lot brings in more guests.", "Fuse two variants in the Lab to discover new ones.", "Simple mode lets you build at any time of day.", "Some variants love certain enclosure themes.", "Buy wild land to grow your sanctuary.", "He belongs to the Backrooms. Don't let him out."];
+      var i = 0, tipI = 0;
+      window.__loaderTimer = setInterval(function () {
+        if (!document.getElementById("loader-fill")) return clearInterval(window.__loaderTimer);
+        if (window.__loader.pct < 70) window.__loader.pct += 3;
+        document.getElementById("loader-fill").style.width = window.__loader.pct + "%";
+        document.getElementById("loader-roller").style.left = "calc(" + window.__loader.pct + "% - 18px)";
+        document.getElementById("loader-num").textContent = Math.floor(window.__loader.pct) + "%";
+        if (window.__loader.pct % 15 === 0) document.getElementById("loader-step").textContent = steps[i++ % steps.length];
+      }, 60);
+      var tipTimer = setInterval(function () {
+        var el = document.getElementById("loader-tip");
+        if (!el) return clearInterval(tipTimer);
+        tipI = (tipI + 1) % tips.length; el.textContent = tips[tipI];
+      }, 3200);
+    })();
+  </script>
+  <header class="topbar">
+    <div class="brand">
+      <i class="ico logo" data-icon="logo"></i>
+      <div>
+        <h1>VERITY SANCTUARY</h1>
+        <p class="tagline">a verity habitat tycoon <span class="ver" id="ver-tag">v2.0</span> <span class="ver mode-tag" id="mode-tag" hidden></span></p>
+      </div>
+      <div class="lvl-box" title="Park level: earn XP to unlock new items">
+        <span class="lvl-badge" id="park-level">1</span>
+        <div class="lvl-meta">
+          <span class="label">PARK LEVEL</span>
+          <div class="progress xp"><div id="xp-bar" class="progress-fill"></div></div>
+          <span id="xp-text" class="xp-text"></span>
+        </div>
+      </div>
+    </div>
+    <div class="stats">
+      <div class="stat coins"><i class="ico" data-icon="coin"></i><div><span class="label">COINS</span><span id="money" class="value">0</span></div></div>
+      <div class="stat"><i class="ico" data-icon="rate"></i><div><span class="label">PER SEC</span><span id="rate" class="value">0</span></div></div>
+      <div class="stat"><i class="ico" data-icon="visitor"></i><div><span class="label">VISITORS</span><span id="visitors" class="value">0</span></div></div>
+      <div class="stat"><i class="ico" data-icon="heart"></i><div><span class="label">APPEAL</span><span id="appeal" class="value">0</span></div></div>
+      <div class="stat"><i class="ico" data-icon="star"></i><div><span class="label">RATING</span><span id="stars" class="value stars"></span></div></div>
+      <button id="notes-btn" class="icon-btn text-btn" title="Patch notes"><i class="ico" data-icon="scroll"></i><span>Patch notes</span></button>
+      <a id="insta-btn" class="icon-btn text-btn insta-btn" href="https://www.instagram.com/jamesrobbizz/" target="_blank" rel="noopener" title="Follow @jamesrobbizz on Instagram"><i class="ico" data-icon="insta"></i><span>@jamesrobbizz</span></a>
+      <a id="feedback-btn" class="icon-btn text-btn feedback-btn" href="https://forms.gle/N3EzvmrXTgRiWqSZ6" target="_blank" rel="noopener" title="Send feedback, suggestions or bug reports"><i class="ico" data-icon="info"></i><span>Feedback</span></a>
+      <button id="sound-toggle" class="icon-btn" title="Toggle sound"><i class="ico" data-icon="sound"></i></button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="park">
+      <div class="park-frame">
+        <div class="park-title">
+          <span class="world-info"><i class="ico" id="weather-ico" data-icon="sun"></i><span id="clock"></span><span id="weather-label"></span></span>
+          <span id="park-info" class="park-info"></span>
+          <button id="snapshot" class="mini" title="Download a picture of your park"><i class="ico" data-icon="camera"></i></button>
+        </div>
+        <div id="event-bar" class="event-bar" hidden>
+          <span id="event-text"></span>
+          <div class="event-timer"><div id="event-fill"></div></div>
+        </div>
+        <div id="hours-bar" class="hours-bar">
+          <span id="hours-text"></span>
+          <button id="hours-btn" class="mini-text"></button>
+        </div>
+        <div class="map-wrap">
+          <canvas id="game" tabindex="0" aria-label="Park map. Arrow keys or WASD move the camera, plus and minus zoom."></canvas>
+          <canvas id="minimap" width="144" height="96" title="Minimap: click or drag to jump"></canvas>
+          <div class="map-controls">
+            <button id="zoom-in" class="mini" title="Zoom in (+)">+</button>
+            <span id="zoom-label">100%</span>
+            <button id="zoom-out" class="mini" title="Zoom out (-)">&minus;</button>
+            <button id="zoom-home" class="mini" title="Back to the gate">&#8962;</button>
+          </div>
+          <p class="map-help">Arrows/WASD or drag to move · scroll or +/- to zoom</p>
+        </div>
+      </div>
+      <div class="hint-bar"><i class="ico" data-icon="info"></i><p id="hint" class="hint"></p></div>
+      <div class="card goal-strip">
+        <i class="ico" data-icon="trophy"></i>
+        <div class="goal-text"><span class="label">GOAL</span><span id="goal-strip-text"></span></div>
+        <div class="progress"><div id="goal-strip-bar" class="progress-fill"></div></div>
+      </div>
+    </section>
+
+    <aside class="panel">
+      <nav class="tabs">
+        <button class="tab active" data-tab="park"><i class="ico" data-icon="hammer"></i><span>Park</span></button>
+        <button class="tab" data-tab="lab"><i class="ico" data-icon="flask"></i><span>Lab</span></button>
+        <button class="tab" data-tab="index"><i class="ico" data-icon="book"></i><span>Index</span></button>
+        <button class="tab" data-tab="goals"><i class="ico" data-icon="trophy"></i><span>Goals</span></button>
+        <button class="tab" data-tab="save"><i class="ico" data-icon="disk"></i><span>Save</span></button>
+      </nav>
+
+      <!-- PARK -->
+      <div class="page" data-page="park">
+        <div class="card">
+          <h2><i class="ico" data-icon="hammer"></i>BUILD</h2>
+          <div class="tools tool-grid">
+            <button class="tool active" data-tool="inspect"><i class="ico" data-icon="inspect"></i><span>Inspect</span><small>click a variant</small></button>
+            <button class="tool build-only" data-tool="path"><i class="ico" data-icon="path"></i><span>Path</span><small id="cost-path"></small></button>
+            <button class="tool build-only" data-tool="enclosure"><i class="ico" data-icon="fence"></i><span>Enclosure</span><small id="cost-enclosure"></small></button>
+            <button class="tool build-only" data-tool="bulldoze"><i class="ico" data-icon="shovel"></i><span>Bulldoze</span><small>50% refund</small></button>
+          </div>
+          <div id="build-options" class="build-options build-only" hidden></div>
+          <p id="build-lock" class="build-lock" hidden>The park is open. Building, shops, decor and moving variants come back at 10 PM. The Lab, Incubator and care work all day.</p>
+        </div>
+
+        <div class="card build-only">
+          <h2><i class="ico" data-icon="shop"></i>SHOPS &amp; DECOR</h2>
+          <h3>Snack stands <span>visitors buy as they pass</span></h3>
+          <div id="shop-stands" class="shop-grid"></div>
+          <h3>Decorations <span>raise park appeal</span></h3>
+          <div id="shop-decor" class="shop-grid"></div>
+          <p id="shop-more" class="small locked-note"></p>
+        </div>
+
+        <div class="card" id="request-card">
+          <h2><i class="ico" data-icon="scroll"></i>VISITOR REQUEST</h2>
+          <div id="request"></div>
+        </div>
+
+        <div class="card" id="feedback-card">
+          <h2><i class="ico" data-icon="visitor"></i>GUEST FEEDBACK</h2>
+          <div id="feedback"></div>
+        </div>
+
+        <div class="card">
+          <h2><i class="ico" data-icon="egg"></i>INCUBATOR <small id="free-eggs"></small></h2>
+          <button id="hatch" class="big"><i class="ico egg-ico" data-icon="egg"></i><span>Hatch Egg<small id="cost-egg"></small></span></button>
+          <p class="small center">Mostly commons · 6% uncommon · 1% shiny</p>
+          <div id="special-eggs" class="special-eggs"></div>
+          <h3>Unplaced variants <span id="inv-count"></span></h3>
+          <div id="inventory" class="inventory"></div>
+        </div>
+
+        <div class="card" id="bank-card">
+          <h2><i class="ico" data-icon="coin"></i>GOLD PILE <small id="bank-level"></small></h2>
+          <div id="bank"></div>
+        </div>
+
+        <div class="card" id="parking-card">
+          <h2><i class="ico" data-icon="car"></i>PARKING LOT <small id="lot-level"></small></h2>
+          <div id="parking"></div>
+        </div>
+
+        <div class="card" id="staff-card">
+          <h2><i class="ico" data-icon="staff"></i>STAFF <small id="wages"></small></h2>
+          <div id="staff"></div>
+        </div>
+
+        <div class="card" id="land-card" hidden>
+          <h2><i class="ico" data-icon="tree"></i>LAND FOR SALE</h2>
+          <div id="land"></div>
+        </div>
+
+        <div class="card" id="inspect-card" hidden>
+          <h2><i class="ico" data-icon="fence"></i><span id="inspect-title">ENCLOSURE</span></h2>
+          <div id="inspect"></div>
+        </div>
+      </div>
+
+      <!-- LAB -->
+      <div class="page" data-page="lab" hidden>
+        <div class="card">
+          <h2><i class="ico" data-icon="flask"></i>FUSION LAB <small id="lab-level"></small></h2>
+          <div class="fuse-row">
+            <button class="fuse-slot" data-slot="0"></button>
+            <span class="fuse-plus">+</span>
+            <button class="fuse-slot" data-slot="1"></button>
+            <span class="fuse-plus">=</span>
+            <div class="fuse-slot result" id="fuse-result"></div>
+          </div>
+          <div id="fuse-info" class="fuse-info"></div>
+          <button id="fuse-btn" class="big"><i class="ico" data-icon="flask"></i><span>Fuse!<small id="fuse-cost"></small></span></button>
+          <button id="lab-upgrade" class="wide"></button>
+          <h3>Pick from unplaced variants</h3>
+          <div id="lab-inventory" class="inventory"></div>
+        </div>
+        <div class="card">
+          <h2><i class="ico" data-icon="book"></i>RECIPE BOOK <small id="recipe-count"></small></h2>
+          <div id="recipes" class="recipes"></div>
+        </div>
+      </div>
+
+      <!-- INDEX -->
+      <div class="page" data-page="index" hidden>
+        <div class="card">
+          <h2><i class="ico" data-icon="book"></i>VARIANT INDEX <small id="index-count"></small></h2>
+          <div class="progress"><div id="index-bar" class="progress-fill"></div></div>
+          <div id="index-detail" class="index-detail"></div>
+          <div id="index" class="index"></div>
+        </div>
+      </div>
+
+      <!-- GOALS -->
+      <div class="page" data-page="goals" hidden>
+        <div class="card" id="prestige-card">
+          <h2><i class="ico" data-icon="shard"></i>NEW SANCTUARY <small id="shards"></small></h2>
+          <div id="prestige"></div>
+        </div>
+        <div class="card">
+          <h2><i class="ico" data-icon="star"></i>PARK LEVEL <small id="level-small"></small></h2>
+          <div id="level-info"></div>
+        </div>
+        <div class="card">
+          <h2><i class="ico" data-icon="trophy"></i>CURRENT GOAL <small id="goal-count"></small></h2>
+          <div id="goal"></div>
+        </div>
+        <div class="card">
+          <h2><i class="ico" data-icon="star"></i>ACHIEVEMENTS <small id="ach-count"></small></h2>
+          <p class="small">Each achievement gives +2% income forever.</p>
+          <div id="achievements" class="achievements"></div>
+        </div>
+      </div>
+
+      <!-- SAVE -->
+      <div class="page" data-page="save" hidden>
+        <div class="card">
+          <h2><i class="ico" data-icon="disk"></i>SAVE</h2>
+          <p class="small" id="save-status">Autosaves every 10s.</p>
+          <div class="tools">
+            <button id="save-now">Save now</button>
+            <button id="export">Export</button>
+            <button id="import">Import</button>
+            <button id="reset" class="danger">Reset</button>
+          </div>
+          <p class="small" id="mode-note"></p>
+        </div>
+        <div class="card">
+          <h2><i class="ico" data-icon="sound"></i>SETTINGS</h2>
+          <label class="check"><input type="checkbox" id="set-muted"> Mute everything</label>
+          <label class="check"><input type="checkbox" id="set-sound"> Sound effects</label>
+          <label class="check"><input type="checkbox" id="set-coin"> Coin sounds</label>
+          <label class="range">Sound volume <input type="range" id="set-sfxvol" min="0" max="1" step="0.05"></label>
+          <label class="check"><input type="checkbox" id="set-music"> Music</label>
+          <label class="range">Music volume <input type="range" id="set-musicvol" min="0" max="1" step="0.05"></label>
+          <label class="check"><input type="checkbox" id="set-effects"> Weather &amp; night effects</label>
+          <label class="check"><input type="checkbox" id="set-shake"> Screen shake on rare hatches</label>
+          <label class="check"><input type="checkbox" id="set-hovertips"> Explain things when I hover over them</label>
+          <label class="check"><input type="checkbox" id="set-feedback"> Feedback reminders (every 10 min)</label>
+          <button id="admin-btn" class="wide"><i class="ico" data-icon="staff"></i> Admin panel</button>
+          <button id="tut-replay" class="wide"><i class="ico" data-icon="info"></i> Replay tutorial</button>
+          <button id="snapshot2" class="wide"><i class="ico" data-icon="camera"></i> Download park snapshot</button>
+        </div>
+        <div class="card">
+          <h2><i class="ico" data-icon="scroll"></i>PATCH NOTES <small>v<span id="ver-small"></span></small></h2>
+          <div id="notes-card"></div>
+        </div>
+        <div class="card">
+          <h2><i class="ico" data-icon="star"></i>CREDITS</h2>
+          <p class="credit-line">Created by <b>Liam R</b></p>
+          <p class="credit-line">Kinda helped with the idea: <b>Manny V</b></p>
+          <p class="small">A fan game inspired by the Verity meme. Not affiliated with its creators.</p>
+          <p class="small"><a class="archive-link" href="../index.html">Play older versions</a></p>
+          <a class="wide feedback-wide" href="https://forms.gle/N3EzvmrXTgRiWqSZ6" target="_blank" rel="noopener">Send feedback, suggestions or a bug report</a>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <div id="toasts" class="toasts"></div>
+
+  <!-- Tutorial guide -->
+  <div id="tutorial" class="tutorial" role="dialog" aria-labelledby="tut-title" aria-live="polite" hidden>
+    <div class="tut-head">
+      <i class="ico" data-icon="logo"></i>
+      <span id="tut-step" class="tut-step"></span>
+      <button id="tut-skip" class="linkish" type="button">Skip tutorial</button>
+    </div>
+    <h3 id="tut-title"></h3>
+    <p id="tut-text"></p>
+    <p id="tut-task" class="tut-task" hidden><b>TRY IT</b><span id="tut-task-text"></span><em>DONE!</em></p>
+    <div class="tut-nav">
+      <button id="tut-back" type="button">Back</button>
+      <button id="tut-next" class="primary" type="button">Next</button>
+    </div>
+  </div>
+
+  <!-- Hatch / fusion animation -->
+  <div id="fx-overlay" class="overlay" hidden>
+    <div class="fx-box">
+      <canvas id="fx-canvas" width="160" height="120"></canvas>
+      <div id="fx-title" class="fx-title"></div>
+      <div id="fx-sub" class="fx-sub"></div>
+      <div class="tools center">
+        <button id="fx-inspect" hidden>Inspect</button>
+        <button id="fx-ok" class="primary">Nice!</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Close-up variant card -->
+  <dialog id="card-dialog" class="card-dialog">
+    <div class="vc">
+      <div class="vc-art">
+        <canvas id="card-canvas" width="96" height="96"></canvas>
+        <div id="card-badges" class="vc-badges"></div>
+      </div>
+      <div class="vc-info">
+        <h2 id="card-name"></h2>
+        <p id="card-species" class="vc-species"></p>
+        <div class="vc-level"><span id="card-level"></span><div class="progress"><div id="card-xp" class="progress-fill"></div></div></div>
+        <div id="card-care"></div>
+        <div id="card-stats" class="vc-stats"></div>
+        <p id="card-ability" class="vc-ability"></p>
+        <p id="card-desc" class="vc-desc"></p>
+      </div>
+    </div>
+    <div class="tools vc-actions">
+      <button id="card-pet" class="primary">Pet</button>
+      <button id="card-feed">Feed (3c)</button>
+      <button id="card-rename">Rename</button>
+      <button id="card-move"></button>
+      <button id="card-release" class="danger"></button>
+      <button id="card-close">Close</button>
+    </div>
+  </dialog>
+
+  <dialog id="mode-dialog" class="mode-dialog">
+    <h2>CHOOSE YOUR MODE</h2>
+    <p class="small">You can't switch later. Resetting your park lets you choose again.</p>
+    <div id="mode-options" class="mode-options"></div>
+  </dialog>
+
+  <dialog id="day-dialog" class="day-dialog">
+    <form method="dialog">
+      <h2 id="day-title">DAY REPORT</h2>
+      <div id="day-report"></div>
+      <div class="tools ask-actions"><button value="ok" class="primary">Start the night shift</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="notes-dialog" class="notes-dialog">
+    <form method="dialog">
+      <h2>WHAT'S NEW</h2>
+      <div id="notes"></div>
+      <div class="tools ask-actions"><button value="ok" class="primary">Let's go!</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="ask-dialog" class="ask-dialog">
+    <form method="dialog">
+      <h2 id="ask-title"></h2>
+      <p id="ask-text" class="ask-text"></p>
+      <input id="ask-input" maxlength="16" autocomplete="off" hidden>
+      <div class="tools ask-actions">
+        <button id="ask-ok" value="ok" class="primary">OK</button>
+        <button id="ask-cancel" value="cancel">Cancel</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="admin-dialog" class="admin-dialog">
+    <form method="dialog">
+      <h2>ADMIN PANEL</h2>
+      <div id="admin-body"></div>
+      <div class="tools"><button class="primary" value="close">Close</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="snap-dialog" class="snap-dialog">
+    <form method="dialog">
+      <h2>PARK SNAPSHOT</h2>
+      <img id="snap-img" alt="A picture of your park">
+      <p class="small">Right-click (or long-press on a phone) the picture to save or share it.</p>
+      <div class="tools"><button value="close" class="primary">Close</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="save-dialog">
+    <form method="dialog">
+      <h2 id="save-dialog-title">EXPORT SAVE</h2>
+      <p class="small" id="save-dialog-help"></p>
+      <textarea id="save-code" rows="6" spellcheck="false"></textarea>
+      <div class="tools">
+        <button id="save-dialog-ok" value="ok">OK</button>
+        <button value="cancel">Close</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="js/data.js"></script>
+  <script src="js/sprites.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/game.js"></script>
+  <script src="js/world.js"></script>
+  <script src="js/city.js"></script>
+  <script src="js/systems.js"></script>
+  <script src="js/admin.js"></script>
+  <script src="js/tutorial.js"></script>
+  <script src="js/help.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
