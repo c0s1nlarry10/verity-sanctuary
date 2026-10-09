@@ -23,7 +23,8 @@ const PATCH_NOTES = [
       ] },
       { title: "Variants", notes: [
         "Every variant ends in -ity: meet Liminality, Blockity and Piratity.",
-        "8 body models (Round, Bean, Mochi, Gumdrop, Pear, Marshmallow, Onion, Blobby), so no two look alike. Accessories are retired.",
+        "8 rounded body models (Round, Tall, Wide, Egg, Bulb, Squish, Lean, Tilt), so no two look alike. Accessories are retired.",
+        "Boobity ditched the censor bar for a tank top (with plenty of jiggle).",
         "Jelly-like jiggle: they squash, stretch, lean and wiggle.",
         "They sleep through the night and wake up at 8 AM.",
       ] },
@@ -122,7 +123,7 @@ const VARIANTS = {
   ferocity:  { name: "Ferocity", rarity: "rare", color: "#d9601a", value: 28, appeal: 8, face: "fangs", move: "zoom",
                desc: "Requires a strong fence.", ability: "Untamed: each viewer pays up to +50% extra." },
   boobity:   { name: "Boobity", rarity: "rare", color: "#ffb3a7", value: 22, appeal: 12, face: "censored",
-               desc: "This variant has been censored for your protection.", ability: "Curious crowds: big appeal boost." },
+               desc: "Never skips chest day. Lives in its favourite tank top.", ability: "Curious crowds: big appeal boost." },
 
   celebrity: { name: "Celebrity", rarity: "epic", color: "#ffe066", value: 55, appeal: 25, face: "shades",
                desc: "Too famous to make eye contact.", ability: "A-lister: massive appeal." },

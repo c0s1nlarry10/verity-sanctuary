@@ -217,13 +217,7 @@ const FACES = {
     dots(g, o, "#fff", [[4,9],[7,9]]);
   },
   censored: (g, o, ink) => {
-    dots(g, o, ink, [[4,4],[4,5],[7,4],[7,5]]);
-    const tones = ["#f3b3a6", "#e08f80", "#c46e62", "#f7cfc4"];
-    for (let cy = 6; cy <= 8; cy += 2)
-      for (let cx = 2; cx <= 8; cx += 2) {
-        g.fillStyle = tones[(cx + cy * 3) % 4];
-        g.fillRect(o.x + cx, o.y + cy, 2, 2);
-      }
+    dots(g, o, ink, [[4,3],[4,4],[7,3],[7,4],[5,6],[6,6],[4,5],[7,5]]);
   },
   shades: (g, o) => {
     dots(g, o, "#111", [[2,4],[3,4],[4,4],[5,4],[6,4],[7,4],[8,4],[9,4],[2,5],[3,5],[4,5],[7,5],[8,5],[9,5],[5,8],[6,8],[7,8],[8,7]]);
@@ -344,18 +338,18 @@ function litBlob(g, cx, cy, rx, ry, pal, opts = {}) {
   });
 }
 
-// Eight body models. Each returns f(nx, ny): about 0 at the body's middle and 1 at its
-// edge (nx, ny run -1..1 across the D x D body box). Shading treats f as a height field,
-// so every shape gets the same lit, rounded 3D look.
+// Eight body models, all gentle variations on a circle. Each returns f(nx, ny): about 0 at
+// the body's middle and 1 at its edge (nx, ny run -1..1 across the D x D body box). Shading
+// treats f as a height field, so every shape gets the same lit, rounded 3D look.
 const BODY_MODELS = [
-  { name: "Round",       f: (x, y) => x * x + y * y },
-  { name: "Bean",        f: (x, y) => { const w = 0.74 + 0.12 * y; return (x / w) ** 2 + y * y; } },
-  { name: "Mochi",       f: (x, y) => { const yy = (y - 0.12) / 0.8; return y > 0.9 ? 2 : (x / 1.0) ** 2 + yy * yy * (yy < 0 ? 1 : 0.45); } },
-  { name: "Gumdrop",     f: (x, y) => y < 0 ? x * x / 0.86 + y * y : (Math.abs(x) / 0.93) ** 4 + y ** 4 },
-  { name: "Pear",        f: (x, y) => { const w = 0.62 + 0.34 * (y + 1) / 2; return (x / w) ** 2 + y * y; } },
-  { name: "Marshmallow", f: (x, y) => (Math.abs(x) / 0.94) ** 4 + (Math.abs(y) / 0.94) ** 4 },
-  { name: "Onion",       f: (x, y) => { const body = (x / 0.92) ** 2 + ((y - 0.14) / 0.86) ** 2; const tip = y < -0.5 ? (Math.abs(x) / Math.max(0.01, (y + 1.02) * 0.62)) ** 2 : 9; return Math.min(body, tip > 1 ? 9 : body > 1 && y > -1 ? 0.97 : body); } },
-  { name: "Blobby",      f: (x, y) => { const body = (x / 0.92) ** 2 + ((y - 0.1) / 0.9) ** 2; const ear = (cx) => ((x - cx) ** 2 + (y + 0.7) ** 2) / 0.08; return Math.min(body, ear(-0.5), ear(0.5)); } },
+  { name: "Round",  f: (x, y) => x * x + y * y },
+  { name: "Tall",   f: (x, y) => (x / 0.86) ** 2 + y * y },
+  { name: "Wide",   f: (x, y) => x * x + ((y - 0.12) / 0.86) ** 2 },
+  { name: "Egg",    f: (x, y) => (x / (0.86 + 0.12 * y)) ** 2 + y * y },
+  { name: "Bulb",   f: (x, y) => (x / (0.92 - 0.08 * y)) ** 2 + ((y - 0.04) / 0.96) ** 2 },
+  { name: "Squish", f: (x, y) => y > 0.84 ? 2 : x * x + ((y - 0.06) / 0.94) ** 2 },
+  { name: "Lean",   f: (x, y) => ((x + 0.12 * y) / 0.9) ** 2 + y * y },
+  { name: "Tilt",   f: (x, y) => ((x - 0.12 * y) / 0.9) ** 2 + y * y },
 ];
 
 function drawBody(g, ox, oy, D, color, shape, pattern, model = 0) {
@@ -429,7 +423,7 @@ function bodySize(key, ind) {
 // Eye rectangles (12-grid units) used for glints and blinking
 const FACE_EYES = {
   smile: [[4, 4, 1, 2], [7, 4, 1, 2]], smileBlush: [[4, 4, 1, 2], [7, 4, 1, 2]], sweat: [[4, 4, 1, 2], [7, 4, 1, 2]],
-  speed: [[4, 4, 1, 2], [7, 4, 1, 2]], bolt: [[4, 4, 1, 2], [7, 4, 1, 2]], censored: [[4, 4, 1, 2], [7, 4, 1, 2]],
+  speed: [[4, 4, 1, 2], [7, 4, 1, 2]], bolt: [[4, 4, 1, 2], [7, 4, 1, 2]], censored: [[4, 3, 1, 2], [7, 3, 1, 2]],
   frown: [[4, 4, 1, 2]], pirate: [[7, 4, 1, 2]], money: [[3, 4, 2, 2], [7, 4, 2, 2]], fangs: [[4, 5, 1, 1], [7, 5, 1, 1]],
   angry: [[4, 5, 1, 1], [7, 5, 1, 1]], mog: [[3, 4, 2, 1], [7, 4, 2, 1]], wide: [[3, 4, 2, 2], [7, 4, 2, 2]],
   blank: [[4, 5, 1, 1], [7, 5, 1, 1]], neutral: [[4, 5, 1, 1], [7, 5, 1, 1]], steve: [[3, 4, 2, 1], [7, 4, 2, 1]],
@@ -447,7 +441,51 @@ function accessoryShine(g, o, acc) {
   if (acc === "flower") { g.fillStyle = "#fff6c0"; g.fillRect(o.x + 10, o.y + 1, 0.5, 0.5); }
 }
 
-function buildVariantSprite(key, ind, blink = false) {
+// Boobity wears a tank top. The torso part of the top is drawn into the body sprite; the
+// chest is two lit mounds of fabric drawn separately in the park so they can jiggle.
+const CHEST_KEY = "boobity";
+const TANK = "#f4f4f8";
+const chestCache = new Map();
+function chestParts(D) {
+  if (chestCache.has(D)) return chestCache.get(D);
+  const r = D * 0.22, w = r * 2 + 1, h = r * 2 + 1;
+  const mound = () => { const [c, g] = hiCanvas(w, h); litBlob(g, w / 2, h / 2, r, r * 0.88, ramp("#ececf4")); return c; };
+  const parts = { left: mound(), right: mound(), r };
+  chestCache.set(D, parts);
+  return parts;
+}
+// Draws the chest with the body box at (bx, by), size D, scaled by (kx, ky). jl/jr are the
+// jiggle offsets of the left and right sides in units.
+function drawChest(g, bx, by, D, color, kx = 1, ky = 1, jl = 0, jr = 0) {
+  const p = chestParts(D), w = uW(p.left), h = uH(p.left);
+  const cy = by + (D * 0.72) * ky;
+  const lx = bx + (D / 2 - p.r * 0.95) * kx, rx = bx + (D / 2 + p.r * 0.95) * kx;
+  g.drawImage(p.left, Math.round(lx - w / 2 * kx), Math.round(cy - h / 2 * ky + jl), w * kx, h * ky);
+  g.drawImage(p.right, Math.round(rx - w / 2 * kx), Math.round(cy - h / 2 * ky + jr), w * kx, h * ky);
+  // a short cleft at the scoop neckline
+  g.fillStyle = shade(color, -45);
+  g.fillRect(Math.round(bx + D / 2 * kx) - 0.5, Math.round(cy - p.r * 0.8 * ky + Math.min(jl, jr)), 1, 1);
+}
+// The rest of the tank top: fabric over the lower body, a hem and two straps.
+function drawTankTop(g, ox, oy, D, inside) {
+  const top = D * 0.66, pal = ramp(TANK);
+  raw(g, () => {
+    for (let py = Math.floor((oy + top) * RES); py < (oy + D) * RES; py++)
+      for (let px = ox * RES; px < (ox + D) * RES; px++) {
+        const ux = px / RES, uy = py / RES;
+        if (!inside(Math.floor(ux), Math.floor(uy)) || !inside(Math.floor(ux + 0.5), Math.floor(uy))) continue;
+        const edge = !inside(Math.floor(ux - 0.5), Math.floor(uy)) || !inside(Math.floor(ux + 1), Math.floor(uy)) || !inside(Math.floor(ux), Math.floor(uy + 1));
+        const lx = (ux - ox) / D;
+        g.fillStyle = edge ? pal[0] : lx > 0.72 ? pal[2] : lx < 0.3 ? pal[4] : pal[3];
+        g.fillRect(px, py, 1, 1);
+      }
+  });
+  g.fillStyle = shade(TANK, -60);
+  g.fillRect(ox + D * 0.2, oy + D - 1.5, D * 0.6, 0.5);                     // hem
+  for (const sx of [0.2, 0.75]) { g.fillStyle = pal[2]; g.fillRect(ox + D * sx, oy + D * 0.5, 1, top - D * 0.5 + 0.5); }
+}
+
+function buildVariantSprite(key, ind, blink = false, noChest = false) {
   const def = VARIANTS[key];
   const D = bodySize(key, ind);
   const [c, g] = hiCanvas(D + SPR_PAD_X * 2, D + SPR_PAD_T + SPR_PAD_B);
@@ -463,6 +501,7 @@ function buildVariantSprite(key, ind, blink = false) {
   const o = { x: SPR_PAD_X + off, y: SPR_PAD_T + off + faceShift };
   if (ind) drawMarking(g, o, ind, color, inside);
   const ink = def.ink || "#2b1d00";
+  if (key === CHEST_KEY) { drawTankTop(g, SPR_PAD_X, SPR_PAD_T, D, inside); if (!noChest) drawChest(g, SPR_PAD_X, SPR_PAD_T, D, color); }
   FACES[def.face](g, o, ink, color);
   const eyes = FACE_EYES[def.face];
   if (eyes) {
@@ -481,10 +520,11 @@ function buildVariantSprite(key, ind, blink = false) {
 }
 
 const spriteCache = new Map();
-function spriteFor(ind, blink = false) {
+function spriteFor(ind, blink = false, noChest = false) {
   if (blink && !FACE_EYES[VARIANTS[ind.k].face]) blink = false;
-  const key = "i" + ind.id + (blink ? "b" : "");
-  if (!spriteCache.has(key)) spriteCache.set(key, buildVariantSprite(ind.k, ind, blink));
+  noChest = noChest && ind.k === CHEST_KEY;
+  const key = "i" + ind.id + (blink ? "b" : "") + (noChest ? "n" : "");
+  if (!spriteCache.has(key)) spriteCache.set(key, buildVariantSprite(ind.k, ind, blink, noChest));
   return spriteCache.get(key);
 }
 function baseSprite(k) {

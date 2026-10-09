@@ -1271,7 +1271,8 @@ function drawIndividual(g, ind, c, dt, time, scale = 1) {
   const def = VARIANTS[ind.k];
   const asleep = !!c.asleep;
   const blinking = asleep || ((time * 1000 + ind.seed * 37) % 3800) < 140;
-  const spr = spriteFor(ind, blinking);
+  const chest = ind.k === CHEST_KEY;
+  const spr = spriteFor(ind, blinking, chest);
   const D = bodySize(ind.k, ind);
   const SW = uW(spr), SH = uH(spr);
   // soft-body jiggle: a damped spring on the squash amount, kicked by hops and idle wiggles
@@ -1291,12 +1292,22 @@ function drawIndividual(g, ind, c, dt, time, scale = 1) {
     hop = Math.max(0, -c.sq) * 6;                   // stretching lifts it a touch
   }
   if (c.wake > 0) { c.wake -= dt; hop = Math.sin(Math.PI * Math.min(1, 1 - c.wake / 0.5)) * 4; }
+  const sub = Math.min(4, Math.max(1, Math.ceil(dt / 0.016)));
   if (dt > 0) {
-    const sub = Math.min(4, Math.ceil(dt / 0.016));
     for (let i = 0; i < sub; i++) { const h2 = dt / sub; c.sqv += (-130 * c.sq - 7 * c.sqv) * h2; c.sq += c.sqv * h2; }
     c.sq = Math.max(-0.24, Math.min(0.26, c.sq));
     const targetLean = moving ? Math.max(-0.22, Math.min(0.22, c.vx / 28)) : 0;
     c.lean += (targetLean - c.lean) * Math.min(1, dt * 7);
+    if (chest) {
+      // two springs that follow the body's squash a beat behind, slightly out of step
+      if (!c.jg) c.jg = [0, 0, 0, 0];
+      const pull = c.sq * 9 + (asleep ? Math.sin(time * 1.3 + c.phase) * 0.6 : 0);
+      for (let i = 0; i < 2; i++) {
+        const k = i ? 95 : 80;
+        for (let n = 0; n < sub; n++) { const h2 = dt / sub; c.jg[2 + i] += (-k * (c.jg[i] - pull) - 5 * c.jg[2 + i]) * h2; c.jg[i] += c.jg[2 + i] * h2; }
+        c.jg[i] = Math.max(-2.5, Math.min(2.5, c.jg[i]));
+      }
+    }
   }
   let sx = 1 + c.sq, sy = 1 - c.sq, jx = 0;
   if (asleep) { const b = Math.sin(time * 1.3 + c.phase) * 0.06; sx = 1.05 + b; sy = 0.92 - b; }
@@ -1311,12 +1322,21 @@ function drawIndividual(g, ind, c, dt, time, scale = 1) {
   g.fillStyle = "rgba(0,0,0,0.25)";
   const shW = Math.max(2, (D - (def.move === "float" ? 4 : 2)) * scale) * (1 - hop * 0.04);
   g.beginPath(); g.ellipse(c.x, c.y - scale * 0.5, shW / 2, scale, 0, 0, Math.PI * 2); g.fill();
+  const drawBodyAndChest = () => {
+    g.drawImage(spr, dx, dy, w, h);
+    if (chest) {
+      const kx = w / SW, ky = h / SH, jg = c.jg || [0, 0];
+      let color = tweak(VARIANTS[ind.k].color, ind.hue, ind.light);
+      if (ind.shiny) color = tweak(color, 150, 6);
+      drawChest(g, dx + SPR_PAD_X * kx, dy + SPR_PAD_T * ky, D, color, kx, ky, Math.round(jg[0]) * scale, Math.round(jg[1]) * scale);
+    }
+  };
   if (Math.abs(c.lean) > 0.01) {
     // lean into the direction of travel (skewed around the feet)
     g.save(); g.translate(c.x, c.y); g.transform(1, 0, -c.lean, 1, 0, 0); g.translate(-c.x, -c.y);
-    g.drawImage(spr, dx, dy, w, h);
+    drawBodyAndChest();
     g.restore();
-  } else g.drawImage(spr, dx, dy, w, h);
+  } else drawBodyAndChest();
   if (asleep) drawZzz(g, c.x + D * scale * 0.3, dy + (SPR_PAD_T - 1) * scale, time + c.phase * 3, scale);
   if (def.move === "glitch" && !asleep && Math.random() < 0.06) {
     g.globalAlpha = 0.5;
