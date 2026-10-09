@@ -26,6 +26,20 @@ function lotStalls(level = lotLevel()) {
 }
 function plotKeyAt(x, y) { const i = PLOT_MAP[y * COLS + x]; return i >= 0 ? PLOT_KEYS[i] : null; }
 function biomeAt(x, y) { const k = plotKeyAt(x, y); return k ? PLOTS[k].biome : "meadow"; }
+// Biomes blend into each other: the wild land is sampled through a smooth noise warp
+// (plus a little jitter), so neighbouring biomes interlock instead of meeting at tile edges.
+// Land you own keeps a crisp border so it's clear where you can build.
+const BIOME_WARP = 3 * TILE;
+const isWild = (x, y) => x >= OX && y >= 0 && x < COLS && y < ROWS && !isOwned(x, y);
+function wildBiomeAt(ux, uy) {
+  const tx = Math.floor(ux / TILE), ty = Math.floor(uy / TILE);
+  if (!isWild(tx, ty)) return biomeAt(tx, ty);
+  const px = ux * RES, py = uy * RES;
+  const wx = ux + (valueNoise(px, py, 90, 31) - 0.5) * BIOME_WARP + (hash2(ux | 0, uy | 0, 33) - 0.5) * TILE * 0.6;
+  const wy = uy + (valueNoise(px, py, 90, 37) - 0.5) * BIOME_WARP + (hash2(ux | 0, uy | 0, 34) - 0.5) * TILE * 0.6;
+  const wtx = Math.floor(wx / TILE), wty = Math.floor(wy / TILE);
+  return isWild(wtx, wty) ? biomeAt(wtx, wty) : biomeAt(tx, ty);
+}
 
 // ================= Terrain layer (whole world, hi-res, rebuilt when land or parking changes) =================
 let terrainLayer = null, terrainWork = null, terrainDirty = true;
@@ -40,12 +54,15 @@ function buildTerrain() {
   const d = img.data;
   // coarse noise grid, sampled bilinearly per pixel
   const STEP = 8, GW = W / STEP + 1, GH = H / STEP + 1;
-  const n1 = new Float32Array(GW * GH), n2 = new Float32Array(GW * GH);
+  const n1 = new Float32Array(GW * GH), n2 = new Float32Array(GW * GH), n3 = new Float32Array(GW * GH), n4 = new Float32Array(GW * GH);
   for (let gy = 0; gy < GH; gy++)
     for (let gx = 0; gx < GW; gx++) {
       n1[gy * GW + gx] = valueNoise(gx * STEP, gy * STEP, 46, 11);
       n2[gy * GW + gx] = valueNoise(gx * STEP, gy * STEP, 13, 23);
+      n3[gy * GW + gx] = valueNoise(gx * STEP, gy * STEP, 90, 31);
+      n4[gy * GW + gx] = valueNoise(gx * STEP, gy * STEP, 90, 37);
     }
+  const WARP_PX = BIOME_WARP * RES;
   const sample = (arr, px, py) => {
     const fx = px / STEP, fy = py / STEP, ix = fx | 0, iy = fy | 0, tx = fx - ix, ty = fy - iy;
     const i = iy * GW + ix;
@@ -53,7 +70,8 @@ function buildTerrain() {
     return a + (b - a) * tx + (c - a) * ty + (a - b - c + e) * tx * ty;
   };
   const zoneCache = new Int8Array(COLS * ROWS), ownCache = new Uint8Array(COLS * ROWS);
-  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) { zoneCache[y * COLS + x] = zoneAt(x, y); ownCache[y * COLS + x] = isOwned(x, y) ? 1 : 0; }
+  const biomeCache = new Array(COLS * ROWS);
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) { zoneCache[y * COLS + x] = zoneAt(x, y); ownCache[y * COLS + x] = isOwned(x, y) ? 1 : 0; biomeCache[y * COLS + x] = biomeAt(x, y); }
   const grass = [GRASS.deep, GRASS.dark, GRASS.base, GRASS.light];
   let o = 0;
   for (let py = 0; py < H; py++) {
@@ -66,9 +84,15 @@ function buildTerrain() {
       const n = sample(n1, px, py) * 0.65 + sample(n2, px, py) * 0.35 + fine + dither * 0.12;
       let col;
       if (z === ZONE.PARK && !ownCache[ti]) {
-        const pal = BIOMES[biomeAt(tx, ty)].ground;
+        const jx = ((Math.imul(px, 2654435761) ^ Math.imul(py, 40503)) >>> 24) / 255 - 0.5;
+        const jy = ((Math.imul(py, 2246822519) ^ Math.imul(px, 3266489917)) >>> 24) / 255 - 0.5;
+        const wtx = ((px + (sample(n3, px, py) - 0.5) * WARP_PX + jx * TPX * 0.6) / TPX) | 0;
+        const wty = ((py + (sample(n4, px, py) - 0.5) * WARP_PX + jy * TPX * 0.6) / TPX) | 0;
+        const wi = wty * COLS + wtx;
+        const biome = wtx >= OX && wty >= 0 && wtx < COLS && wty < ROWS && !ownCache[wi] ? biomeCache[wi] : biomeCache[ti];
+        const pal = BIOMES[biome].ground;
         col = n < 0.38 ? pal[1] : n > 0.66 ? pal[2] : pal[0];
-        if (biomeAt(tx, ty) === "swamp" && sample(n2, px * 1.7, py * 1.7) > 0.7) col = [44, 84, 88];
+        if (biome === "swamp" && sample(n2, Math.min(W - 1, px * 1.7) % W, Math.min(H - 1, py * 1.7) % H) > 0.7) col = [44, 84, 88];
       } else if (z === ZONE.PARK || z === ZONE.OUT) {
         col = grass[n < 0.3 ? 0 : n < 0.45 ? 1 : n < 0.68 ? 2 : 3];
       } else if (z === ZONE.ROAD || z === ZONE.DRIVE || z === ZONE.LOT) {
@@ -119,7 +143,7 @@ function drawTerrainDetails(g) {
       }
       if (z === ZONE.PLAZA) continue;
       const owned = z === ZONE.OUT || isOwned(tx, ty);
-      const biome = z === ZONE.OUT ? "meadow" : biomeAt(tx, ty);
+      const biome = z === ZONE.OUT ? "meadow" : owned ? biomeAt(tx, ty) : wildBiomeAt(X + 8, Y + 8);
       if (!owned) {
         // wild ground details
         if (biome === "autumn" || biome === "birch") for (let i = 0; i < 4; i++) R(biome === "autumn" ? AUTUMN_COLS[(i + tx) % 4] : "#e8e0b0", X + hash2(tx, ty, 20 + i) * 15, Y + hash2(tx, ty, 30 + i) * 15, 1, 0.5);
@@ -129,6 +153,8 @@ function drawTerrainDetails(g) {
         else if (biome === "mushroom" && h < 0.4) { R("#efe6cf", X + ox + 0.5, Y + oy + 1, 0.5, 1.5); R("#9b4ad0", X + ox, Y + oy, 1.5, 1); }
         else if (biome === "jungle") for (let i = 0; i < 3; i++) R("#1f5a2a", X + hash2(tx, ty, 20 + i) * 14, Y + hash2(tx, ty, 30 + i) * 14, 2, 0.5);
         else if (biome === "swamp" && h < 0.35) { R("#3f7a3a", X + ox, Y + oy, 2.5, 1.5); R("#ff8fb8", X + ox + 1, Y + oy, 0.5, 0.5); }
+        else if (biome === "snow") { if (h < 0.5) { R("#ffffff", X + ox, Y + oy, 1, 1); R("#b4c4dc", X + ox + 1, Y + oy + 1, 1.5, 0.5); } if (h2 < 0.25) R("#9fb2cc", X + ox + 4, Y + oy + 2, 2, 1); }
+        else if (biome === "cherry") for (let i = 0; i < 4; i++) R(i % 2 ? "#f7b6d2" : "#e984b0", X + hash2(tx, ty, 20 + i) * 15, Y + hash2(tx, ty, 30 + i) * 15, 1, 0.5);
         continue;
       }
       // owned or outside grass: tufts, flowers, pebbles, mushrooms with a biome flavour
@@ -169,7 +195,8 @@ function buildTrees() {
     for (let x = 0; x < COLS; x++) {
       const z = zoneAt(x, y);
       let biome = null, density = 0;
-      if (z === ZONE.PARK && !isOwned(x, y)) { biome = biomeAt(x, y); density = BIOMES[biome].density; }
+      const ux = x * TILE + 8 + (hash2(x, y, 80) - 0.5) * 6, uy = y * TILE + 13 + (hash2(x, y, 81) - 0.5) * 4;
+      if (z === ZONE.PARK && !isOwned(x, y)) { biome = wildBiomeAt(ux, uy); density = BIOMES[biome].density; }
       else if (z === ZONE.OUT) {
         if (x <= 4 || Math.abs(y - GATE.y) <= 1 || inRect(x, y, [maxLot[0] - 1, maxLot[1] - 1, maxLot[2] + 1, maxLot[3] + 1])) continue;
         biome = "meadow"; density = 0.42;
@@ -178,7 +205,7 @@ function buildTrees() {
       const kind = pickWeighted(BIOMES[biome].trees, hash2(x, y, 78));
       const spr = TREE_SPRITES[kind][Math.floor(hash2(x, y, 79) * 4)];
       treeInstances.push({
-        x: x * TILE + 8 + (hash2(x, y, 80) - 0.5) * 6, y: y * TILE + 13 + (hash2(x, y, 81) - 0.5) * 4,
+        x: ux, y: uy,
         spr, phase: hash2(x, y, 82) * 6.28, sway: kind === "rock" || kind === "reeds" ? 0 : kind === "bush" || kind === "fern" ? 0.15 : 0.35,
       });
     }
@@ -286,7 +313,7 @@ function drawCars(x0, y0, x1, y1) {
 // ================= Camera =================
 const view = { x: 0, y: 0, zoom: 2, cssW: 800, cssH: 500, dpr: 1, fit: 0 };
 const ZOOMS = [1, 2, 3, 4];
-const VIEW_PAD = 40;
+const VIEW_PAD = 3 * TILE;    // the camera only peeks at the city's edge
 const viewW = () => view.cssW / view.zoom;
 const viewH = () => view.cssH / view.zoom;
 function clampView() {

@@ -786,3 +786,17 @@ button.linkish { background: none; border: none; box-shadow: none; padding: 0; f
   .park-frame .map-wrap { flex: 1; min-height: 0; }
   #game { height: 100%; }
 }
+
+/* ---------- Top bar: patch notes and Instagram ---------- */
+.text-btn { display: inline-flex; align-items: center; gap: 6px; font-size: 8px; padding: 6px 10px 6px 6px; }
+a.icon-btn {
+  font-family: "Press Start 2P", monospace; line-height: 1.4;
+  color: var(--text); text-decoration: none; background: var(--panel-2); border: 3px solid #000;
+  box-shadow: inset 2px 2px 0 var(--panel-hi), inset -2px -2px 0 var(--panel-lo), 3px 3px 0 #000;
+}
+a.icon-btn:hover { background: var(--panel-hi); }
+a.icon-btn:active { transform: translate(2px, 2px); box-shadow: inset 2px 2px 0 var(--panel-lo), 1px 1px 0 #000; }
+.insta-btn span { color: #ff8fc0; }
+.insta-credit { font-size: 17px; color: var(--muted); }
+.insta-credit a { font-family: "Press Start 2P", monospace; font-size: 9px; color: #ff8fc0; }
+@media (max-width: 900px) { .text-btn { justify-content: center; font-size: 7px; } }

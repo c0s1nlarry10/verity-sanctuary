@@ -6,13 +6,17 @@ const PATCH_NOTES = [
   {
     version: "1.1", title: "Bigger, Brighter, Busier",
     notes: [
-      "The world is about 9x bigger. Move around with the arrow keys or WASD, drag to pan, and zoom with the scroll wheel or - and + keys.",
+      "The world is over 20x bigger, with 39 new plots of wild land to buy. Move around with the arrow keys or WASD, drag to pan, and zoom with the scroll wheel or - and + keys. Zoom all the way out to see the whole map.",
+      "A city now surrounds the sanctuary, with traffic, rooftops and windows that light up at night.",
       "New minimap. Click it to jump anywhere.",
       "Real opening hours: the park is open 8 AM to 10 PM (8 minutes) and closed at night (3 minutes).",
       "Building, bulldozing and moving variants now happen at night while the park is closed.",
       "End-of-day report at 10 PM with revenue, expenses, profit and everything that levelled up.",
       "Guests now arrive by car. Upgrade the parking lot to fit more of them.",
-      "Wild land comes in 8 biomes with irregular shapes: pine, birch, autumn, mushroom, rocky, flower, swamp and jungle.",
+      "Wild land comes in 11 biomes that blend into each other: oak, pine, birch, autumn, mushroom, rocky, flower, swamp, jungle, and the new snowy forest and cherry blossom groves.",
+      "Variants jiggle like jelly: they squash when they land, stretch when they jump, lean as they move and wiggle when idle.",
+      "Variants now sleep through the night (with drifting Zs) and wake up with a stretch when the park opens.",
+      "Patch notes button in the top bar, and a link to the creator's Instagram (@jamesrobbizz).",
       "New retro look: the whole world now shares one pixel grid (16x16 pixel tiles), so variants, people, buildings, trees, shadows and lighting all match. Variants got inked outlines.",
       "Every variant now ends in -ity: say hello to Liminality (formerly Backrooms Verity), Blockity (Steve) and Piratity (Pirate Clark).",
       "New tutorial for first-time players. Skip it any time, or replay it from the Save tab.",
@@ -33,13 +37,15 @@ const PATCH_NOTES = [
 
 // ================= Core constants =================
 const TILE = 16;            // world units per tile
-const COLS = 72;            // world size in tiles
-const ROWS = 48;
-const OX = 14, OY = 18;     // top-left tile of the original 24x16 park
+const COLS = 113;           // world size in tiles. COLS - 1 and ROWS + 2 are multiples of 8
+const ROWS = 78;            // so the city's street grid lines up with the sanctuary's edges
+const OX = 14, OY = 31;     // top-left tile of the original 24x16 park
 const CORE_W = 24, CORE_H = 16;
 const GATE = { x: OX, y: OY + 8 };
 const WORLD_W = COLS * TILE, WORLD_H = ROWS * TILE;
-const WORLD_VERSION = 2;
+const WORLD_VERSION = 3;
+// earlier world layouts, so their saves can be moved into this one
+const OLD_WORLDS = { 2: { cols: 72, rows: 48, ox: 14, oy: 18 } };
 const ENC_SIZE = 3;         // enclosures are 3x3 tiles
 const ENC_CAPACITY = 4;
 const SAVE_KEY = "verity-sanctuary-save";
@@ -345,19 +351,50 @@ const PLOTS = {
   south:  { label: "South Field",    rect: [OX, OY + 12, OX + 15, OY + 15], cost: 6000, level: 6, biome: "birch" },
   corner: { label: "Far Corner",     rect: [OX + 16, OY + 12, OX + 23, OY + 15], cost: 15000, level: 9, biome: "autumn" },
 };
-const WILD_SEEDS = [
-  { key: "pines",  label: "Whispering Pines", x: 22, y: 8,  biome: "pine",     level: 7 },
-  { key: "hollow", label: "Birch Hollow",     x: 37, y: 6,  biome: "birch",    level: 8 },
-  { key: "bog",    label: "Misty Bog",        x: 22, y: 41, biome: "swamp",    level: 9 },
-  { key: "glade",  label: "Mushroom Glade",   x: 50, y: 9,  biome: "mushroom", level: 10 },
-  { key: "amber",  label: "Amber Woods",      x: 46, y: 26, biome: "autumn",   level: 11 },
-  { key: "ridge",  label: "Rocky Ridge",      x: 64, y: 7,  biome: "rocky",    level: 12 },
-  { key: "bloom",  label: "Bloom Thicket",    x: 61, y: 23, biome: "flower",   level: 13 },
-  { key: "tangle", label: "Tangle Jungle",    x: 38, y: 41, biome: "jungle",   level: 14 },
-  { key: "willow", label: "Willow Bend",      x: 54, y: 40, biome: "swamp",    level: 16 },
-  { key: "deep",   label: "The Deep Woods",   x: 67, y: 40, biome: "pine",     level: 18 },
-];
-for (const w of WILD_SEEDS) PLOTS[w.key] = { label: w.label, seed: [w.x, w.y], cost: Math.round(3000 * Math.pow(1.42, w.level - 5) / 100) * 100, level: w.level, biome: w.biome };
+// Wild land: one plot per cell of a jittered grid. The climate shifts across the map
+// (snow up north, swamps and jungle down south, blossoms out east) and plots get
+// pricier and unlock later the further they are from the gate.
+const WILD_NAMES = {
+  oak: ["Oakshade", "Acorn Rise", "Old Oak Hollow", "Greenwood", "Squirrel Wood", "Bramble Oaks"],
+  pine: ["Whispering Pines", "The Deep Woods", "Needle Ridge", "Pinecone Vale", "Evergreen Reach", "Resin Hollow"],
+  birch: ["Birch Hollow", "Silver Grove", "Paperbark Vale", "White Stem Wood", "Birchwind", "Pale Glade"],
+  autumn: ["Amber Woods", "Maple Rise", "Copper Copse", "Ember Grove", "Harvest Wood", "Rustleaf"],
+  mushroom: ["Mushroom Glade", "Spore Hollow", "Toadstool Ring", "Glowcap Grove", "Fungal Flats", "Puffball Patch"],
+  rocky: ["Rocky Ridge", "Boulder Flats", "Granite Gap", "Pebble Pass", "Stony Bluff", "Crag Hollow"],
+  flower: ["Bloom Thicket", "Petal Meadow", "Daisy Downs", "Tulip Terrace", "Honeysuckle Hill", "Buttercup Bend"],
+  swamp: ["Misty Bog", "Willow Bend", "Froggy Fen", "Murkwater", "Lilypad Marsh", "Cattail Creek"],
+  jungle: ["Tangle Jungle", "Vine Hollow", "Canopy Deep", "Parrot Point", "Liana Loop", "Monsoon Wood"],
+  snow: ["Frostpeak", "Snowdrift Hollow", "Icicle Wood", "Polar Pines", "Glacier Gap", "Winter's Rest"],
+  cherry: ["Cherry Blossom Vale", "Sakura Hill", "Pink Petal Grove", "Blossom Bend", "Hanami Park", "Rosewood"],
+};
+const WILD_SEEDS = (() => {
+  const CW = 16, CH = 13, out = [], count = {};
+  for (let cy = 0; cy * CH < ROWS; cy++)
+    for (let cx = 0; OX + cx * CW < COLS; cx++) {
+      const x = Math.min(COLS - 2, Math.round(OX + cx * CW + CW * (0.25 + 0.5 * hash2(cx, cy, 401))));
+      const y = Math.min(ROWS - 2, Math.round(cy * CH + CH * (0.25 + 0.5 * hash2(cx, cy, 402))));
+      if (x <= OX + CORE_W + 1 && y >= OY - 2 && y <= OY + CORE_H + 1) continue;   // the core park
+      const nx = (x - OX) / (COLS - OX), ny = y / ROWS, h = hash2(cx, cy, 403);
+      const pool = ny < 0.2 ? ["snow", "pine", "snow", "rocky"]
+        : ny > 0.8 ? ["swamp", "jungle", "swamp", "mushroom"]
+        : nx > 0.72 ? ["cherry", "flower", "mushroom", "jungle", "cherry"]
+        : nx < 0.38 ? ["oak", "birch", "pine", "autumn"]
+        : ["autumn", "birch", "rocky", "oak", "flower"];
+      // within its climate, each plot takes the biome used least so far, so the map stays varied
+      const pick = [...new Set(pool)].sort((a, b) => (count[a] || 0) - (count[b] || 0) || hash2(a.length, cx + cy, 404) - 0.5)[0];
+      const biome = (count[pick] || 0) < (count[pool[Math.floor(h * pool.length)]] || 0) + 1 ? pick : pool[Math.floor(h * pool.length)];
+      count[biome] = (count[biome] || 0) + 1;
+      out.push({ x, y, biome, dist: Math.hypot(x - GATE.x, (y - GATE.y) * 1.2) });
+    }
+  out.sort((a, b) => a.dist - b.dist);
+  const used = {};
+  return out.map((w, i) => {
+    const names = WILD_NAMES[w.biome], n = used[w.biome] = (used[w.biome] || 0) + 1;
+    const label = n <= names.length ? names[n - 1] : `${names[(n - 1) % names.length]} ${Math.ceil(n / names.length)}`;
+    return { key: "wild" + (i + 1), label, x: w.x, y: w.y, biome: w.biome, level: 7 + Math.round(i * (MAX_PARK_LEVEL - 7) / (out.length - 1)) };
+  });
+})();
+for (const w of WILD_SEEDS) PLOTS[w.key] = { label: w.label, seed: [w.x, w.y], cost: Math.round(2500 * Math.pow(1.3, w.level - 5) / 100) * 100, level: w.level, biome: w.biome };
 
 function hash2(x, y, s = 0) {
   let h = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263) ^ Math.imul(s | 0, 1442695041);
@@ -469,11 +506,11 @@ const CYCLE_SECS = DAY_SECS + NIGHT_SECS;
 // ================= Road & parking =================
 const ROAD_X = [1, 2];          // two-lane road along the west edge
 const LOT_LEVELS = [
-  { spaces: 6,  cost: 0,     rect: [10, 25, 13, 27] },
-  { spaces: 12, cost: 800,   rect: [10, 24, 13, 28] },
-  { spaces: 20, cost: 3000,  rect: [8, 24, 13, 28] },
-  { spaces: 30, cost: 9000,  rect: [8, 23, 13, 29] },
-  { spaces: 48, cost: 25000, rect: [7, 22, 13, 30] },
+  { spaces: 6,  cost: 0,     rect: [10, GATE.y - 1, 13, GATE.y + 1] },
+  { spaces: 12, cost: 800,   rect: [10, GATE.y - 2, 13, GATE.y + 2] },
+  { spaces: 20, cost: 3000,  rect: [8, GATE.y - 2, 13, GATE.y + 2] },
+  { spaces: 30, cost: 9000,  rect: [8, GATE.y - 3, 13, GATE.y + 3] },
+  { spaces: 48, cost: 25000, rect: [7, GATE.y - 4, 13, GATE.y + 4] },
 ];
 const GUESTS_PER_SPACE = 3;
 const WEATHER = {

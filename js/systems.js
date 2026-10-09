@@ -384,6 +384,7 @@ function drawSky(time) {
       ctx.fillStyle = grd;
       ctx.fillRect(lx - r, ly - r, r * 2, r * 2);
     }
+    drawCityLights(glow, vx, vy, vx + vw, vy + vh);
     ctx.globalCompositeOperation = "source-over";
   }
   if (lightning > 0) {
@@ -836,7 +837,7 @@ function renderPrestige() {
   box.appendChild(el("p", "small", `Coins earned this run: ${fmt(state.runEarned)}. Next shard at ${fmt(next)}.`));
 }
 
-const BIOME_LABELS = { meadow: "meadow", oak: "oak forest", pine: "pine forest", birch: "birch woods", autumn: "autumn forest", mushroom: "mushroom grove", rocky: "rocky hills", flower: "flower thicket", swamp: "swamp", jungle: "jungle" };
+const BIOME_LABELS = { meadow: "meadow", oak: "oak forest", pine: "pine forest", birch: "birch woods", autumn: "autumn forest", mushroom: "mushroom grove", rocky: "rocky hills", flower: "flower thicket", swamp: "swamp", jungle: "jungle", snow: "snowy forest", cherry: "cherry blossom grove" };
 
 function renderParking() {
   const box = $("parking");

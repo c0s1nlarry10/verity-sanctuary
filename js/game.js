@@ -166,6 +166,19 @@ function sanitize(data) {
     for (const t of s.trash) { t.x += OX; t.y += OY; }
     if (!data.plots) s.plots = { start: true, east: true, south: true, corner: true };
   }
+  const old = OLD_WORLDS[data.worldVersion];
+  if (old && Array.isArray(data.tiles) && data.tiles.length === old.cols * old.rows) {
+    // an earlier, smaller world: shift everything so the core park lines up again
+    const dx = OX - old.ox, dy = OY - old.oy, tiles = new Array(COLS * ROWS).fill(0);
+    for (let y = 0; y < old.rows; y++) for (let x = 0; x < old.cols; x++) {
+      const nx = x + dx, ny = y + dy;
+      if (nx >= 0 && ny >= 0 && nx < COLS && ny < ROWS) tiles[ny * COLS + nx] = data.tiles[y * old.cols + x];
+    }
+    s.tiles = tiles;
+    for (const e of Array.isArray(s.enclosures) ? s.enclosures : []) if (e) { e.x += dx; e.y += dy; }
+    for (const o of Array.isArray(s.objects) ? s.objects : []) if (o) { o.x += dx; o.y += dy; }
+    for (const t of s.trash) { t.x += dx; t.y += dy; }
+  }
   s.worldVersion = WORLD_VERSION;
   for (const k of Object.keys(s.plots)) if (!PLOTS[k]) delete s.plots[k];
   if (!Array.isArray(s.tiles) || s.tiles.length !== COLS * ROWS) s.tiles = defaultState().tiles;
@@ -1003,6 +1016,7 @@ function update(dt) {
   const parade = activeEvent && activeEvent.type === "parade" ? 2 : 1;
   const interval = Math.max(0.3, 5 / (1 + appeal * 0.25)) / parade * spawnFactor();
   tickWorld(dt);
+  updateCityCars(dt);
   updateStaff(dt);
   updateEscapes(dt);
   spawnTimer += dt;
@@ -1130,27 +1144,56 @@ function critterState(e, ind) {
 
 function drawIndividual(g, ind, c, dt, time, scale = 1) {
   const def = VARIANTS[ind.k];
-  const blinking = ((time * 1000 + ind.seed * 37) % 3800) < 140;
+  const asleep = !!c.asleep;
+  const blinking = asleep || ((time * 1000 + ind.seed * 37) % 3800) < 140;
   const spr = spriteFor(ind, blinking);
   const D = bodySize(ind.k, ind);
   const SW = uW(spr), SH = uH(spr);
-  const moving = c.vx || c.vy;
-  let hop = moving ? Math.abs(Math.sin(time * 8 + c.phase)) * 2 : Math.abs(Math.sin(time * 2 + c.phase)) * 0.6;
-  let sx = 1, sy = 1, jx = 0;
-  if (!moving) { const breath = Math.sin(time * 2.2 + c.phase) * 0.03; sx = 1 + breath; sy = 1 - breath; }
-  if (moving) { const sq = Math.abs(Math.sin(time * 8 + c.phase)); sy = 0.94 + sq * 0.08; sx = 1.06 - sq * 0.06; }
-  if (def.move === "float") { hop = 4 + Math.sin(time * 2 + c.phase) * 1.5; sx = sy = 1; }
-  if (def.move === "squash") { const s = Math.sin(time * 6 + c.phase) * 0.15; sx = 1 + s; sy = 1 - s; }
-  if (def.move === "jitter") jx = Math.random() < 0.3 ? (Math.random() < 0.5 ? -0.5 : 0.5) : 0;
-  if (def.move === "glitch" && Math.random() < 0.08) jx = Math.random() < 0.5 ? -2 : 2;
+  // soft-body jiggle: a damped spring on the squash amount, kicked by hops and idle wiggles
+  if (c.sq === undefined) { c.sq = 0; c.sqv = 0; c.hopT = Math.random(); c.lean = 0; c.idleT = 1 + Math.random() * 4; }
+  const moving = !asleep && (c.vx || c.vy);
+  let hop = 0;
+  if (moving) {
+    const prev = c.hopT % 1;
+    c.hopT += dt * (def.move === "zoom" ? 3.4 : 2.3);
+    const t = c.hopT % 1;
+    hop = Math.sin(Math.PI * t) * (def.move === "zoom" ? 2 : 3.2);
+    if (t < prev) c.sqv += 2.6;                     // landing: splat
+    if (prev < 0.06 && t >= 0.06) c.sqv -= 2;       // take-off: stretch
+  } else if (!asleep) {
+    c.idleT -= dt;
+    if (c.idleT <= 0) { c.idleT = 2.5 + Math.random() * 5; c.sqv += Math.random() < 0.5 ? 2.2 : -1.8; }
+    hop = Math.max(0, -c.sq) * 6;                   // stretching lifts it a touch
+  }
+  if (c.wake > 0) { c.wake -= dt; hop = Math.sin(Math.PI * Math.min(1, 1 - c.wake / 0.5)) * 4; }
+  if (dt > 0) {
+    const sub = Math.min(4, Math.ceil(dt / 0.016));
+    for (let i = 0; i < sub; i++) { const h2 = dt / sub; c.sqv += (-130 * c.sq - 7 * c.sqv) * h2; c.sq += c.sqv * h2; }
+    c.sq = Math.max(-0.24, Math.min(0.26, c.sq));
+    const targetLean = moving ? Math.max(-0.22, Math.min(0.22, c.vx / 28)) : 0;
+    c.lean += (targetLean - c.lean) * Math.min(1, dt * 7);
+  }
+  let sx = 1 + c.sq, sy = 1 - c.sq, jx = 0;
+  if (asleep) { const b = Math.sin(time * 1.3 + c.phase) * 0.06; sx = 1.05 + b; sy = 0.92 - b; }
+  else if (!moving) { const breath = Math.sin(time * 2.2 + c.phase) * 0.03; sx += breath; sy -= breath; }
+  if (def.move === "float" && !asleep) { hop = 4 + Math.sin(time * 2 + c.phase) * 1.5; const w2 = Math.sin(time * 3.1 + c.phase) * 0.05; sx = 1 + w2; sy = 1 - w2; }
+  if (def.move === "squash" && !asleep) { const s2 = Math.sin(time * 6 + c.phase) * 0.15; sx += s2; sy -= s2; }
+  if (def.move === "jitter" && !asleep) jx = Math.random() < 0.3 ? (Math.random() < 0.5 ? -0.5 : 0.5) : 0;
+  if (def.move === "glitch" && !asleep && Math.random() < 0.08) jx = Math.random() < 0.5 ? -2 : 2;
   const w = SW * sx * scale, h = SH * sy * scale;
   const baseY = c.y - (SPR_PAD_T + D) * scale;
   const dx = Math.round((c.x - w / 2 + jx * scale) * 2) / 2, dy = Math.round((c.y - (SH - SPR_PAD_B) * sy * scale - hop * scale) * 2) / 2;
   g.fillStyle = "rgba(0,0,0,0.25)";
   const shW = Math.max(2, (D - (def.move === "float" ? 4 : 2)) * scale) * (1 - hop * 0.04);
   g.beginPath(); g.ellipse(c.x, c.y - scale * 0.5, shW / 2, scale, 0, 0, Math.PI * 2); g.fill();
-  g.drawImage(spr, dx, dy, w, h);
-  if (def.move === "glitch" && Math.random() < 0.06) {
+  if (Math.abs(c.lean) > 0.01) {
+    // lean into the direction of travel (skewed around the feet)
+    g.save(); g.translate(c.x, c.y); g.transform(1, 0, -c.lean, 1, 0, 0); g.translate(-c.x, -c.y);
+    g.drawImage(spr, dx, dy, w, h);
+    g.restore();
+  } else g.drawImage(spr, dx, dy, w, h);
+  if (asleep) drawZzz(g, c.x + D * scale * 0.3, dy + (SPR_PAD_T - 1) * scale, time + c.phase * 3, scale);
+  if (def.move === "glitch" && !asleep && Math.random() < 0.06) {
     g.globalAlpha = 0.5;
     g.drawImage(spr, 0, 4 * ART, spr.width, 3 * ART, dx + 3 * scale, dy + 4 * scale, SW * scale, 3 * scale);
     g.globalAlpha = 1;
@@ -1168,14 +1211,40 @@ function drawIndividual(g, ind, c, dt, time, scale = 1) {
   c.hx = c.x - D * scale / 2; c.hy = baseY - hop * scale; c.hw = D * scale; c.hh = D * scale;
 }
 
+// Pixel "Z" letters (white with a drop shadow) in three sizes.
+const Z_SPR = [4, 5, 6].map(n => {
+  const c = makeCanvas(n + 1, n + 1), g = c.getContext("2d");
+  const pts = [];
+  for (let i = 0; i < n; i++) pts.push([i, 0], [i, n - 1], [n - 1 - i, i]);
+  g.fillStyle = "#1a1a40"; for (const [x, y] of pts) g.fillRect(x + 1, y + 1, 1, 1);   // drop shadow
+  g.fillStyle = "#f4f8ff"; for (const [x, y] of pts) g.fillRect(x, y, 1, 1);
+  return c;
+});
+// Two Zs drifting up from a sleeping variant, growing as they rise.
+function drawZzz(g, x, y, time, scale = 1) {
+  for (let i = 0; i < 2; i++) {
+    const t = (time * 0.35 + i / 2) % 1;
+    const spr = Z_SPR[Math.min(2, Math.floor(t * 3))];
+    const zx = Math.round(x + t * 6 * scale + Math.sin(t * 6 + i) * scale), zy = Math.round(y - 4 * scale - t * 20 * scale);
+    g.globalAlpha = t < 0.15 ? t / 0.15 : 1 - (t - 0.15) / 0.85;
+    g.drawImage(spr, zx, zy, spr.width * scale, spr.height * scale);
+  }
+  g.globalAlpha = 1;
+}
+
 function drawCritters(e, dt, time) {
   for (const ind of e.variants) {
     if ((activeEvent && activeEvent.ind === ind) || escapes.has(ind.id)) continue;
     const c = critterState(e, ind);
     const def = VARIANTS[ind.k];
-    const speed = 16 * TRAITS[ind.trait].move * (def.move === "zoom" ? 2.5 : 1) * (isOpen() ? 1 : 0.35);
+    const speed = 16 * TRAITS[ind.trait].move * (def.move === "zoom" ? 2.5 : 1);
+    // variants sleep from closing time until the park opens, then wake with a stretch
+    const sleepy = !isOpen();
+    if (c.asleep && !sleepy) { c.wake = 0.5; c.sqv = (c.sqv || 0) - 3; }
+    c.asleep = sleepy;
+    if (sleepy) { c.vx = c.vy = 0; c.timer = Math.random(); }
     c.timer -= dt;
-    if (c.timer <= 0) {
+    if (!sleepy && c.timer <= 0) {
       c.timer = 1 + Math.random() * 2;
       const moving = Math.random() < Math.min(0.9, 0.55 * TRAITS[ind.trait].move);
       c.vx = moving ? (Math.random() - 0.5) * speed : 0;
@@ -1186,7 +1255,6 @@ function drawCritters(e, dt, time) {
     drawIndividual(ctx, ind, c, dt, time);
     if (c.bubble) { c.bubble.t -= dt; if (c.bubble.t <= 0) c.bubble = null; }
     let icon = c.bubble ? c.bubble.icon : careActive() && ind.food < 30 && Math.floor(time / 2 + c.phase) % 3 === 0 ? "food" : null;
-    if (!icon && !isOpen() && darkness() > 0.3 && Math.floor(time / 3 + c.phase) % 4 === 0) icon = "sleep";
     if (icon) drawBubble(icon, c.x, c.hy - 1);
   }
 }
@@ -1325,6 +1393,7 @@ function render(dt, time) {
   // terrain: copy only the visible part of the big pre-rendered layer
   const sx = Math.max(0, Math.floor(x0)), sy = Math.max(0, Math.floor(y0));
   const ex = Math.min(WORLD_W, Math.ceil(x1) + 1), ey = Math.min(WORLD_H, Math.ceil(y1) + 1);
+  drawCity(x0, y0, x1, y1);
   if (ex > sx && ey > sy) ctx.drawImage(terrainLayer, sx * ART, sy * ART, (ex - sx) * ART, (ey - sy) * ART, sx, sy, ex - sx, ey - sy);
 
   const tx0 = Math.max(0, Math.floor(x0 / TILE) - 1), ty0 = Math.max(0, Math.floor(y0 / TILE) - 1);
@@ -1332,6 +1401,7 @@ function render(dt, time) {
   for (let y = ty0; y <= ty1; y++) for (let x = Math.max(tx0, OX); x <= tx1; x++) if (isPath(x, y)) drawPathTile(x, y);
 
   drawTrash();
+  drawBoundaryFence(x0, y0, x1, y1);
   drawTrees(time, x0, y0, x1, y1);
   for (const k2 of PLOT_KEYS) if (plotForSale(k2)) drawSaleSign(k2, time);
   const visibleEnc = state.enclosures.filter(e => (e.x + encSize(e)) * TILE >= x0 - 8 && e.x * TILE <= x1 + 8 && (e.y + encSize(e)) * TILE >= y0 - 8 && e.y * TILE <= y1 + 16);
@@ -2337,6 +2407,7 @@ $("zoom-in").addEventListener("click", () => zoomStep(1));
 $("zoom-out").addEventListener("click", () => zoomStep(-1));
 $("zoom-home").addEventListener("click", () => homeView());
 $("loader-notes").addEventListener("click", showPatchNotes);
+$("notes-btn").addEventListener("click", () => { sfx("click"); showPatchNotes(); });
 $("set-sound").addEventListener("change", e => { state.settings.sound = e.target.checked; renderSettings(); });
 $("set-coin").addEventListener("change", e => { state.settings.coinSound = e.target.checked; });
 $("set-music").addEventListener("change", e => { state.settings.music = e.target.checked; if (e.target.checked) startMusic(); else stopMusic(); });

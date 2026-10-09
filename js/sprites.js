@@ -313,6 +313,7 @@ const PAL = {
   b: "#5fb4ff", B: "#2b5fa8", r: "#ff5c7a", R: "#a8203f", n: "#a8703c", m: "#7a4a22", N: "#4e2c10",
   s: "#c9c5e8", S: "#6f6a99", t: "#d8b47a", T: "#a8834d", p: "#f2c9a0", e: "#f6efe0", E: "#d9cdb4",
   c: "#29b6c6", d: "#c0392b", D: "#3b5bd6",
+  V: "#833ab4", P: "#e1306c", O: "#f58529",
 };
 
 // ================= Hi-res shading =================
@@ -481,6 +482,8 @@ const BIOMES = {
   flower:   { ground: [[90, 160, 74], [74, 138, 60], [108, 184, 90]], trees: [["bush", 0.7], ["birch", 0.3]], density: 0.62 },
   swamp:    { ground: [[63, 90, 58], [46, 74, 46], [79, 107, 69]], trees: [["willow", 0.5], ["reeds", 0.5]], density: 0.58 },
   jungle:   { ground: [[42, 106, 42], [31, 85, 32], [58, 128, 48]], trees: [["palm", 0.55], ["fern", 0.45]], density: 0.92 },
+  snow:     { ground: [[222, 230, 240], [198, 210, 226], [240, 245, 250]], trees: [["snowpine", 0.85], ["rock", 0.15]], density: 0.7 },
+  cherry:   { ground: [[104, 166, 84], [88, 148, 70], [124, 184, 98]], trees: [["cherry", 0.78], ["bush", 0.22]], density: 0.66 },
 };
 
 // ================= Paths =================
@@ -635,11 +638,12 @@ const AUTUMN_COLS = ["#d9622b", "#e8a23a", "#c0392b", "#f0c040"];
 function makeTree(kind, v = 0) {
   const r = seeded(kind.length * 31 + v * 977);
   const jit = () => (r() - 0.5) * 18;
-  if (kind === "pine") {
+  if (kind === "pine" || kind === "snowpine") {
+    const snowy = kind === "snowpine";
     const [c, g] = treeBase(16, 28);
     shadowEllipse(g, 8, 26, 6, 1.8);
     trunk(g, 7, 20, 2, 6, "#5a3a1e");
-    const base = tweak("#2f6b34", jit(), jit() / 3);
+    const base = snowy ? tweak("#2a5a48", jit(), jit() / 3) : tweak("#2f6b34", jit(), jit() / 3);
     for (let i = 0; i < 4; i++) {
       const y = 3 + i * 4.5, w = 3 + i * 1.6;
       raw(g, () => {
@@ -649,6 +653,7 @@ function makeTree(kind, v = 0) {
             const rel = (px - 8 * RES) / Math.max(1, half);
             const edge = px === Math.round(8 * RES - half) || px === Math.round(8 * RES + half) - 1 || py === Math.round((y + 7) * RES) - 1;
             g.fillStyle = edge ? "#0f2a12" : rel < -0.3 ? shade(base, 26) : rel > 0.45 ? shade(base, -30) : ((px + py) % 5 === 0 ? shade(base, -15) : base);
+            if (snowy && !edge && (t < 0.38 || (t > 0.75 && rel < 0.2))) g.fillStyle = rel > 0.35 ? "#c4d2e6" : "#f4f8ff";
             g.fillRect(px, py, 1, 1);
           }
         }
@@ -745,6 +750,7 @@ function makeTree(kind, v = 0) {
     g.fillStyle = "#2a2a2a"; for (let y = 15; y < 26; y += 2.5) g.fillRect(10 + (y % 2), y, 1, 0.5);
   } else trunk(g, 9.5, 14, 3, 12);
   let base = kind === "autumn" ? tweak(AUTUMN_COLS[v % AUTUMN_COLS.length], jit() / 2, 0)
+    : kind === "cherry" ? tweak(["#f29cc0", "#f7b6d2", "#e984b0", "#fbc8dc"][v % 4], jit() / 3, 0)
     : kind === "darkoak" ? tweak("#1f5a3a", jit(), -4)
     : kind === "birch" ? tweak("#7ab84a", jit(), 4)
     : tweak("#3d8a3a", jit(), jit() / 3);
@@ -754,10 +760,10 @@ function makeTree(kind, v = 0) {
   for (const [bx, by, rx, ry] of blobs) litBlob(g, bx, by, rx * big + (r() - 0.5), ry * big, ramp(shade(base, Math.round((r() - 0.5) * 16))));
   leafSpecks(g, 11, 10, 8, 6, shade(base, -40), 26, v + 3);
   leafSpecks(g, 9, 7, 5, 4, shade(base, 50), 14, v + 9);
-  if (kind === "autumn") { g.fillStyle = shade(base, 20); for (let i = 0; i < 5; i++) g.fillRect(4 + r() * 14, 25 + r() * 2, 1, 0.5); }
+  if (kind === "autumn" || kind === "cherry") { g.fillStyle = shade(base, 20); for (let i = 0; i < 6; i++) g.fillRect(4 + r() * 14, 25 + r() * 2, 1, 0.5); }
   return c;
 }
-const TREE_KINDS = ["oak", "darkoak", "pine", "birch", "autumn", "mushroom", "rock", "bush", "fern", "reeds", "willow", "palm"];
+const TREE_KINDS = ["oak", "darkoak", "pine", "birch", "autumn", "mushroom", "rock", "bush", "fern", "reeds", "willow", "palm", "snowpine", "cherry"];
 const TREE_SPRITES = {};
 for (const k of TREE_KINDS) TREE_SPRITES[k] = [0, 1, 2, 3].map(v => makeTree(k, v));
 const TREES = TREE_SPRITES.oak;
@@ -1107,6 +1113,7 @@ const EGG_SPR = {
 Object.assign(ICONS, {
   tree: ["...kkkk...", "..kGGGGk..", ".kGgGGGGk.", "kGgGGGGGGk", "kGGGGGGGGk", ".kGGGGGGk.", "..kkmmkk..", "....mm....", "....mm....", "...kkkk..."],
   staff: ["..kkkkkk..", ".kggggggk.", "kkkkkkkkkk", "..kppppk..", "..kpkkpk..", "..kkkkkk..", ".kggggggk.", "kggggggggk", "kgkggggkgk", "..kk..kk.."],
+  insta: [".kkkkkkkk.", "kwwwwwwwwk", "kwVVVVwVwk", "kwPPwwPPwk", "kwPwPPwPwk", "kwPwPPwPwk", "kwOOwwOOwk", "kwOOOOOOwk", "kwwwwwwwwk", ".kkkkkkkk."],
   scroll: ["kkkkkkkk..", "keeeeeeek.", "keEEEEek..", "keeeeeek..", "keEEEEek..", "keeeeeek..", "keEEEek...", "keeeeeeek.", ".kkkkkkkk."],
   shard: ["....kk....", "...kbbk...", "..kbwbbk..", ".kbwbbbbk.", ".kbbbbbBk.", ".kbbbbbBk.", "..kbbbBk..", "...kbBk...", "....kk...."],
   camera: ["..kkk.....", "kkkkkkkkkk", "ksssssssSk", "ksskwwkssk", "kskwbbwksk", "kskwbbwksk", "ksskwwkssk", "ksssssssSk", "kkkkkkkkkk"],
