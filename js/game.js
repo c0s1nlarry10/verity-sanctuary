@@ -1352,7 +1352,7 @@ function drawIndividual(g, ind, c, dt, time, scale = 1) {
       g.fillRect(px - scale * 0.75, py - scale * 0.25, 2 * scale, scale * 0.5);
     }
   }
-  if (levelOf(ind) >= 10) blit(g, CROWN_SPR, Math.round((c.x - 2.5 * scale) * 2) / 2, dy + (SPR_PAD_T - 4) * sy * scale, 5 * scale, 3.5 * scale);
+  if (levelOf(ind) >= 10) blit(g, CROWN_SPR, Math.round(c.x - 3.5 * scale), Math.round(dy + (SPR_PAD_T - 5) * sy * scale), 7 * scale, 5 * scale);
   c.hx = c.x - D * scale / 2; c.hy = baseY - hop * scale; c.hw = D * scale; c.hh = D * scale;
 }
 
@@ -1405,28 +1405,35 @@ function drawCritters(e, dt, time) {
   }
 }
 
+// Objects are drawn PROP_K times their 16x20 design size, standing on the tile's bottom centre.
+// L(x, y) maps a point in that design box (top-left at the tile's top-left, 4 units up) to the world.
 function drawObject(o, time) {
   const px = o.x * TILE, py = o.y * TILE;
+  const L = (x, y) => [px + 8 + (x - 8) * PROP_K, py + 16 + (y - 20) * PROP_K];
   if (o.t === "lamp") {
+    const [lx, ly] = L(8, 3);
     ctx.fillStyle = "rgba(255,233,138,0.12)";
-    ctx.beginPath(); ctx.arc(px + 8, py - 1, 10 + Math.sin(time * 3) * 0.6, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(lx, ly, 12 + Math.sin(time * 3) * 0.6, 0, Math.PI * 2); ctx.fill();
   }
-  blit(ctx, OBJ_SPRITES[o.t], px, py - 4);
+  blitFeet(ctx, OBJ_SPRITES[o.t], px + 8, py + 16);
   if (OBJECTS[o.t].kind === "stand" && state.settings.effects) {
     // fluttering awning edge
     ctx.fillStyle = "rgba(255,255,255,0.35)";
     const f = Math.floor(time * 4 + o.id) % 4;
-    ctx.fillRect(px + 1 + f * 4, py - 4 + 5.5, 2, 0.5);
+    const [ax, ay] = L(1 + f * 4, 5.5);
+    ctx.fillRect(Math.round(ax), Math.round(ay), 2.5, 0.5);
   }
   if (o.t === "fountain") {
     ctx.fillStyle = "#bfe6ff";
     for (let i = 0; i < 8; i++) {
       const t = (time * 1.5 + i / 8) % 1;
       const side = i % 2 ? 1 : -1;
-      ctx.fillRect(px + 8 + side * t * 5, py - 3 + t * 9 - Math.sin(t * Math.PI) * 4, 0.75, 0.75);
+      const [fx_, fy_] = L(8 + side * t * 5, 1 + t * 9 - Math.sin(t * Math.PI) * 4);
+      ctx.fillRect(fx_, fy_, 1, 1);
     }
     ctx.fillStyle = "rgba(255,255,255,0.5)";
-    ctx.fillRect(px + 4 + ((time * 6) % 8), py + 9.5, 1.5, 0.5);
+    const [wx, wy] = L(4 + ((time * 6) % 8), 13.5);
+    ctx.fillRect(wx, wy, 1.5, 0.5);
   }
 }
 
@@ -1498,7 +1505,7 @@ function drawHover() {
     ctx.globalAlpha = 0.55; blit(ctx, makeEncGround(n, encChoice.theme, encChoice.fence === "theme" ? null : encChoice.fence), x * TILE, y * TILE); ctx.globalAlpha = 1;
   } else if (objType) {
     ok = canPlaceObject(x, y) && state.money >= objectCost(objType) && !isOpen();
-    ctx.globalAlpha = 0.6; blit(ctx, OBJ_SPRITES[objType], x * TILE, y * TILE - 4); ctx.globalAlpha = 1;
+    ctx.globalAlpha = 0.6; blitFeet(ctx, OBJ_SPRITES[objType], x * TILE + 8, y * TILE + 16); ctx.globalAlpha = 1;
   } else if (tool === "path") {
     ok = state.tiles[idx(x, y)] !== pathChoice && !encAt(x, y) && !objAt(x, y) && state.money >= PATH_TYPES[pathChoice].cost && !isOpen();
     if (ok) { ctx.globalAlpha = 0.6; blit(ctx, pathTiles[pathChoice], x * TILE, y * TILE); ctx.globalAlpha = 1; }
@@ -1528,16 +1535,17 @@ function drawVisitor(v) {
   const vx = fx_ * TILE + 4.5 + v.off, vy = fy_ * TILE + 3 + v.off * 0.5;
   ctx.globalAlpha = Math.max(0, v.alpha);
   ctx.fillStyle = "rgba(0,0,0,0.25)";
-  ctx.beginPath(); ctx.ellipse(vx + 3.5, vy + 11.5, 3, 1, 0, 0, Math.PI * 2); ctx.fill();
+  const spr = v.frames[frame], head = vy + 12 - uH(spr);
+  ctx.beginPath(); ctx.ellipse(vx + 3.5, vy + 11.5, 4, 1.2, 0, 0, Math.PI * 2); ctx.fill();
   if (v.look.balloon) {
-    const bx = vx + 6.5 + Math.sin(v.phase * 0.3) * 0.6, by = vy - 6;
-    ctx.fillStyle = "rgba(255,255,255,0.7)"; ctx.fillRect(vx + 6.5, by + 3, 0.5, 9);
+    const bx = vx + 8 + Math.sin(v.phase * 0.3) * 0.6, by = head - 6;
+    ctx.fillStyle = "rgba(255,255,255,0.7)"; ctx.fillRect(vx + 8, by + 3, 0.5, 10);
     ctx.fillStyle = "#000"; ctx.fillRect(bx - 2, by - 2.5, 4, 5);
     ctx.fillStyle = v.look.balloon; ctx.fillRect(bx - 1.5, by - 2, 3, 4);
     ctx.fillStyle = "rgba(255,255,255,0.7)"; ctx.fillRect(bx - 1, by - 1.5, 0.5, 1);
   }
-  blit(ctx, v.frames[frame], Math.round(vx * 2) / 2, Math.round(vy * 2) / 2);
-  if (v.bubble) drawBubble(v.bubble.icon, vx + 3.5, vy - 1);
+  blitFeet(ctx, spr, vx + 3.5, vy + 12);
+  if (v.bubble) drawBubble(v.bubble.icon, vx + 3.5, head - 1);
   ctx.globalAlpha = 1;
 }
 
@@ -2021,7 +2029,7 @@ function renderShop() {
       if (!isUnlocked("obj:" + t)) {
         const b = el("button", "shop-item is-locked");
         const c = makeCanvas(16, 20);
-        c.getContext("2d").drawImage(OBJ_SPRITES[t], 0, 0);
+        c.getContext("2d").drawImage(OBJ_SPRITES[t], 0, 0, 16, 20);
         b.appendChild(c);
         b.appendChild(el("span", "", def.name));
         b.appendChild(el("small", "lock-tag", lvlTag("obj:" + t)));
@@ -2033,7 +2041,7 @@ function renderShop() {
       const b = el("button", "shop-item");
       b.dataset.obj = t;
       const c = makeCanvas(16, 20);
-      c.getContext("2d").drawImage(OBJ_SPRITES[t], 0, 0);
+      c.getContext("2d").drawImage(OBJ_SPRITES[t], 0, 0, 16, 20);
       b.appendChild(c);
       b.appendChild(el("span", "", def.name));
       const small = el("small", "", "");

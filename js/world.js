@@ -9,9 +9,13 @@ const ZONE = { OUT: 0, ROAD: 1, SIDEWALK: 2, DRIVE: 3, LOT: 4, PLAZA: 5, PARK: 6
 const lotLevel = () => Math.max(1, Math.min(LOT_LEVELS.length, state.lotLevel || 1));
 function lotRect(level = lotLevel()) { return LOT_LEVELS[level - 1].rect; }
 function inRect(x, y, r) { return x >= r[0] && x <= r[2] && y >= r[1] && y <= r[3]; }
+// Rows where a city street meets the main road from the west (matches the city grid).
+const streetRow = y => ((y + 2) % 8 + 8) % 8 < 2;
 function zoneAt(x, y) {
   if (x >= OX) return ZONE.PARK;
   if (ROAD_X.includes(x)) return ZONE.ROAD;
+  if (x === 0 && streetRow(y)) return ZONE.ROAD;        // side street joining the main road
+  if (x === 3 && y === GATE.y) return ZONE.DRIVE;       // car park driveway crossing the pavement
   if (x === 0 || x === 3) return ZONE.SIDEWALK;
   const r = lotRect();
   if (inRect(x, y, r)) return x === r[2] ? ZONE.PLAZA : ZONE.LOT;
@@ -139,12 +143,23 @@ function drawTerrainDetails(g) {
       const h = hash2(tx, ty, 5), h2 = hash2(tx, ty, 6), h3 = hash2(tx, ty, 7);
       const ox = 2 + Math.floor(h2 * 10), oy = 3 + Math.floor(h3 * 9);
       if (z === ZONE.ROAD) {
-        if (tx === 1) { R("#e8c13a", X + 15.5, Y + 2, 1, 6); R("#e8c13a", X + 15.5, Y + 10, 1, 4); }
-        R(tx === 1 ? "#d8d8d8" : "#d8d8d8", tx === 1 ? X + 1 : X + 14.5, Y, 0.5, TILE);
+        const zebraRow = streetRow(ty) && ((ty + 2) % 8 + 8) % 8 === 0;
+        if (tx === 0) {
+          // zebra crossing where the pavement crosses the side street
+          for (let i = 1; i < TILE; i += 3) R("#e8e8e8", X + 3, Y + i, 10, 1.5);
+        } else if (zebraRow) {
+          // zebra crossing over the main road at the junction
+          for (let i = 1; i < TILE; i += 3) R("#e8e8e8", X + i, Y + 2, 1.5, 12);
+        } else {
+          if (tx === 1) { R("#e8c13a", X + 15.5, Y + 2, 1, 6); R("#e8c13a", X + 15.5, Y + 10, 1, 4); }
+          const openLeft = tx === 1 && streetRow(ty), openRight = tx === 2 && ty === GATE.y;
+          if (!openLeft && !openRight) R("#d8d8d8", tx === 1 ? X + 1 : X + 14.5, Y, 0.5, TILE);
+        }
         if (h < 0.15) R("rgba(0,0,0,0.25)", X + ox, Y + oy, 2.5, 1);
         continue;
       }
       if (z === ZONE.SIDEWALK) { R("rgba(0,0,0,0.25)", tx === 0 ? X + 15.5 : X, Y, 0.5, TILE); continue; }
+      if (z === ZONE.DRIVE && tx === 3) { for (let i = 1; i < TILE; i += 3) R("#e8e8e8", X + 3, Y + i, 10, 1.5); continue; }
       if (z === ZONE.LOT || z === ZONE.DRIVE) {
         if (z === ZONE.LOT && ty !== GATE.y) {
           R("#e8e8e8", X, Y + 1, 0.5, 14);
@@ -187,8 +202,11 @@ function drawTerrainDetails(g) {
         else if (biome === "birch") R("#f0ece0", X + ox, Y + oy, 1, 0.5);
       }
     }
-  // road curbs
-  R("#8a8a92", 0, 0, 0.5, WORLD_H); R("#8a8a92", 4 * TILE - 0.5, 0, 0.5, WORLD_H);
+  // road curbs, broken where the side streets and the driveway come through
+  for (let ty = 0; ty < ROWS; ty++) {
+    if (!streetRow(ty)) R("#8a8a92", 0, ty * TILE, 0.5, TILE);
+    if (ty !== GATE.y) R("#8a8a92", 4 * TILE - 0.5, ty * TILE, 0.5, TILE);
+  }
   // parking sign
   const r = lotRect();
   const sx = r[0] * TILE - 7, sy = (GATE.y - 1) * TILE + 2;
@@ -289,6 +307,7 @@ function turnAwayCars() {
 const barrier = { lift: 1 };   // car park barrier: 1 = raised (open), 0 = down (closed)
 
 function updateCars(dt) {
+  updatePeds(dt);
   if (!isOpen()) turnAwayCars();
   barrier.lift = Math.max(0, Math.min(1, barrier.lift + (isOpen() ? dt : -dt) * 1.5));
   trafficTimer -= dt;
@@ -351,8 +370,68 @@ function drawBarrier() {
   }
 }
 
+// ================= Pedestrians =================
+// People stroll along the pavements beside the main road, cross at the zebra crossings,
+// wander off into the city, and while the park is open some walk in through the gate.
+let peds = [], pedTimer = 1;
+const PAVE_L = 8, PAVE_R = 3 * TILE + 8;
+function crossingRows() { const out = []; for (let y = 0; y < ROWS; y++) if (((y + 2) % 8 + 8) % 8 === 0) out.push(y * TILE + 8); return out; }
+function spawnPed() {
+  const look = randomLook(Math.random() < 0.15 ? "kid" : "normal");
+  const down = Math.random() < 0.5, left = Math.random() < 0.5;
+  const y0 = down ? -3 * TILE : WORLD_H + 3 * TILE, y1 = down ? WORLD_H + 3 * TILE : -3 * TILE;
+  let x = left ? PAVE_L : PAVE_R;
+  const path = [];
+  const rows = crossingRows().filter(r => down ? r > 2 * TILE : r < WORLD_H - 2 * TILE);
+  const visit = isOpen() && guestsOnSite() < maxGuests() && Math.random() < 0.35;
+  const roll = Math.random();
+  if (left && roll < 0.45) {
+    // cross the road at a zebra crossing, then carry on along the other pavement
+    const r = rows[Math.floor(Math.random() * rows.length)];
+    path.push([x, r], [PAVE_R, r]);
+    x = PAVE_R;
+  } else if (!left && roll < 0.2) {
+    const r = rows[Math.floor(Math.random() * rows.length)];
+    path.push([x, r], [PAVE_L, r]);
+    x = PAVE_L;
+  }
+  if (visit && x === PAVE_R) {
+    // walk up the driveway and in through the gate
+    path.push([PAVE_R, driveY + 4], [GATE.x * TILE - 1, driveY + 4]);
+    peds.push({ look, frames: personFrames(look), x: PAVE_R, y: y0, path, enter: true, speed: 20 + Math.random() * 8, phase: Math.random() * 6 });
+    return;
+  }
+  if (x === PAVE_L && Math.random() < 0.3) {
+    // turn off into a city street
+    const r = crossingRows()[Math.floor(Math.random() * crossingRows().length)];
+    path.push([PAVE_L, r - 11], [-6 * TILE, r - 11]);
+  } else path.push([x, y1]);
+  peds.push({ look, frames: personFrames(look), x: left ? PAVE_L : PAVE_R, y: y0, path, enter: false, speed: 18 + Math.random() * 10, phase: Math.random() * 6 });
+}
+function updatePeds(dt) {
+  pedTimer -= dt;
+  if (pedTimer <= 0) { pedTimer = (isOpen() ? 1.2 : 3.5) + Math.random() * 2; if (peds.length < 26) spawnPed(); }
+  for (const p of peds) {
+    p.phase += dt * 9;
+    const wp = p.path[0];
+    if (!wp) { p.done = true; if (p.enter && isOpen() && guestsOnSite() < maxGuests()) admitVisitor(p); continue; }
+    const dx = wp[0] - p.x, dy = wp[1] - p.y, dist = Math.hypot(dx, dy), step = p.speed * dt;
+    if (dist <= step) { p.x = wp[0]; p.y = wp[1]; p.path.shift(); } else { p.x += (dx / dist) * step; p.y += (dy / dist) * step; }
+  }
+  peds = peds.filter(p => !p.done);
+}
+function drawPeds(x0, y0, x1, y1) {
+  for (const p of peds) {
+    if (p.x < x0 - 10 || p.x > x1 + 10 || p.y < y0 - 16 || p.y > y1 + 16) continue;
+    const f = p.frames[Math.floor(p.phase) % 2 ? 1 : 2];
+    ctx.fillStyle = "rgba(0,0,0,0.25)"; ctx.fillRect(Math.round(p.x - 4), Math.round(p.y + 5), 8, 1.5);
+    blitFeet(ctx, f, p.x, p.y + 6);
+  }
+}
+
 function drawCars(x0, y0, x1, y1) {
   drawBarrier();
+  drawPeds(x0, y0, x1, y1);
   for (const c of cars.slice().sort((a, b) => a.y - b.y)) {
     if (c.x < x0 - 20 || c.x > x1 + 20 || c.y < y0 - 20 || c.y > y1 + 20) continue;
     const spr = CAR_SPRITES[c.set][c.dir];
@@ -361,8 +440,8 @@ function drawCars(x0, y0, x1, y1) {
   for (const w of walkers) {
     if (w.delay > 0) continue;
     const f = w.frames[Math.floor(w.phase) % 2 ? 1 : 2];
-    ctx.fillStyle = "rgba(0,0,0,0.25)"; ctx.fillRect(w.x - 3, w.y + 5, 6, 1.5);
-    blit(ctx, f, w.x - 3.5, w.y - 6.5);
+    ctx.fillStyle = "rgba(0,0,0,0.25)"; ctx.fillRect(w.x - 4, w.y + 5, 8, 1.5);
+    blitFeet(ctx, f, w.x, w.y + 6);
   }
 }
 

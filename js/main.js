@@ -11,7 +11,7 @@ $("ver-tag").textContent = "v" + GAME_VERSION;
 $("ver-small").textContent = GAME_VERSION;
 $("loader-version").textContent = "Version " + GAME_VERSION;
 resizeView();
-setZoom(2);
+setZoom(3);
 homeView();
 buildTerrain();
 buildTrees();

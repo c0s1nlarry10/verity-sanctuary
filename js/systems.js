@@ -200,7 +200,7 @@ function drawTrash() {
 
 // ================= Bubbles =================
 function drawBubble(icon, cx, bottomY) {
-  blit(ctx, BUBBLE_SPR[icon], Math.round(cx - 4), Math.round(bottomY - 9));
+  blitFeet(ctx, BUBBLE_SPR[icon], cx, bottomY);
 }
 
 // ================= Day / night & weather =================

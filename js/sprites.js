@@ -22,8 +22,20 @@ function hiCanvas(uw, uh) {
   return [c, g];
 }
 const uW = c => c.uw || c.width;
+// Scales a freshly drawn sprite up by k (before it's reduced to the pixel grid), so props and
+// people can be drawn at their original design size and still match the bigger variants.
+const PERSON_K = 4 / 3, PROP_K = 1.25;
+function enlarge(src, k) {
+  const [c, g] = hiCanvas(uW(src) * k, uH(src) * k);
+  g.imageSmoothingEnabled = false;
+  g.drawImage(src, 0, 0, uW(src) * k, uH(src) * k);
+  if (src.ax !== undefined) { c.ax = src.ax * k; c.ay = src.ay * k; }
+  return c;
+}
 const uH = c => c.uh || c.height;
 function blit(g, c, x, y, w, h) { g.drawImage(c, x, y, w ?? uW(c), h ?? uH(c)); }
+// Draws a sprite centred on x with its bottom edge at footY.
+function blitFeet(g, c, x, footY) { g.drawImage(c, Math.round(x - uW(c) / 2), Math.round(footY - uH(c)), uW(c), uH(c)); }
 function raw(g, fn) { g.save(); g.setTransform(1, 0, 0, 1, 0, 0); fn(); g.restore(); }
 // Like raw, but on the classic half-unit art grid (2 px per unit), whatever RES is.
 function rawHalf(g, fn) { g.save(); g.setTransform(RES / 2, 0, 0, RES / 2, 0, 0); fn(); g.restore(); }
@@ -416,8 +428,10 @@ function bodyBottom(inU, D) { for (let y = D; y > 0; y -= 0.5) if (inU(D / 2, y 
 
 const SPR_PAD_X = 3, SPR_PAD_T = 6, SPR_PAD_B = 3;
 
+// Bodies are drawn a third bigger than the 12-unit face grid (a normal variant is 16 wide).
+const BODY_SCALE = 4 / 3;
 function bodySize(key, ind) {
-  return (VARIANTS[key].size || 12) + (ind ? SIZES[ind.size].d : 0);
+  return Math.round(((VARIANTS[key].size || 12) + (ind ? SIZES[ind.size].d : 0)) * BODY_SCALE);
 }
 
 // Eye rectangles (12-grid units) used for glints and blinking
@@ -495,13 +509,17 @@ function buildVariantSprite(key, ind, blink = false, noChest = false) {
     if (ind.shiny) color = tweak(color, 150, 6);
   }
   const inside = drawBody(g, SPR_PAD_X, SPR_PAD_T, D, color, def.shape, def.pattern, ind ? ind.model || 0 : 0);
-  const off = (D - 12) / 2;
-  // centre the face between the body's top and bottom, so squat and tall models look right
+  // faces, markings and blinks are drawn on a 12-unit grid scaled up to the body's size,
+  // centred between the body's top and bottom so squat and tall models look right
+  const k = D / 12;
   const faceShift = Math.round(((inside.top + inside.bottom) / 2 - D / 2) * 2) / 2;
-  const o = { x: SPR_PAD_X + off, y: SPR_PAD_T + off + faceShift };
-  if (ind) drawMarking(g, o, ind, color, inside);
+  const fx0 = SPR_PAD_X, fy0 = SPR_PAD_T + faceShift;
   const ink = def.ink || "#2b1d00";
   if (key === CHEST_KEY) { drawTankTop(g, SPR_PAD_X, SPR_PAD_T, D, inside); if (!noChest) drawChest(g, SPR_PAD_X, SPR_PAD_T, D, color); }
+  g.save();
+  g.translate(fx0, fy0); g.scale(k, k);
+  const o = { x: 0, y: 0 };
+  if (ind) drawMarking(g, o, ind, color, (x, y) => inside(Math.floor(fx0 + x * k), Math.floor(fy0 + y * k)));
   FACES[def.face](g, o, ink, color);
   const eyes = FACE_EYES[def.face];
   if (eyes) {
@@ -515,6 +533,7 @@ function buildVariantSprite(key, ind, blink = false, noChest = false) {
       for (const [x, y] of eyes) g.fillRect(o.x + x, o.y + y, 0.5, 0.5);
     }
   }
+  g.restore();
   c.outline = true;
   return c;
 }
@@ -958,7 +977,8 @@ function randomLook(type) {
   };
 }
 
-function personFrame(look, frame) {
+function personFrame(look, frame) { return enlarge(personFrameBase(look, frame), PERSON_K); }
+function personFrameBase(look, frame) {
   const kid = look.type === "kid";
   const [c, g] = hiCanvas(7, 12);
   rawHalf(g, () => {
@@ -1024,7 +1044,7 @@ function staffFrame(type, frame) {
     g.fillStyle = "#e8b830"; g.fillRect(6, 18, 2, 5.5 + leg); g.fillRect(10, 18, 2, 5.5 - leg);
     g.fillStyle = "#c0392b"; g.fillRect(4.5, 23 + leg, 4, 2); g.fillRect(9.5, 23 - leg, 4, 2);
     g.fillStyle = "#ff8080"; g.fillRect(5, 23 + leg, 2, 0.5); g.fillRect(10, 23 - leg, 2, 0.5);
-    blit(g, baseSprite("verity"), 0, 0);
+    blit(g, baseSprite("verity"), 0, 0, 18, 21);
     g.fillStyle = "#ffd23f"; g.fillRect(1, 12 + leg, 2.5, 2.5); g.fillRect(14.5, 12 - leg, 2.5, 2.5);
     g.fillStyle = "#fff"; g.fillRect(0.5, 13 + leg, 2, 2); g.fillRect(15.5, 13 - leg, 2, 2);
     return c;
@@ -1032,7 +1052,7 @@ function staffFrame(type, frame) {
   const look = type === "janitor"
     ? { type: "staff", skin: "#e8b98a", hair: "#6b3e1e", style: "cap", cap: "#2b5fa8", shirt: "#3b6fd0", pants: "#2b4f98" }
     : { type: "staff", skin: "#f6d2ae", hair: "#2b1a0e", style: "cap", cap: "#2e8b3a", shirt: "#3fa34d", pants: "#6b4a2a" };
-  const base = personFrame(look, frame);
+  const base = personFrameBase(look, frame);
   const [c, g] = hiCanvas(10, 12);
   if (type === "janitor") {
     g.strokeStyle = "#8a5a32"; g.lineWidth = 0.6; g.beginPath(); g.moveTo(7, 3 + (frame === 1 ? 0.5 : 0)); g.lineTo(9, 11); g.stroke();
@@ -1043,7 +1063,7 @@ function staffFrame(type, frame) {
   return c;
 }
 const STAFF_FRAMES = {};
-for (const t of ["janitor", "keeper", "mascot"]) STAFF_FRAMES[t] = [0, 1, 2].map(f => staffFrame(t, f));
+for (const t of ["janitor", "keeper", "mascot"]) STAFF_FRAMES[t] = [0, 1, 2].map(f => enlarge(staffFrame(t, f), PERSON_K));
 const STAFF_SPR = { janitor: STAFF_FRAMES.janitor[0], keeper: STAFF_FRAMES.keeper[0], mascot: STAFF_FRAMES.mascot[0] };
 
 // Original blocky-guy and pirate characters for the tug-of-war event
@@ -1080,7 +1100,7 @@ function rotateCanvas(src, quarter) {
   return c;
 }
 // dir: 0 up, 1 right, 2 down, 3 left
-const CAR_SPRITES = CAR_COLORS.map(col => { const up = makeCarUp(col); return [up, rotateCanvas(up, 1), rotateCanvas(up, 2), rotateCanvas(up, 3)]; });
+const CAR_SPRITES = CAR_COLORS.map(col => { const up = enlarge(makeCarUp(col), PROP_K); return [up, rotateCanvas(up, 1), rotateCanvas(up, 2), rotateCanvas(up, 3)]; });
 
 // ================= Gate =================
 // The park entrance, seen from above: stone pillars stand north and south of the
@@ -1207,7 +1227,7 @@ function makeObjSprite(type) {
   return c;
 }
 const OBJ_SPRITES = {};
-for (const k of Object.keys(OBJECTS)) OBJ_SPRITES[k] = makeObjSprite(k);
+for (const k of Object.keys(OBJECTS)) OBJ_SPRITES[k] = enlarge(makeObjSprite(k), PROP_K);
 
 // ================= UI icons =================
 const ICONS = {
@@ -1252,7 +1272,7 @@ const TRASH_SPR = [
   pixelArt(["kk.", "rrk", "wrk"], PAL),
   pixelArt(["kkk", "yyk"], PAL),
   pixelArt([".k.", "kbk", "kbk"], PAL),
-];
+].map(c => enlarge(c, PERSON_K));
 
 const BUBBLE_ICONS = {
   food:    ["..o..", ".ooo.", "GGGGG", "NNNNN", ".ooo."],
@@ -1271,7 +1291,7 @@ for (const [k, rows] of Object.entries(BUBBLE_ICONS)) {
   g.fillStyle = "#000"; g.fillRect(0, 0, 9, 7); g.fillRect(3, 7, 2, 1); g.fillRect(3, 8, 1, 1);
   g.fillStyle = "#fff"; g.fillRect(1, 1, 7, 5); g.fillRect(3, 6, 1, 1);
   g.drawImage(pixelArt(rows, PAL), 2, 1, 5, 5);
-  BUBBLE_SPR[k] = c;
+  BUBBLE_SPR[k] = enlarge(c, PERSON_K);
 }
 
 const CROWN_SPR = (() => {
