@@ -1,8 +1,32 @@
 "use strict";
 
 // ================= Version =================
-const GAME_VERSION = "2.1";
+const GAME_VERSION = "2.1.1";
 const PATCH_NOTES = [
+  {
+    version: "2.1.1", title: "Hotfix: On the Path",
+    sections: [
+      { title: "Building", notes: [
+        "Enclosures and snack stands must now touch a path, so guests can always reach them. Decorations can still go anywhere.",
+        "The placement preview turns red when a pen or stand isn't touching a path.",
+        "Simple mode: the placement preview no longer shows red during the day.",
+      ] },
+      { title: "Guests", notes: [
+        "Guests now roam freely, in any direction, instead of marching tile by tile along the paths. They're drawn to pens and stands they haven't seen yet, and stop now and then to look around.",
+        "They still keep clear of grass, pens and props, and line up to slip past narrow spots beside stands and benches.",
+        "Your own family no longer counts as a crowd, and walking back over the same litter only bothers a guest once.",
+      ] },
+      { title: "Tutorials", notes: [
+        "Choose a Basic tour (the essentials, about a minute) or an Advanced tour that covers every feature (about five minutes).",
+        "Replay either one any time from the Save tab.",
+      ] },
+      { title: "Fixes", notes: [
+        "Skipping the tutorial no longer also says it was completed.",
+        "The end-of-day report closes itself after 30 seconds, so the park can run on its own.",
+        "Simple mode: a freshly hatched variant is ready to place during the day too.",
+      ] },
+    ],
+  },
   {
     version: "2.1", title: "Simple & Pro",
     sections: [

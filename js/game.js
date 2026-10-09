@@ -723,6 +723,8 @@ function growOldPens() {
   if (grew) critterPos.clear();
   return grew;
 }
+// Everything you build has to touch a path, except decorations.
+const needsPath = t => OBJECTS[t].kind !== "decor";
 const canPlaceObject = (x, y) => inBounds(x, y) && isOwned(x, y) && !isPath(x, y) && !encAt(x, y) && !objAt(x, y) && !isVault(x, y);
 const encOffset = n => Math.floor((n - 1) / 2);
 
@@ -743,6 +745,7 @@ function placeEnclosure(x, y) {
   const ex = x - encOffset(n), ey = y - encOffset(n);
   if (state.enclosures.length >= maxEnclosures()) return hintOnce(`Enclosure limit reached (${maxEnclosures()}). Level up your park for more slots.`);
   if (!canPlaceEnclosure(ex, ey)) return hintOnce(`This enclosure needs a clear ${n}x${n} patch of your own grass.`);
+  if (!touchesPath(ex, ey, n, n)) return hintOnce("Pens must touch a path, so guests can walk past them.");
   const cost = enclosureCost();
   if (!spend(cost)) return hintOnce(`Enclosures cost ${fmt(cost)} coins.`);
   state.enclosures.push({ id: state.nextId++, x: ex, y: ey, s: n, k: encChoice.size, theme: encChoice.theme, fence: encChoice.fence || "theme", paid: cost, variants: [], lostUntil: 0 });
@@ -779,6 +782,7 @@ function draftProblem() {
   const seen = new Set([cells[0].join(",")]), queue = [cells[0]];
   while (queue.length) { const [x, y] = queue.pop(); for (const [dx, dy] of DIRS) { const k = (x + dx) + "," + (y + dy); if (penDraft.has(k) && !seen.has(k)) { seen.add(k); queue.push([x + dx, y + dy]); } } }
   if (seen.size !== cells.length) return "All tiles must join up into one pen.";
+  if (!cells.some(([x, y]) => DIRS.some(([dx, dy]) => isPath(x + dx, y + dy)))) return "The pen must touch a path, so guests can walk past it.";
   return "";
 }
 function buildCustomPen() {
@@ -812,13 +816,13 @@ function remodelPen(e, theme, fence) {
 function placeObject(t, x, y) {
   if (!isUnlocked("obj:" + t) || buildLocked()) return;
   if (!canPlaceObject(x, y)) return hintOnce("That spot is taken. Pick an empty grass tile.");
+  if (needsPath(t) && !touchesPath(x, y, 1, 1)) return hintOnce(`${OBJECTS[t].name} must touch a path. Only decorations can go anywhere.`);
   const cost = objectCost(t);
   if (!spend(cost)) return hintOnce(`${OBJECTS[t].name} costs ${fmt(cost)} coins.`);
   state.objects.push({ id: state.nextId++, t, x, y });
   rebuildGrids();
   sfx("build");
   gainParkXp(XP.object);
-  if (OBJECTS[t].kind === "stand" && !touchesPath(x, y, 1, 1)) hintOnce("Tip: snack stands only sell when they touch a path.");
   renderUI(true);
 }
 
@@ -911,7 +915,7 @@ function hatchEgg(type = "regular") {
   if (roll.grumpy && Math.random() < 0.5) ind.trait = "grumpy";
   const isNew = addNew(ind);
   selectedUid = ind.id;
-  if (!isOpen()) tool = "place";
+  if (!dayLocked()) tool = "place";
   playFx({ kind: "hatch", ind, isNew, eggType: type });
   renderUI(true);
 }
@@ -1052,11 +1056,10 @@ function admitVisitor(w) {
   visitors.push({
     type, look, frames: w ? w.frames : personFrames(look), carId: w ? w.carId : 0, route: w ? w.route : null,
     mood: 70, pensSeen: 0, bubble: null,
-    tx: GATE.x, ty: GATE.y, px: GATE.x - 1, py: GATE.y, nx: GATE.x, ny: GATE.y,
-    prog: 1, speed: (type === "kid" ? 1.4 : 1.1) + Math.random() * 0.6,
-    age: 0, stay: 20 + Math.random() * 45 + Math.min(60, state.enclosures.length * 3),   // seconds in the park; bigger parks keep guests longer
-    seen: new Set(), alpha: 0.4, leaving: false, gripes: new Set(), ate: false, standsSeen: 0, decorSeen: 0, deadEnds: 0, litter: 0, crowds: 0,
-    off: Math.floor(Math.random() * 9) - 4, offY: Math.floor(Math.random() * 7) - 3,   // where across the path this guest walks
+    tx: GATE.x, ty: GATE.y, x: GATE.x * TILE + 8, y: GATE.y * TILE + 12, goal: null, via: [], wait: 0.2 + Math.random() * 1.5, moving: false, recent: [],
+    speed: (type === "kid" ? 1.4 : 1.1) + Math.random() * 0.6,
+    age: 0, stay: 25 + Math.random() * 45 + Math.min(60, state.enclosures.length * 3),   // seconds in the park; bigger parks keep guests longer
+    seen: new Set(), alpha: 0.4, leaving: false, gripes: new Set(), ate: false, standsSeen: 0, decorSeen: 0, deadEnds: 0, littered: new Set(), crowded: new Set(),
     phase: Math.random() * 6,
   });
   const ticket = starRating() * (activeEvent && activeEvent.type === "parade" ? 3 : 1) * globalMult();
@@ -1131,6 +1134,10 @@ function exitDist() {
   return exitField;
 }
 
+// Guests roam freely: they pick a spot a few tiles away that they can walk straight to
+// (diagonals too), stroll over, sometimes stop to look around, and pick another. They prefer
+// places they haven't just been, so they explore. Leaving, they head straight for the gate.
+const ROAM_RADIUS = 4, RECENT_TILES = 24;
 function updateVisitor(v, dt) {
   v.phase += dt * 10;
   if (v.bubble) { v.bubble.t -= dt; if (v.bubble.t <= 0) v.bubble = null; }
@@ -1138,33 +1145,156 @@ function updateVisitor(v, dt) {
   v.alpha = Math.min(1, v.alpha + dt * 3);
   if (!isPath(v.tx, v.ty)) { leaveVisitor(v); v.fading = true; return; }   // the path was bulldozed under them
   v.age += dt;
-  if (v.prog < 1) {
-    const hurry = v.leaving ? (isOpen() ? 1.3 : 2.4) : 1;
-    v.prog = Math.min(1, v.prog + dt * v.speed * hurry * PATH_TYPES[state.tiles[idx(v.tx, v.ty)]].speed);
-    if (v.prog >= 1) {
-      v.tx = v.nx; v.ty = v.ny;
-      if (!v.leaving) { arriveAt(v); visitorMoodStep(v); }
-    }
-    return;
-  }
+  if (!v.leaving) visitorMoodTick(v, dt);
   if (!v.leaving && v.age >= v.stay) leaveVisitor(v);
-  if (v.leaving) {
-    // head for the gate along the paths, then out to the car park
-    const d = exitDist(), here = d[idx(v.tx, v.ty)];
-    if (here === 0) { exitPark(v); return; }
-    const next = here > 0 && DIRS.map(([dx, dy]) => ({ x: v.tx + dx, y: v.ty + dy })).find(p => isPath(p.x, p.y) && d[idx(p.x, p.y)] === here - 1);
-    if (!next) { v.fading = true; return; }   // cut off from the gate: slip away
-    v.px = v.tx; v.py = v.ty; v.nx = next.x; v.ny = next.y; v.prog = 0;
-    return;
+  if (v.leaving && !v.headingOut) { v.headingOut = true; v.goal = null; v.via = []; v.wait = 0; }   // turn for home straight away
+  if (v.goal && !guestPointOK(v.goal[0], v.goal[1])) { v.goal = null; v.via = []; }   // something was built in the way
+  if (!v.goal) {
+    v.moving = false;
+    if (v.wait > 0) { v.wait -= dt; return; }
+    if (v.leaving) {
+      const d = exitDist(), here = d[idx(v.tx, v.ty)];
+      if (here === 0) { exitPark(v); return; }
+      const legs = exitGoal(v, d, here);
+      if (!legs) { v.fading = true; return; }   // cut off from the gate: slip away
+      [v.goal, ...v.via] = legs;
+    } else {
+      const legs = roamGoal(v);
+      if (!legs) { v.wait = 1; return; }
+      [v.goal, ...v.via] = legs;
+    }
   }
-  const opts = DIRS.map(([dx, dy]) => ({ x: v.tx + dx, y: v.ty + dy })).filter(p => isPath(p.x, p.y));
-  if (!opts.length) { leaveVisitor(v); v.fading = true; return; }
-  const forward = opts.filter(p => !(p.x === v.px && p.y === v.py));
-  if (!forward.length && opts.length === 1 && !(v.tx === GATE.x && v.ty === GATE.y) && ++v.deadEnds >= 3) gripe(v, "deadend");
-  const choice = randItem(forward.length ? forward : opts);
-  v.px = v.tx; v.py = v.ty;
-  v.nx = choice.x; v.ny = choice.y;
-  v.prog = 0;
+  // walk towards the goal
+  const hurry = v.leaving ? (isOpen() ? 1.3 : 2.4) : 1;
+  const step = dt * v.speed * hurry * PATH_TYPES[state.tiles[idx(v.tx, v.ty)]].speed * TILE;
+  const dx = v.goal[0] - v.x, dy = v.goal[1] - v.y, dist = Math.hypot(dx, dy);
+  v.moving = dist > 0.01;
+  if (dist <= step) {
+    v.x = v.goal[0]; v.y = v.goal[1];
+    v.goal = v.via.length ? v.via.shift() : null;   // the next leg, if the walk turns a corner
+    if (!v.goal && !v.leaving && Math.random() < 0.12) v.wait = 0.4 + Math.random() * 1.6;   // stop and look around
+  } else { v.x += dx / dist * step; v.y += dy / dist * step; }
+  if (dist > 0.01) v.heading = [dx / dist, dy / dist];
+  const tx = Math.floor(v.x / TILE), ty = Math.floor(v.y / TILE);
+  if (tx !== v.tx || ty !== v.ty) {
+    v.tx = tx; v.ty = ty;
+    v.recent.push(tx + "," + ty);
+    if (v.recent.length > RECENT_TILES) v.recent.shift();
+    if (!v.leaving) {
+      arriveAt(v);
+      visitorMoodStep(v);
+      // a real dead end: only one way on from here
+      const ways = DIRS.filter(([ddx, ddy]) => isPath(tx + ddx, ty + ddy)).length;
+      if (ways === 1 && !(tx === GATE.x && ty === GATE.y) && ++v.deadEnds >= 2) gripe(v, "deadend");
+    }
+  }
+}
+
+// Where a guest's feet can be inside a path tile: across the whole tile where the path
+// continues, but clear of the grass, pens and props beside it (and of corners that aren't path).
+function guestBounds(x, y) {
+  const lo = isPath(x - 1, y) ? 0 : 7, hi = isPath(x + 1, y) ? 16 : 9;
+  const bottom = isPath(x, y + 1) ? 16 : objAt(x, y + 1) ? 9 : 13;
+  const top = Math.min(bottom, isPath(x, y - 1) ? 0 : 9);
+  return [lo, hi, top, bottom];
+}
+function guestPointOK(px, py) {
+  const x = Math.floor(px / TILE), y = Math.floor(py / TILE);
+  if (!isPath(x, y)) return false;
+  const fx = px - x * TILE, fy = py - y * TILE, [lo, hi, top, bottom] = guestBounds(x, y);
+  if (fx < lo || fx > hi || fy < top || fy > bottom) return false;
+  if (fy < 9 && (fx < 7 && !isPath(x - 1, y - 1) || fx > 9 && !isPath(x + 1, y - 1))) return false;
+  if (fy > 13 && (fx < 7 && !isPath(x - 1, y + 1) || fx > 9 && !isPath(x + 1, y + 1))) return false;
+  return true;
+}
+// A random spot a guest can stand on in this tile (or null).
+function guestSpotIn(x, y) {
+  const [lo, hi, top, bottom] = guestBounds(x, y);
+  for (let i = 0; i < 6; i++) {
+    const px = x * TILE + lo + Math.random() * (hi - lo), py = y * TILE + top + Math.random() * (bottom - top);
+    if (guestPointOK(px, py)) return [px, py];
+  }
+  const px = x * TILE + (lo + hi) / 2, py = y * TILE + (top + bottom) / 2;
+  return guestPointOK(px, py) ? [px, py] : null;
+}
+// The middle of a path tile, nudged inside the spots a guest can stand on there.
+function guestAnchor(x, y) {
+  const [lo, hi, top, bottom] = guestBounds(x, y);
+  return [x * TILE + Math.max(lo, Math.min(hi, 8)), y * TILE + Math.max(top, Math.min(bottom, 11))];
+}
+// A walk to point p: straight there if the way is clear, otherwise via the middle of the
+// tile the guest is on (that's how they turn corners). Returns the legs, or null.
+function guestLegs(v, p) {
+  if (guestLineOK(v.x, v.y, p[0], p[1])) return [p];
+  // line up first: the nearest spot in this tile that's level with where they're going
+  // (that's how they slip past a narrow bit beside a stand or a bench)
+  const [lo, hi, top, bottom] = guestBounds(v.tx, v.ty);
+  const q = [v.tx * TILE + Math.max(lo, Math.min(hi, p[0] - v.tx * TILE)), v.ty * TILE + Math.max(top, Math.min(bottom, p[1] - v.ty * TILE))];
+  const a = guestAnchor(v.tx, v.ty);
+  for (const legs of [[q, p], [a, p], [a, q, p]]) {
+    let ok = true, from = [v.x, v.y];
+    for (const to of legs) { if (!guestPointOK(to[0], to[1]) || !guestLineOK(from[0], from[1], to[0], to[1])) { ok = false; break; } from = to; }
+    if (ok) return legs;
+  }
+  return null;
+}
+// Can a guest walk in a straight line from a to b without leaving the path or brushing past things?
+function guestLineOK(ax, ay, bx, by) {
+  const n = Math.ceil(Math.hypot(bx - ax, by - ay) / 2);
+  for (let i = 1; i <= n; i++) if (!guestPointOK(ax + (bx - ax) * i / n, ay + (by - ay) * i / n)) return false;
+  return true;
+}
+// Is there a pen or stand beside this tile that the guest hasn't seen yet? (They're drawn to them.)
+function nearUnseen(v, x, y) {
+  for (const [dx, dy] of DIRS) {
+    const eid = encAt(x + dx, y + dy);
+    if (eid && !v.seen.has(eid)) return true;
+    const oid = objAt(x + dx, y + dy);
+    if (oid && !v.seen.has("o" + oid) && OBJECTS[getObj(oid).t].kind === "stand") return true;
+  }
+  return false;
+}
+function roamGoal(v) {
+  // rank every path tile within reach: new places, straight ahead, and further off score best
+  const cands = [];
+  for (let y = v.ty - ROAM_RADIUS; y <= v.ty + ROAM_RADIUS; y++) for (let x = v.tx - ROAM_RADIUS; x <= v.tx + ROAM_RADIUS; x++) {
+    if ((x === v.tx && y === v.ty) || !isPath(x, y)) continue;
+    const ox = (x - v.tx) * TILE, oy = (y - v.ty) * TILE, od = Math.hypot(ox, oy);
+    const fresh = !v.recent.includes(x + "," + y);
+    const ahead = v.heading ? Math.max(0, (ox * v.heading[0] + oy * v.heading[1]) / od) : 0.5;
+    const w = (fresh ? 1 : 0.06) * (0.2 + ahead * ahead * 2) * (0.3 + od / (ROAM_RADIUS * TILE)) * (nearUnseen(v, x, y) ? 4 : 1);
+    cands.push({ x, y, w, r: w * (0.2 + Math.random() * 1.6) });   // plenty of randomness, so guests spread out
+  }
+  cands.sort((a, b) => b.r - a.r);
+  // walk to the best few that can be reached in a straight line, picking among them by weight
+  const options = [];
+  for (const c of cands) {
+    const p = guestSpotIn(c.x, c.y), legs = p && guestLegs(v, p);
+    if (legs) options.push({ p: legs, w: c.w });
+    if (options.length >= 4) break;
+  }
+  if (!options.length) return null;
+  let r = Math.random() * options.reduce((s, o) => s + o.w, 0);
+  for (const o of options) { r -= o.w; if (r <= 0) return o.p; }
+  return options[0].p;
+}
+// The furthest-along spot towards the gate that the guest can walk straight to.
+function exitGoal(v, d, here) {
+  let best = null, bestD = here;
+  for (let y = v.ty - 2; y <= v.ty + 2; y++) for (let x = v.tx - 2; x <= v.tx + 2; x++) {
+    if (!isPath(x, y)) continue;
+    const dd = d[idx(x, y)];
+    if (dd < 0 || dd >= bestD) continue;
+    const p = guestSpotIn(x, y), legs = p && guestLegs(v, p);
+    if (legs) { best = legs; bestD = dd; }
+  }
+  if (best) return best;
+  // no clear walk: via the middle of this tile to the middle of the next one along the way
+  for (const [dx, dy] of DIRS) {
+    const x = v.tx + dx, y = v.ty + dy;
+    if (isPath(x, y) && d[idx(x, y)] === here - 1) return [guestAnchor(v.tx, v.ty), guestAnchor(x, y)];
+  }
+  return null;
 }
 
 // ================= Meme events =================
@@ -1708,30 +1838,30 @@ function drawHover() {
   if (tool === "movevault") {
     const n = VAULT.w;
     x -= Math.floor(n / 2); y -= Math.floor(n / 2); w = h = n;
-    ok = canPlaceVault(x, y) && !isOpen();
+    ok = canPlaceVault(x, y) && !dayLocked();
     ctx.globalAlpha = 0.6; blit(ctx, vaultBack(n), x * TILE, y * TILE); ctx.globalAlpha = 1;
   } else if (tool === "enclosure" && encChoice.shape === "custom") {
-    ok = canPenTile(x, y) && !isOpen();
+    ok = canPenTile(x, y) && !dayLocked();
   } else if (tool === "enclosure") {
     const n = ENC_TYPES[encChoice.size].size;
     x -= encOffset(n); y -= encOffset(n); w = h = n;
-    ok = canPlaceEnclosure(x, y) && state.money >= enclosureCost() && state.enclosures.length < maxEnclosures() && !isOpen();
+    ok = canPlaceEnclosure(x, y) && touchesPath(x, y, n, n) && state.money >= enclosureCost() && state.enclosures.length < maxEnclosures() && !dayLocked();
     ctx.globalAlpha = 0.55; blit(ctx, makeEncGround(n, encChoice.theme, encChoice.fence === "theme" ? null : encChoice.fence), x * TILE, y * TILE); ctx.globalAlpha = 1;
   } else if (objType) {
-    ok = canPlaceObject(x, y) && state.money >= objectCost(objType) && !isOpen();
+    ok = canPlaceObject(x, y) && (!needsPath(objType) || touchesPath(x, y, 1, 1)) && state.money >= objectCost(objType) && !dayLocked();
     ctx.globalAlpha = 0.6; blitFeet(ctx, OBJ_SPRITES[objType], x * TILE + 8, y * TILE + 16); ctx.globalAlpha = 1;
   } else if (tool === "path") {
-    ok = state.tiles[idx(x, y)] !== pathChoice && !encAt(x, y) && !objAt(x, y) && state.money >= PATH_TYPES[pathChoice].cost && !isOpen();
+    ok = state.tiles[idx(x, y)] !== pathChoice && !encAt(x, y) && !objAt(x, y) && state.money >= PATH_TYPES[pathChoice].cost && !dayLocked();
     if (ok) { ctx.globalAlpha = 0.6; blit(ctx, pathTiles[pathChoice], x * TILE, y * TILE); ctx.globalAlpha = 1; }
   } else if (tool === "bulldoze") {
     const id = encAt(x, y);
-    if (id) { const e = getEnc(id); highlightCells(encCells(e), !isOpen()); return; }
-    ok = (!!id || !!objAt(x, y) || (isPath(x, y) && !(x === GATE.x && y === GATE.y))) && !isOpen();
+    if (id) { const e = getEnc(id); highlightCells(encCells(e), !dayLocked()); return; }
+    ok = (!!id || !!objAt(x, y) || (isPath(x, y) && !(x === GATE.x && y === GATE.y))) && !dayLocked();
   } else if (tool === "place" || tool === "inspect") {
     const id = encAt(x, y);
     if (!id) return;
     const e = getEnc(id);
-    highlightCells(encCells(e), tool === "inspect" || (e.variants.length < capOf(e) && !isOpen()));
+    highlightCells(encCells(e), tool === "inspect" || (e.variants.length < capOf(e) && !dayLocked()));
     return;
   }
   ctx.fillStyle = ok ? "rgba(255,255,255,0.18)" : "rgba(255,60,90,0.35)";
@@ -1741,22 +1871,11 @@ function drawHover() {
   ctx.strokeRect(x * TILE + 0.5, y * TILE + 0.5, w * TILE - 1, h * TILE - 1);
 }
 
-// Where a guest stands within a path tile (centre x, feet y, relative to the tile's corner).
-// Guests spread across the path, but stay clear of whatever is beside it: they keep off the
-// edges next to grass, pens and props, and well back from the tall stands and decor in front.
-function guestSpot(v, x, y) {
-  const lo = isPath(x - 1, y) ? 3 : 7, hi = isPath(x + 1, y) ? 13 : 9;
-  const below = isPath(x, y + 1) ? 18 : objAt(x, y + 1) ? 9 : 12;
-  const top = Math.min(12, below - 3);
-  return [lo + (hi - lo) * (v.off + 4) / 8, top + (below - top) * ((v.offY ?? 0) + 3) / 6];
-}
-function visitorFeet(v) {
-  const [ax, ay] = guestSpot(v, v.tx, v.ty), [bx, by] = guestSpot(v, v.nx, v.ny), t = v.prog;
-  return [(v.tx + (v.nx - v.tx) * t) * TILE + ax + (bx - ax) * t, (v.ty + (v.ny - v.ty) * t) * TILE + ay + (by - ay) * t];
-}
+// A guest's feet (centre x, bottom y) in world units.
+const visitorFeet = v => [v.x, v.y];
 
 function drawVisitor(v) {
-  const walking = v.prog < 1;
+  const walking = v.moving;
   const frame = walking ? (Math.floor(v.phase) % 2 ? 1 : 2) : 0;
   const [cx, feet] = visitorFeet(v);
   const vx = cx - 3.5, vy = feet - 12;
@@ -2354,7 +2473,7 @@ const TOOL_HINTS = {
   inspect: "Click a variant for a close-up, or an enclosure to manage it.",
   movevault: "Click where the gold pile should go (a clear 3x3 spot on your land or by the entrance).",
   path: "Click or drag to lay paths. Visitors only walk on paths.",
-  enclosure: "Click grass to build the selected enclosure. Put it next to a path!",
+  enclosure: "Click grass to build the selected enclosure. It must touch a path.",
   bulldoze: "Click or drag to remove paths, enclosures and objects.",
   place: "Click an enclosure to place the selected variant.",
 };
