@@ -15,7 +15,7 @@ Open `index.html` in a browser. There's nothing to install or build.
 
 ### Older versions
 
-Every major version stays playable in [`versions/`](versions/index.html), each with its own save. To archive a new one: `versions/archive.sh 1.2 "Title"`.
+Every major version stays playable in [`versions/`](versions/index.html), each with its own save. Only pushed versions go there. After pushing a new one, archive it with `versions/archive.sh 1.2 "Title"`.
 
 ## Features
 

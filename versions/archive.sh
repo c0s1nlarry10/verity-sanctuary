@@ -1,5 +1,6 @@
 #!/bin/bash
 # Copies the current game into versions/v<version> so it stays playable for reference.
+# Only archive versions that have been pushed (published).
 # Each archived copy gets its own save slot, so it never touches your main save.
 # usage: versions/archive.sh <version> "<title>"     e.g. versions/archive.sh 1.2 "Night Market"
 set -e
