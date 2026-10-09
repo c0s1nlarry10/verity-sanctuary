@@ -42,7 +42,7 @@ const WORLD_W = COLS * TILE, WORLD_H = ROWS * TILE;
 const WORLD_VERSION = 2;
 const ENC_SIZE = 3;         // enclosures are 3x3 tiles
 const ENC_CAPACITY = 4;
-const SAVE_KEY = "verity-sanctuary-save";
+const SAVE_KEY = "verity-sanctuary-save-archive-v1.1";
 const SAVE_VERSION = 2;
 const AUTOSAVE_MS = 10000;
 const OFFLINE_CAP_SEC = 8 * 3600;

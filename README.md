@@ -13,6 +13,10 @@ Open `index.html` in a browser. There's nothing to install or build.
 - **Minimap:** click or drag to jump around the world
 - **Park hours:** open 8 AM to 10 PM (8 minutes), closed at night (3 minutes). Build at night, earn by day.
 
+### Older versions
+
+Every major version stays playable in [`versions/`](versions/index.html), each with its own save. To archive a new one: `versions/archive.sh 1.2 "Title"`.
+
 ## Features
 
 Version 1.1. See the in-game patch notes for what changed.

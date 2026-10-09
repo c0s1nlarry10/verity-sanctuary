@@ -33,12 +33,12 @@ function makeIndividual(k, s, opts = {}) {
 // ================= State =================
 function defaultState() {
   const tiles = new Array(COLS * ROWS).fill(0);
-  for (let x = GATE.x; x <= GATE.x + 12; x++) tiles[GATE.y * COLS + x] = 1;
+  for (let x = 0; x <= 12; x++) tiles[GATE.y * COLS + x] = 1;
   const s = {
     version: SAVE_VERSION,
     money: 150,
     tiles,
-    enclosures: [{ id: 1, x: OX + 4, y: OY + 5, s: 3, theme: "meadow", variants: [], lostUntil: 0 }],
+    enclosures: [{ id: 1, x: 4, y: 5, s: 3, theme: "meadow", variants: [], lostUntil: 0 }],
     objects: [],
     inventory: [],
     discovered: { verity: true },
@@ -68,12 +68,7 @@ function defaultState() {
     daily: { last: "", streak: 0 },
     shards: 0,
     runEarned: 0,
-    worldClock: DAY_SECS + 1,
-    worldVersion: WORLD_VERSION,
-    lotLevel: 1,
-    day: null,
-    seenVersion: "",
-    tutorialDone: false,
+    worldClock: 90,
   };
   s.enclosures[0].variants.push(makeIndividual("verity", s, { shinyChance: 0 }));
   return s;
@@ -145,29 +140,13 @@ function sanitize(data) {
   const s = Object.assign(base, data);
   s.stats = Object.assign(defaultState().stats, data.stats || {});
   s.settings = Object.assign(defaultState().settings, data.settings || {});
-  s.plots = data.plots && typeof data.plots === "object" ? Object.assign({ start: true }, data.plots) : { start: true, east: true, south: true, corner: true };
+  s.plots = data.plots && typeof data.plots === "object" ? Object.assign({ start: true }, data.plots) : Object.fromEntries(PLOT_KEYS.map(k => [k, true]));
   s.staff = Object.fromEntries(Object.keys(STAFF).map(t => [t, Math.max(0, Math.min(STAFF[t].max, Math.floor(Number((data.staff || {})[t]) || 0)))]));
   s.trash = (Array.isArray(data.trash) ? data.trash : []).filter(t => t && Number.isInteger(t.x) && Number.isInteger(t.y)).slice(0, 60);
   s.request = data.request && VARIANTS[data.request.k] ? data.request : null;
   s.eggCounts = Object.assign({ regular: Number(data.eggsHatched) || 0, golden: 0, cursed: 0 }, data.eggCounts || {});
   s.daily = Object.assign({ last: "", streak: 0 }, data.daily || {});
-  for (const k of ["freeEggs", "freeGolden", "shards", "runEarned", "worldClock"]) s[k] = Math.max(0, Number(data[k]) || (k === "worldClock" ? DAY_SECS + 1 : 0));
-  s.lotLevel = Math.max(1, Math.min(LOT_LEVELS.length, Math.floor(Number(data.lotLevel) || 1)));
-  s.day = data.day && typeof data.day === "object" ? data.day : null;
-  s.seenVersion = typeof data.seenVersion === "string" ? data.seenVersion : "";
-  s.tutorialDone = data.tutorialDone === true;
-  if (data.worldVersion !== WORLD_VERSION && Array.isArray(data.tiles) && data.tiles.length === CORE_W * CORE_H) {
-    // v1.0 parks were 24x16 tiles: move everything into the middle of the bigger world
-    const tiles = new Array(COLS * ROWS).fill(0);
-    for (let y = 0; y < CORE_H; y++) for (let x = 0; x < CORE_W; x++) tiles[(y + OY) * COLS + x + OX] = data.tiles[y * CORE_W + x];
-    s.tiles = tiles;
-    for (const e of Array.isArray(s.enclosures) ? s.enclosures : []) if (e) { e.x += OX; e.y += OY; }
-    for (const o of Array.isArray(s.objects) ? s.objects : []) if (o) { o.x += OX; o.y += OY; }
-    for (const t of s.trash) { t.x += OX; t.y += OY; }
-    if (!data.plots) s.plots = { start: true, east: true, south: true, corner: true };
-  }
-  s.worldVersion = WORLD_VERSION;
-  for (const k of Object.keys(s.plots)) if (!PLOTS[k]) delete s.plots[k];
+  for (const k of ["freeEggs", "freeGolden", "shards", "runEarned", "worldClock"]) s[k] = Math.max(0, Number(data[k]) || (k === "worldClock" ? 90 : 0));
   if (!Array.isArray(s.tiles) || s.tiles.length !== COLS * ROWS) s.tiles = defaultState().tiles;
   if (typeof s.nextUid !== "number") s.nextUid = 1;
   s.inventory = (Array.isArray(s.inventory) ? s.inventory : []).map(x => sanitizeInd(x, s)).filter(Boolean);
@@ -234,12 +213,11 @@ function applyOfflineEarnings() {
   const secondsAway = (Date.now() - (state.lastSaved || Date.now())) / 1000;
   if (secondsAway < 30) return;
   const capped = Math.min(secondsAway, OFFLINE_CAP_SEC);
-  const openShare = DAY_SECS / CYCLE_SECS;
   for (const { ind } of placedList()) {
-    ind.xp += capped * 0.5 * openShare * xpRate(ind);
+    ind.xp += capped * 0.5 * xpRate(ind);
     if (isUnlocked("care")) ind.food = Math.max(Math.min(ind.food, CARE.offlineFloor), ind.food - capped * CARE.foodDecay);
   }
-  const earned = Math.floor(capped * state.incomeRate * OFFLINE_RATE * openShare);
+  const earned = Math.floor(capped * state.incomeRate * OFFLINE_RATE);
   if (earned <= 0) return;
   state.money += earned;
   state.totalEarned += earned;
@@ -264,7 +242,7 @@ function importSave(code) {
   fuseSel = [0, 0];
   escapes.clear();
   staffWalkers = [];
-  markWorldDirty();
+  forestDirty = true;
   syncStaff();
   rebuildGrids();
   saveGame();
@@ -442,7 +420,7 @@ function baseValue(ind, e) {
   let v = VARIANTS[ind.k].value * TRAITS[ind.trait].mult * (1 + 0.1 * (levelOf(ind) - 1)) * (ind.shiny ? 5 : 1);
   if (e) v *= penMult(ind, e) * (likesTheme(ind, e) ? 1 + THEME_BONUS : 1);
   v *= careMult(ind);
-  if ((ind.k === "insanity" || ind.k === "eternity") && isEvening()) v *= 2;
+  if ((ind.k === "insanity" || ind.k === "eternity") && isNight()) v *= 2;
   if (ind.k === "humidity" && (weather === "rain" || weather === "storm")) v *= 2;
   return v * eventMult(ind.k) * globalMult();
 }
@@ -466,9 +444,8 @@ function payFor(ind, e) {
   return v;
 }
 
-function earn(amount, px, py, color, cat = "Other") {
+function earn(amount, px, py, color) {
   if (!(amount > 0)) return;
-  if (state.day) state.day.revenue[cat] = (state.day.revenue[cat] || 0) + amount;
   state.money += amount;
   state.totalEarned += amount;
   state.runEarned += amount;
@@ -476,39 +453,25 @@ function earn(amount, px, py, color, cat = "Other") {
   if (px !== undefined && amount >= 0.5) floaters.push({ x: px, y: py, text: "+" + fmt(Math.round(amount)), t: 0, color });
 }
 
-function spend(amount, cat = "Purchases") {
+function spend(amount) {
   if (state.money < amount) return false;
   state.money -= amount;
-  logExpense(amount, cat);
   return true;
-}
-function logExpense(amount, cat) {
-  if (state.day && amount > 0) state.day.expenses[cat] = (state.day.expenses[cat] || 0) + amount;
 }
 
 // ================= Canvas =================
+const MARGIN = TILE;
 const canvas = document.getElementById("game");
-const screenCtx = canvas.getContext("2d");
-// The world is drawn into a small buffer at ART pixels per unit, then scaled up by a whole
-// number, so sprites, shadows, lights and effects all land on the same pixel grid.
-const pixBuf = makeCanvas(1, 1);
-const pixCtx = pixBuf.getContext("2d");
-let ctx = screenCtx;
+canvas.width = (COLS * TILE + MARGIN * 2) * SCALE;
+canvas.height = (ROWS * TILE + MARGIN * 2) * SCALE;
+const ctx = canvas.getContext("2d");
 ctx.imageSmoothingEnabled = false;
 
 function worldFromEvent(e) {
   const r = canvas.getBoundingClientRect();
-  const gx = view.x + (e.clientX - r.left) / view.zoom;
-  const gy = view.y + (e.clientY - r.top) / view.zoom;
-  return { gx, gy, x: Math.floor(gx / TILE), y: Math.floor(gy / TILE), sx: e.clientX, sy: e.clientY };
-}
-
-// Building, bulldozing and moving variants only happen while the park is closed.
-function buildLocked() {
-  if (!isOpen()) return false;
-  hintOnce("The park is open! Building and moving variants unlock at 10 PM. You can also close early.");
-  sfx("fail");
-  return true;
+  const gx = ((e.clientX - r.left) / r.width) * (COLS * TILE + MARGIN * 2) - MARGIN;
+  const gy = ((e.clientY - r.top) / r.height) * (ROWS * TILE + MARGIN * 2) - MARGIN;
+  return { gx, gy, x: Math.floor(gx / TILE), y: Math.floor(gy / TILE) };
 }
 
 // ================= Building actions =================
@@ -524,7 +487,7 @@ const canPlaceObject = (x, y) => inBounds(x, y) && isOwned(x, y) && !isPath(x, y
 const encOffset = n => Math.floor((n - 1) / 2);
 
 function placePath(x, y) {
-  if (!inBounds(x, y) || !isOwned(x, y) || encAt(x, y) || objAt(x, y) || buildLocked()) return;
+  if (!inBounds(x, y) || !isOwned(x, y) || encAt(x, y) || objAt(x, y)) return;
   const cur = state.tiles[idx(x, y)];
   if (cur === pathChoice) return;
   const cost = PATH_TYPES[pathChoice].cost;
@@ -534,7 +497,6 @@ function placePath(x, y) {
 }
 
 function placeEnclosure(x, y) {
-  if (buildLocked()) return;
   const n = ENC_TYPES[encChoice.size].size;
   const ex = x - encOffset(n), ey = y - encOffset(n);
   if (state.enclosures.length >= maxEnclosures()) return hintOnce(`Enclosure limit reached (${maxEnclosures()}). Level up your park for more slots.`);
@@ -549,7 +511,7 @@ function placeEnclosure(x, y) {
 }
 
 function placeObject(t, x, y) {
-  if (!isUnlocked("obj:" + t) || buildLocked()) return;
+  if (!isUnlocked("obj:" + t)) return;
   if (!canPlaceObject(x, y)) return hintOnce("That spot is taken. Pick an empty grass tile.");
   const cost = objectCost(t);
   if (!spend(cost)) return hintOnce(`${OBJECTS[t].name} costs ${fmt(cost)} coins.`);
@@ -562,7 +524,7 @@ function placeObject(t, x, y) {
 }
 
 function bulldoze(x, y) {
-  if (!inBounds(x, y) || buildLocked()) return;
+  if (!inBounds(x, y)) return;
   const eid = encAt(x, y);
   if (eid) {
     const e = getEnc(eid);
@@ -570,7 +532,7 @@ function bulldoze(x, y) {
     state.inventory.push(...e.variants);
     for (const i of e.variants) escapes.delete(i.id);
     state.enclosures = state.enclosures.filter(en => en.id !== eid);
-    earn(Math.round(ENC_TYPES[SIZE_KEY[encSize(e)]].cost * THEMES[e.theme].costMult / 2), undefined, undefined, undefined, "Refunds");
+    earn(Math.round(ENC_TYPES[SIZE_KEY[encSize(e)]].cost * THEMES[e.theme].costMult / 2));
     if (inspectedId === eid) inspectedId = 0;
     rebuildGrids();
     sfx("bulldoze");
@@ -581,14 +543,14 @@ function bulldoze(x, y) {
   if (oid) {
     const o = getObj(oid);
     state.objects = state.objects.filter(ob => ob.id !== oid);
-    earn(Math.floor(OBJECTS[o.t].cost / 2), undefined, undefined, undefined, "Refunds");
+    earn(Math.floor(OBJECTS[o.t].cost / 2));
     rebuildGrids();
     sfx("bulldoze");
     renderUI(true);
     return;
   }
   if (isPath(x, y) && !(x === GATE.x && y === GATE.y)) {
-    earn(Math.floor(PATH_TYPES[state.tiles[idx(x, y)]].cost / 2), undefined, undefined, undefined, "Refunds");
+    earn(Math.floor(PATH_TYPES[state.tiles[idx(x, y)]].cost / 2));
     state.tiles[idx(x, y)] = 0;
     const ti = trashIndexAt(x, y);
     if (ti >= 0) state.trash.splice(ti, 1);
@@ -598,7 +560,6 @@ function bulldoze(x, y) {
 
 // ================= Variant actions =================
 function placeVariant(x, y) {
-  if (buildLocked()) return;
   const eid = encAt(x, y);
   if (!eid) return hintOnce("Click an enclosure to place the variant.");
   const e = getEnc(eid);
@@ -649,14 +610,14 @@ function hatchEgg(type = "regular") {
   if (roll.grumpy && Math.random() < 0.5) ind.trait = "grumpy";
   const isNew = addNew(ind);
   selectedUid = ind.id;
-  if (!isOpen()) tool = "place";
+  tool = "place";
   playFx({ kind: "hatch", ind, isNew, eggType: type });
   renderUI(true);
 }
 
 function takeOut(uid) {
   const f = findInd(uid);
-  if (!f || !f.e || buildLocked()) return;
+  if (!f || !f.e) return;
   if (activeEvent && activeEvent.ind === f.ind) activeEvent = null;
   f.e.variants.splice(f.e.variants.indexOf(f.ind), 1);
   escapes.delete(uid);
@@ -666,7 +627,6 @@ function takeOut(uid) {
 }
 
 function startPlacing(uid) {
-  if (buildLocked()) return;
   selectedUid = uid;
   setTool("place");
   switchTab("park");
@@ -674,12 +634,12 @@ function startPlacing(uid) {
 
 function releaseInd(uid) {
   const f = findInd(uid);
-  if (!f || (f.e && buildLocked())) return;
+  if (!f) return;
   if (activeEvent && activeEvent.ind === f.ind) activeEvent = null;
   const list = f.e ? f.e.variants : state.inventory;
   list.splice(list.indexOf(f.ind), 1);
   escapes.delete(uid);
-  earn(releaseValue(f.ind), undefined, undefined, undefined, "Sales");
+  earn(releaseValue(f.ind));
   fuseSel = fuseSel.map(u => (u === uid ? 0 : u));
   rebuildGrids();
   sfx("pop");
@@ -706,7 +666,7 @@ function petInd(uid) {
   petCooldown.set(uid, now + 4000);
   gainXp(f.ind, 10);
   f.ind.joy = Math.min(100, f.ind.joy + CARE.petJoy);
-  earn(Math.max(1, baseValue(f.ind, f.e)), undefined, undefined, undefined, "Petting");
+  earn(Math.max(1, baseValue(f.ind, f.e)));
   state.stats.pets++;
   gainParkXp(XP.pet);
   sfx("pet");
@@ -772,7 +732,7 @@ function doFuse() {
 }
 
 function upgradeLab() {
-  if (!isUnlocked("labUpgrade") || buildLocked()) return;
+  if (!isUnlocked("labUpgrade")) return;
   if (state.labLevel >= LAB_MAX_LEVEL || !spend(labUpgradeCost())) return;
   state.labLevel++;
   sfx("levelup");
@@ -781,27 +741,23 @@ function upgradeLab() {
 }
 
 // ================= Visitors =================
-// Guests walk from their car to the gate (world.js), then enter here and pay for a ticket.
-function admitVisitor(w) {
-  const look = w ? w.look : randomLook(rollVisitorType());
-  const type = look.type;
+function spawnVisitor() {
+  const type = rollVisitorType();
   visitors.push({
-    type, look, frames: w ? w.frames : personFrames(look), carId: w ? w.carId : 0,
-    mood: 70, pensSeen: 0, bubble: null,
-    tx: GATE.x, ty: GATE.y, px: GATE.x - 1, py: GATE.y, nx: GATE.x, ny: GATE.y,
+    type, mood: 70, pensSeen: 0, bubble: null,
+    tx: GATE.x, ty: GATE.y, px: GATE.x, py: GATE.y, nx: GATE.x, ny: GATE.y,
     prog: 1, speed: (type === "kid" ? 1.4 : 1.1) + Math.random() * 0.6,
     steps: 25 + Math.floor(Math.random() * 40),
-    seen: new Set(), alpha: 0.4, leaving: false,
+    seen: new Set(), alpha: 0, leaving: false,
     off: Math.floor(Math.random() * 5) - 2,
+    sprite: visitorSprite(randItem(SHIRTS), randItem(HAIRS), type),
     phase: Math.random() * 6,
   });
   const ticket = starRating() * (activeEvent && activeEvent.type === "parade" ? 3 : 1) * globalMult();
-  earn(ticket, GATE.x * TILE + 8, GATE.y * TILE, undefined, "Tickets");
+  earn(ticket, GATE.x * TILE + 8, GATE.y * TILE);
   state.visitorsServed++;
-  if (state.day) state.day.visitors++;
   gainParkXp(XP.visitor);
 }
-const spawnVisitor = () => admitVisitor(null);
 
 function arriveAt(v) {
   for (const [dx, dy] of DIRS) {
@@ -814,7 +770,7 @@ function arriveAt(v) {
         let pay = 0;
         for (const ind of e.variants) if (!(activeEvent && activeEvent.ind === ind) && !escapes.has(ind.id)) pay += payFor(ind, e);
         if (pay > 0) {
-          earn(pay, v.tx * TILE + 8, v.ty * TILE - 4, undefined, "Exhibits");
+          earn(pay, v.tx * TILE + 8, v.ty * TILE - 4);
           sfx("coin");
           v.pensSeen++;
           v.mood += 12 + (e.variants.some(i => likesTheme(i, e)) ? 6 : 0);
@@ -829,7 +785,7 @@ function arriveAt(v) {
       const def = OBJECTS[getObj(oid).t];
       const buyMult = (hasElectricity ? 1.5 : 1) * (VISITOR_TYPES[v.type].buyMult || 1);
       if (def.kind === "stand" && Math.random() < STAND_BUY_CHANCE * buyMult) {
-        earn(def.price * globalMult(), nx * TILE + 8, ny * TILE - 6, "#ff9ad5", "Snacks");
+        earn(def.price * globalMult(), nx * TILE + 8, ny * TILE - 6, "#ff9ad5");
         sfx("coin");
         v.mood += 8;
         if (Math.random() < 0.4) v.bubble = { icon: "food", t: 1.2 };
@@ -873,7 +829,7 @@ function startEvent(forceType, forceKey) {
   if (type === "viral") {
     activeEvent = { type, key: p.ind.k, t: 0, dur: 30, icon: p.ind.k, text: `${name} is going viral! 17M views. Every ${name} earns 3x.` };
     state.stats.virals++;
-    for (let i = 0; i < 3; i++) spawnCar(1 + Math.floor(Math.random() * 3));
+    for (let i = 0; i < 6 && visitors.length < MAX_VISITORS; i++) spawnVisitor();
   } else if (type === "song") {
     activeEvent = { type, t: 0, dur: 20, icon: "verity", text: "A Verity song is trending! Every Verity earns 5x." };
   } else if (type === "parade") {
@@ -895,7 +851,7 @@ function endEvent(win) {
   const e = ev.e;
   if (win) {
     const reward = Math.max(50, Math.round(state.incomeRate * 30));
-    earn(reward, e.x * TILE + 24, e.y * TILE - 6, undefined, "Events");
+    earn(reward, e.x * TILE + 24, e.y * TILE - 6);
     state.stats.tugWins++;
     gainParkXp(XP.tugWin);
     sfx("fanfare", 2);
@@ -932,7 +888,6 @@ function tugClick(p) {
 }
 
 function updateEvent(dt) {
-  if (!activeEvent && !isOpen()) return;
   if (!activeEvent) {
     if (!isUnlocked("events")) return;
     eventTimer -= dt;
@@ -956,7 +911,7 @@ function checkProgress() {
     const [cur, max] = g.prog();
     if (cur < max) break;
     state.goal++;
-    earn(g.reward, undefined, undefined, undefined, "Goals");
+    earn(g.reward);
     gainParkXp(XP.goal(state.goal - 1));
     sfx("achievement");
     toast(`Goal complete: ${g.text}! +${fmt(g.reward)} coins`, 4500, "lovity");
@@ -984,11 +939,11 @@ function secondTick() {
   const placed = placedList();
   const activeVisitors = visitors.filter(v => !v.leaving).length;
   for (const { ind, e } of placed) {
-    if (isLost(e) || !isOpen()) continue;
+    if (isLost(e)) continue;
     const c = critterPos.get(ind.id);
     gainXp(ind, xpRate(ind), c);
-    if (ind.k === "prosperity" && tickCount % 10 === 0) earn(baseValue(ind, e), c ? c.x : e.x * TILE + 24, c ? c.y - 14 : e.y * TILE, "#ffe066", "Abilities");
-    if (ind.k === "infinity" && activeVisitors) earn(activeVisitors * globalMult(), undefined, undefined, undefined, "Abilities");
+    if (ind.k === "prosperity" && tickCount % 10 === 0) earn(baseValue(ind, e), c ? c.x : e.x * TILE + 24, c ? c.y - 14 : e.y * TILE, "#ffe066");
+    if (ind.k === "infinity" && activeVisitors) earn(activeVisitors * globalMult());
   }
   const live = new Set(placed.map(p => p.ind.id));
   for (const id of critterPos.keys()) if (!live.has(id)) critterPos.delete(id);
@@ -1006,12 +961,10 @@ function update(dt) {
   updateStaff(dt);
   updateEscapes(dt);
   spawnTimer += dt;
-  if (spawnTimer >= interval * 2.2) {
+  if (spawnTimer >= interval) {
     spawnTimer = 0;
-    if (isOpen() && guestsOnSite() < maxGuests()) spawnCar(1 + Math.floor(Math.random() * (starRating() >= 4 ? 4 : 3)));
+    if (visitors.length < MAX_VISITORS) spawnVisitor();
   }
-  updateCars(dt);
-  updateAmbient(dt);
   for (const v of visitors) updateVisitor(v, dt);
   visitors = visitors.filter(v => !(v.leaving && v.alpha <= 0));
 
@@ -1027,72 +980,106 @@ function update(dt) {
 }
 
 // ================= Render: world =================
-function tileHash(x, y) { return Math.floor(hash2(x, y, 1) * 1000); }
+function tileHash(x, y) {
+  let h = (x * 374761393 + y * 668265263) >>> 0;
+  h = ((h ^ (h >>> 13)) * 1274126177) >>> 0;
+  return h % 1000;
+}
 
-const EDGE_TUFT = "#4a9a3f";
+const FLOWER_COLORS = ["#fff3a1", "#ff8fb8", "#ffffff", "#c9a7ff", "#ffb35c"];
+function drawGrassDecor(x, y) {
+  const h = tileHash(x, y);
+  const px = x * TILE, py = y * TILE;
+  const ox = 2 + (h % 9), oy = 3 + ((h >> 3) % 8);
+  if (h < 90) {
+    ctx.fillStyle = "#2f7a2c";
+    ctx.fillRect(px + ox, py + oy, 1, 3); ctx.fillRect(px + ox + 2, py + oy, 1, 3); ctx.fillRect(px + ox + 1, py + oy + 1, 1, 2);
+    ctx.fillStyle = "#6cc35a"; ctx.fillRect(px + ox + 1, py + oy - 1, 1, 1);
+  } else if (h < 150) {
+    const col = FLOWER_COLORS[h % FLOWER_COLORS.length];
+    for (const [dx, dy] of [[0, 0], [3, 1], [1, 3]]) {
+      ctx.fillStyle = "#2f7a2c"; ctx.fillRect(px + ox + dx, py + oy + dy + 1, 1, 1);
+      ctx.fillStyle = col; ctx.fillRect(px + ox + dx, py + oy + dy, 1, 1);
+    }
+  } else if (h < 175) {
+    ctx.fillStyle = "#5c5c6e"; ctx.fillRect(px + ox, py + oy + 1, 4, 2);
+    ctx.fillStyle = "#9a9aae"; ctx.fillRect(px + ox + 1, py + oy, 2, 2);
+  } else if (h < 190) {
+    ctx.fillStyle = "#e9e0c9"; ctx.fillRect(px + ox + 1, py + oy + 2, 1, 2);
+    ctx.fillStyle = "#d9413f"; ctx.fillRect(px + ox, py + oy, 3, 2);
+    ctx.fillStyle = "#fff"; ctx.fillRect(px + ox + 1, py + oy, 1, 1);
+  }
+}
+
 function drawPathTile(x, y) {
   const px = x * TILE, py = y * TILE;
   const type = state.tiles[idx(x, y)];
-  blit(ctx, pathTiles[type], px, py);
+  ctx.drawImage(pathTiles[type], px, py);
   const gate = x === GATE.x && y === GATE.y;
-  const open = (nx, ny) => isPath(nx, ny) || (gate && nx === GATE.x - 1 && ny === GATE.y);
-  const edge = PATH_EDGE[type];
-  ctx.fillStyle = edge;
-  if (!open(x, y - 1)) ctx.fillRect(px, py, TILE, 1);
-  if (!open(x, y + 1)) ctx.fillRect(px, py + TILE - 1, TILE, 1);
-  if (!open(x - 1, y)) ctx.fillRect(px, py, 1, TILE);
-  if (!open(x + 1, y)) ctx.fillRect(px + TILE - 1, py, 1, TILE);
-  ctx.fillStyle = "rgba(0,0,0,0.18)";
-  if (!open(x, y + 1)) ctx.fillRect(px, py + TILE - 1.5, TILE, 0.5);
-  ctx.fillStyle = EDGE_TUFT;
+  const open = (nx, ny) => isPath(nx, ny) || (gate && nx < 0 && ny === GATE.y);
+  ctx.fillStyle = PATH_EDGE[type];
+  if (!open(x, y - 1)) ctx.fillRect(px, py, TILE, 2);
+  if (!open(x, y + 1)) ctx.fillRect(px, py + TILE - 2, TILE, 2);
+  if (!open(x - 1, y)) ctx.fillRect(px, py, 2, TILE);
+  if (!open(x + 1, y)) ctx.fillRect(px + TILE - 2, py, 2, TILE);
+  ctx.fillStyle = "#4a9a3f";
   const h = tileHash(x, y);
-  if (!open(x, y - 1)) { ctx.fillRect(px + (h % 12) + 1, py, 1.5, 0.5); ctx.fillRect(px + ((h >> 4) % 12) + 2, py, 0.5, 1); }
-  if (!open(x, y + 1)) ctx.fillRect(px + ((h >> 2) % 12) + 1, py + TILE - 0.5, 1.5, 0.5);
-  if (!open(x - 1, y)) ctx.fillRect(px, py + ((h >> 3) % 12) + 1, 0.5, 1.5);
+  if (!open(x, y - 1)) { ctx.fillRect(px + (h % 12) + 1, py, 2, 1); ctx.fillRect(px + ((h >> 4) % 12) + 2, py, 1, 1); }
+  if (!open(x, y + 1)) ctx.fillRect(px + ((h >> 2) % 12) + 1, py + TILE - 1, 2, 1);
 }
 
-// drifting cloud shadows spread over the whole world
-const clouds = Array.from({ length: 14 }, (_, i) => ({ x: hash2(i, 1, 9) * WORLD_W, y: hash2(i, 2, 9) * WORLD_H, speed: 3 + hash2(i, 3, 9) * 4 }));
-
-function drawGate(time) {
-  const x = GATE.x * TILE, y = GATE.y * TILE;
-  blit(ctx, GATE_SPR, x - 6, y - 18);
-  // waving pennants on the pillars
-  for (const [px, col] of [[x - 2, "#ff5c7a"], [x + 18, "#5fb4ff"]]) {
-    ctx.fillStyle = "#2a2a2a"; ctx.fillRect(px, y - 24, 0.5, 6);
-    ctx.fillStyle = col;
-    for (let i = 0; i < 6; i++) {
-      const wave = Math.sin(time * 6 - i * 0.8) * 0.8;
-      const hgt = 3 - i * 0.45;
-      ctx.fillRect(px + 0.5 + i * 0.75, y - 24 + wave * (i / 6) + (3 - hgt) / 2, 0.75, Math.max(0.5, hgt));
-    }
+const borderLayer = (() => {
+  const W = COLS * TILE + MARGIN * 2, H = ROWS * TILE + MARGIN * 2;
+  const c = makeCanvas(W, H);
+  const g = c.getContext("2d");
+  g.fillStyle = "#2c6a2a"; g.fillRect(0, 0, W, H);
+  const r = seeded(99);
+  for (let n = 0; n < 400; n++) { g.fillStyle = r() < 0.5 ? "#255c24" : "#347a31"; g.fillRect(Math.floor(r() * W), Math.floor(r() * H), 1, 1); }
+  g.drawImage(pathTile, 0, MARGIN + GATE.y * TILE, MARGIN, TILE);
+  g.fillStyle = "#a8834d";
+  g.fillRect(0, MARGIN + GATE.y * TILE, MARGIN, 2); g.fillRect(0, MARGIN + GATE.y * TILE + TILE - 2, MARGIN, 2);
+  const spots = [];
+  for (let x = -1; x <= COLS; x++) { spots.push([x, -1]); spots.push([x, ROWS]); }
+  for (let y = 0; y < ROWS; y++) { if (Math.abs(y - GATE.y) > 1) spots.push([-1, y]); spots.push([COLS, y]); }
+  spots.sort((a, b) => a[1] - b[1]);
+  for (const [x, y] of spots) {
+    const t = TREES[tileHash(x + 50, y + 50) % TREES.length];
+    g.drawImage(t, MARGIN + x * TILE + ((tileHash(x, y) % 3) - 1), MARGIN + y * TILE - 6);
   }
+  return c;
+})();
+
+const clouds = [0, 1, 2].map(i => ({ x: i * 150 + 20, y: 20 + i * 80, speed: 3 + i * 1.5 }));
+
+function drawGate() {
+  const x = GATE.x * TILE, y = GATE.y * TILE;
+  for (const px of [x, x + 13]) {
+    ctx.fillStyle = "#2a1a0c"; ctx.fillRect(px, y - 9, 3, 25);
+    ctx.fillStyle = "#7a4a22"; ctx.fillRect(px + 1, y - 9, 1, 25);
+    ctx.fillStyle = "#8a8a9a"; ctx.fillRect(px - 1, y + 13, 5, 3);
+  }
+  ctx.fillStyle = "#000"; ctx.fillRect(x - 1, y - 21, 18, 14);
+  ctx.fillStyle = "#ffd23f"; ctx.fillRect(x, y - 20, 16, 12);
+  ctx.fillStyle = "#fff09a"; ctx.fillRect(x + 1, y - 19, 14, 1);
+  ctx.fillStyle = "#2b1d00";
+  ctx.fillRect(x + 5, y - 17, 1, 2); ctx.fillRect(x + 10, y - 17, 1, 2);
+  ctx.fillRect(x + 4, y - 13, 1, 1); ctx.fillRect(x + 11, y - 13, 1, 1);
+  ctx.fillRect(x + 5, y - 12, 6, 1);
 }
 
-function drawEnclosure(e, time) {
+function drawEnclosure(e) {
   const px = e.x * TILE, py = e.y * TILE, W = encSize(e) * TILE;
   ctx.fillStyle = "rgba(0,0,0,0.22)";
   ctx.fillRect(px + 2, py + 3, W, W);
-  blit(ctx, makeEncGround(encSize(e), e.theme), px, py);
-  if (e.theme === "pool" && state.settings.effects) {
-    ctx.fillStyle = "rgba(220,240,255,0.55)";
-    for (let i = 0; i < encSize(e) * 3; i++) {
-      const t = (time * 0.25 + hash2(e.id, i, 4)) % 1;
-      const lx = px + 11 + hash2(e.id, i, 5) * (W - 26) + Math.sin(time * 2 + i) * 1.5;
-      const ly = py + 12 + t * (W - 26);
-      ctx.fillRect(lx, ly, 2 + hash2(e.id, i, 6) * 2, 0.5);
-    }
-  }
+  ctx.drawImage(makeEncGround(encSize(e), e.theme), px, py);
   const cap = capOf(e), sw = cap * 3 + 4;
   const sx = Math.round(px + W / 2 - sw / 2), sy = py - 5;
   ctx.fillStyle = "#000"; ctx.fillRect(sx, sy, sw, 7);
   ctx.fillStyle = "#c48a4a"; ctx.fillRect(sx + 1, sy + 1, sw - 2, 5);
-  ctx.fillStyle = "#e0a868"; ctx.fillRect(sx + 1, sy + 1, sw - 2, 0.5);
   for (let i = 0; i < cap; i++) {
     const ind = e.variants[i];
     ctx.fillStyle = ind ? VARIANTS[ind.k].color : "#7a4a22";
     ctx.fillRect(sx + 2 + i * 3, sy + 2, 2, 3);
-    if (ind) { ctx.fillStyle = "rgba(255,255,255,0.6)"; ctx.fillRect(sx + 2 + i * 3, sy + 2, 0.5, 0.5); }
   }
   if (e.id === inspectedId) {
     ctx.strokeStyle = "#ffd23f";
@@ -1130,29 +1117,25 @@ function critterState(e, ind) {
 
 function drawIndividual(g, ind, c, dt, time, scale = 1) {
   const def = VARIANTS[ind.k];
-  const blinking = ((time * 1000 + ind.seed * 37) % 3800) < 140;
-  const spr = spriteFor(ind, blinking);
+  const spr = spriteFor(ind);
   const D = bodySize(ind.k, ind);
-  const SW = uW(spr), SH = uH(spr);
   const moving = c.vx || c.vy;
   let hop = moving ? Math.abs(Math.sin(time * 8 + c.phase)) * 2 : Math.abs(Math.sin(time * 2 + c.phase)) * 0.6;
   let sx = 1, sy = 1, jx = 0;
-  if (!moving) { const breath = Math.sin(time * 2.2 + c.phase) * 0.03; sx = 1 + breath; sy = 1 - breath; }
-  if (moving) { const sq = Math.abs(Math.sin(time * 8 + c.phase)); sy = 0.94 + sq * 0.08; sx = 1.06 - sq * 0.06; }
-  if (def.move === "float") { hop = 4 + Math.sin(time * 2 + c.phase) * 1.5; sx = sy = 1; }
+  if (def.move === "float") hop = 4 + Math.sin(time * 2 + c.phase) * 1.5;
   if (def.move === "squash") { const s = Math.sin(time * 6 + c.phase) * 0.15; sx = 1 + s; sy = 1 - s; }
-  if (def.move === "jitter") jx = Math.random() < 0.3 ? (Math.random() < 0.5 ? -0.5 : 0.5) : 0;
+  if (def.move === "jitter") jx = Math.random() < 0.3 ? (Math.random() < 0.5 ? -1 : 1) : 0;
   if (def.move === "glitch" && Math.random() < 0.08) jx = Math.random() < 0.5 ? -2 : 2;
-  const w = SW * sx * scale, h = SH * sy * scale;
+  const w = spr.width * sx * scale, h = spr.height * sy * scale;
   const baseY = c.y - (SPR_PAD_T + D) * scale;
-  const dx = Math.round((c.x - w / 2 + jx * scale) * 2) / 2, dy = Math.round((c.y - (SH - SPR_PAD_B) * sy * scale - hop * scale) * 2) / 2;
+  const dx = Math.round(c.x - w / 2 + jx * scale), dy = Math.round(c.y - (spr.height - SPR_PAD_B) * sy * scale - hop * scale);
   g.fillStyle = "rgba(0,0,0,0.25)";
-  const shW = Math.max(2, (D - (def.move === "float" ? 4 : 2)) * scale) * (1 - hop * 0.04);
-  g.beginPath(); g.ellipse(c.x, c.y - scale * 0.5, shW / 2, scale, 0, 0, Math.PI * 2); g.fill();
-  g.drawImage(spr, dx, dy, w, h);
+  const shW = Math.max(2, (D - (def.move === "float" ? 4 : 2)) * scale);
+  g.fillRect(Math.round(c.x - shW / 2), Math.round(c.y - scale), Math.round(shW), 2 * scale);
+  g.drawImage(spr, dx, dy, Math.round(w), Math.round(h));
   if (def.move === "glitch" && Math.random() < 0.06) {
     g.globalAlpha = 0.5;
-    g.drawImage(spr, 0, 4 * ART, spr.width, 3 * ART, dx + 3 * scale, dy + 4 * scale, SW * scale, 3 * scale);
+    g.drawImage(spr, 0, 4, spr.width, 3, dx + 3 * scale, dy + 4 * scale, spr.width * scale, 3 * scale);
     g.globalAlpha = 1;
   }
   if (ind.shiny) {
@@ -1160,11 +1143,11 @@ function drawIndividual(g, ind, c, dt, time, scale = 1) {
     if (f < 2) {
       const px = dx + ((ind.seed >> (f * 3)) % Math.max(1, D)) * scale + 2 * scale, py = dy + (SPR_PAD_T - 2 + ((ind.seed >> 5) % 6)) * scale;
       g.fillStyle = "#fff";
-      g.fillRect(px, py - scale, scale * 0.5, 2 * scale);
-      g.fillRect(px - scale * 0.75, py - scale * 0.25, 2 * scale, scale * 0.5);
+      g.fillRect(px, py - scale, scale, 3 * scale);
+      g.fillRect(px - scale, py, 3 * scale, scale);
     }
   }
-  if (levelOf(ind) >= 10) blit(g, CROWN_SPR, Math.round((c.x - 2.5 * scale) * 2) / 2, dy + (SPR_PAD_T - 4) * sy * scale, 5 * scale, 3.5 * scale);
+  if (levelOf(ind) >= 10) g.drawImage(CROWN_SPR, Math.round(c.x - 2.5 * scale), Math.round(dy + (SPR_PAD_T - 4) * sy * scale), 5 * scale, 3 * scale);
   c.hx = c.x - D * scale / 2; c.hy = baseY - hop * scale; c.hw = D * scale; c.hh = D * scale;
 }
 
@@ -1173,7 +1156,7 @@ function drawCritters(e, dt, time) {
     if ((activeEvent && activeEvent.ind === ind) || escapes.has(ind.id)) continue;
     const c = critterState(e, ind);
     const def = VARIANTS[ind.k];
-    const speed = 16 * TRAITS[ind.trait].move * (def.move === "zoom" ? 2.5 : 1) * (isOpen() ? 1 : 0.35);
+    const speed = 16 * TRAITS[ind.trait].move * (def.move === "zoom" ? 2.5 : 1);
     c.timer -= dt;
     if (c.timer <= 0) {
       c.timer = 1 + Math.random() * 2;
@@ -1185,8 +1168,7 @@ function drawCritters(e, dt, time) {
     c.y = Math.max(c.minY, Math.min(c.maxY, c.y + c.vy * dt));
     drawIndividual(ctx, ind, c, dt, time);
     if (c.bubble) { c.bubble.t -= dt; if (c.bubble.t <= 0) c.bubble = null; }
-    let icon = c.bubble ? c.bubble.icon : careActive() && ind.food < 30 && Math.floor(time / 2 + c.phase) % 3 === 0 ? "food" : null;
-    if (!icon && !isOpen() && darkness() > 0.3 && Math.floor(time / 3 + c.phase) % 4 === 0) icon = "sleep";
+    const icon = c.bubble ? c.bubble.icon : careActive() && ind.food < 30 && Math.floor(time / 2 + c.phase) % 3 === 0 ? "food" : null;
     if (icon) drawBubble(icon, c.x, c.hy - 1);
   }
 }
@@ -1197,22 +1179,14 @@ function drawObject(o, time) {
     ctx.fillStyle = "rgba(255,233,138,0.12)";
     ctx.beginPath(); ctx.arc(px + 8, py - 1, 10 + Math.sin(time * 3) * 0.6, 0, Math.PI * 2); ctx.fill();
   }
-  blit(ctx, OBJ_SPRITES[o.t], px, py - 4);
-  if (OBJECTS[o.t].kind === "stand" && state.settings.effects) {
-    // fluttering awning edge
-    ctx.fillStyle = "rgba(255,255,255,0.35)";
-    const f = Math.floor(time * 4 + o.id) % 4;
-    ctx.fillRect(px + 1 + f * 4, py - 4 + 5.5, 2, 0.5);
-  }
+  ctx.drawImage(OBJ_SPRITES[o.t], px, py - 4);
   if (o.t === "fountain") {
     ctx.fillStyle = "#bfe6ff";
-    for (let i = 0; i < 8; i++) {
-      const t = (time * 1.5 + i / 8) % 1;
+    for (let i = 0; i < 4; i++) {
+      const t = (time * 1.5 + i / 4) % 1;
       const side = i % 2 ? 1 : -1;
-      ctx.fillRect(px + 8 + side * t * 5, py - 3 + t * 9 - Math.sin(t * Math.PI) * 4, 0.75, 0.75);
+      ctx.fillRect(Math.round(px + 8 + side * t * 5), Math.round(py - 3 + t * 9 - Math.sin(t * Math.PI) * 4), 1, 1);
     }
-    ctx.fillStyle = "rgba(255,255,255,0.5)";
-    ctx.fillRect(px + 4 + ((time * 6) % 8), py + 9.5, 1.5, 0.5);
   }
 }
 
@@ -1233,7 +1207,7 @@ function drawTug(time) {
   actors.forEach((a, i) => {
     const lean = Math.round(Math.sin(time * 7 + (i ? Math.PI : 0)));
     ctx.fillStyle = "rgba(0,0,0,0.25)"; ctx.fillRect(a.x, a.y + 13, 8, 2);
-    blit(ctx, a.spr, a.x + lean, a.y);
+    ctx.drawImage(a.spr, a.x + lean, a.y);
   });
   const bw = encSize(e) * TILE;
   ctx.fillStyle = "#000"; ctx.fillRect(e.x * TILE, e.y * TILE - 12, bw, 5);
@@ -1245,37 +1219,35 @@ function drawHover() {
   if (!hover || !inBounds(hover.x, hover.y)) return;
   let x = hover.x, y = hover.y, w = 1, h = 1, ok = true;
   const objType = tool.startsWith("obj:") ? tool.slice(4) : null;
-  if (!isOwned(x, y)) {
+  if (!isOwned(x, y) && tool !== "inspect") {
     const k = plotOf(x, y);
     if (!k) return;
-    const pi = PLOT_KEYS.indexOf(k);
-    ctx.fillStyle = plotForSale(k) ? "rgba(255,210,63,0.16)" : "rgba(0,0,0,0.18)";
-    const vx0 = Math.max(0, Math.floor(view.x / TILE)), vy0 = Math.max(0, Math.floor(view.y / TILE));
-    const vx1 = Math.min(COLS - 1, Math.ceil((view.x + viewW()) / TILE)), vy1 = Math.min(ROWS - 1, Math.ceil((view.y + viewH()) / TILE));
-    for (let ty = vy0; ty <= vy1; ty++) for (let tx = vx0; tx <= vx1; tx++) if (PLOT_MAP[ty * COLS + tx] === pi) ctx.fillRect(tx * TILE, ty * TILE, TILE, TILE);
+    const p = PLOTS[k];
+    ctx.fillStyle = plotForSale(k) ? "rgba(255,210,63,0.18)" : "rgba(0,0,0,0.25)";
+    ctx.fillRect(p.x0 * TILE, p.y0 * TILE, (p.x1 - p.x0 + 1) * TILE, (p.y1 - p.y0 + 1) * TILE);
     return;
   }
   if (tool === "enclosure") {
     const n = ENC_TYPES[encChoice.size].size;
     x -= encOffset(n); y -= encOffset(n); w = h = n;
-    ok = canPlaceEnclosure(x, y) && state.money >= enclosureCost() && state.enclosures.length < maxEnclosures() && !isOpen();
-    ctx.globalAlpha = 0.55; blit(ctx, makeEncGround(n, encChoice.theme), x * TILE, y * TILE); ctx.globalAlpha = 1;
+    ok = canPlaceEnclosure(x, y) && state.money >= enclosureCost() && state.enclosures.length < maxEnclosures();
+    ctx.globalAlpha = 0.55; ctx.drawImage(makeEncGround(n, encChoice.theme), x * TILE, y * TILE); ctx.globalAlpha = 1;
   } else if (objType) {
-    ok = canPlaceObject(x, y) && state.money >= objectCost(objType) && !isOpen();
-    ctx.globalAlpha = 0.6; blit(ctx, OBJ_SPRITES[objType], x * TILE, y * TILE - 4); ctx.globalAlpha = 1;
+    ok = canPlaceObject(x, y) && state.money >= objectCost(objType);
+    ctx.globalAlpha = 0.6; ctx.drawImage(OBJ_SPRITES[objType], x * TILE, y * TILE - 4); ctx.globalAlpha = 1;
   } else if (tool === "path") {
-    ok = state.tiles[idx(x, y)] !== pathChoice && !encAt(x, y) && !objAt(x, y) && state.money >= PATH_TYPES[pathChoice].cost && !isOpen();
-    if (ok) { ctx.globalAlpha = 0.6; blit(ctx, pathTiles[pathChoice], x * TILE, y * TILE); ctx.globalAlpha = 1; }
+    ok = state.tiles[idx(x, y)] !== pathChoice && !encAt(x, y) && !objAt(x, y) && state.money >= PATH_TYPES[pathChoice].cost;
+    if (ok) { ctx.globalAlpha = 0.6; ctx.drawImage(pathTiles[pathChoice], x * TILE, y * TILE); ctx.globalAlpha = 1; }
   } else if (tool === "bulldoze") {
     const id = encAt(x, y);
     if (id) { const e = getEnc(id); x = e.x; y = e.y; w = h = encSize(e); }
-    ok = (!!id || !!objAt(x, y) || (isPath(x, y) && !(x === GATE.x && y === GATE.y))) && !isOpen();
+    ok = !!id || !!objAt(x, y) || (isPath(x, y) && !(x === GATE.x && y === GATE.y));
   } else if (tool === "place" || tool === "inspect") {
     const id = encAt(x, y);
     if (!id) return;
     const e = getEnc(id);
     x = e.x; y = e.y; w = h = encSize(e);
-    ok = tool === "inspect" || (e.variants.length < capOf(e) && !isOpen());
+    ok = tool === "inspect" || e.variants.length < capOf(e);
   }
   ctx.fillStyle = ok ? "rgba(255,255,255,0.18)" : "rgba(255,60,90,0.35)";
   ctx.fillRect(x * TILE, y * TILE, w * TILE, h * TILE);
@@ -1284,95 +1256,59 @@ function drawHover() {
   ctx.strokeRect(x * TILE + 0.5, y * TILE + 0.5, w * TILE - 1, h * TILE - 1);
 }
 
-function drawVisitor(v) {
-  const fx_ = v.tx + (v.nx - v.tx) * v.prog;
-  const fy_ = v.ty + (v.ny - v.ty) * v.prog;
-  const walking = v.prog < 1 && !v.leaving;
-  const frame = walking ? (Math.floor(v.phase) % 2 ? 1 : 2) : 0;
-  const vx = fx_ * TILE + 4.5 + v.off, vy = fy_ * TILE + 3 + v.off * 0.5;
-  ctx.globalAlpha = Math.max(0, v.alpha);
-  ctx.fillStyle = "rgba(0,0,0,0.25)";
-  ctx.beginPath(); ctx.ellipse(vx + 3.5, vy + 11.5, 3, 1, 0, 0, Math.PI * 2); ctx.fill();
-  if (v.look.balloon) {
-    const bx = vx + 6.5 + Math.sin(v.phase * 0.3) * 0.6, by = vy - 6;
-    ctx.fillStyle = "rgba(255,255,255,0.7)"; ctx.fillRect(vx + 6.5, by + 3, 0.5, 9);
-    ctx.fillStyle = "#000"; ctx.fillRect(bx - 2, by - 2.5, 4, 5);
-    ctx.fillStyle = v.look.balloon; ctx.fillRect(bx - 1.5, by - 2, 3, 4);
-    ctx.fillStyle = "rgba(255,255,255,0.7)"; ctx.fillRect(bx - 1, by - 1.5, 0.5, 1);
-  }
-  blit(ctx, v.frames[frame], Math.round(vx * 2) / 2, Math.round(vy * 2) / 2);
-  if (v.bubble) drawBubble(v.bubble.icon, vx + 3.5, vy - 1);
-  ctx.globalAlpha = 1;
-}
-
 function render(dt, time) {
-  const k = view.zoom * view.dpr;
-  const s = Math.max(1, Math.round(k / ART)), b = k / s;   // screen px per art px, buffer px per unit
-  const bw = Math.ceil(canvas.width / s), bh = Math.ceil(canvas.height / s);
-  if (pixBuf.width !== bw || pixBuf.height !== bh) { pixBuf.width = bw; pixBuf.height = bh; }
-  const ox = Math.round(view.x * b), oy = Math.round(view.y * b);
-  ctx = pixCtx;
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
   ctx.imageSmoothingEnabled = false;
-  ctx.fillStyle = "#1c3a1a";
-  ctx.fillRect(0, 0, bw, bh);
-  ctx.setTransform(b, 0, 0, b, -ox, -oy);
-  ctx.imageSmoothingEnabled = b < ART - 0.01;
-  if (terrainDirty) buildTerrain();
-  if (treesDirty) buildTrees();
+  ctx.drawImage(borderLayer, 0, 0);
+  ctx.setTransform(SCALE, 0, 0, SCALE, MARGIN * SCALE, MARGIN * SCALE);
 
-  const x0 = view.x, y0 = view.y, x1 = view.x + viewW(), y1 = view.y + viewH();
-  // terrain: copy only the visible part of the big pre-rendered layer
-  const sx = Math.max(0, Math.floor(x0)), sy = Math.max(0, Math.floor(y0));
-  const ex = Math.min(WORLD_W, Math.ceil(x1) + 1), ey = Math.min(WORLD_H, Math.ceil(y1) + 1);
-  if (ex > sx && ey > sy) ctx.drawImage(terrainLayer, sx * ART, sy * ART, (ex - sx) * ART, (ey - sy) * ART, sx, sy, ex - sx, ey - sy);
-
-  const tx0 = Math.max(0, Math.floor(x0 / TILE) - 1), ty0 = Math.max(0, Math.floor(y0 / TILE) - 1);
-  const tx1 = Math.min(COLS - 1, Math.ceil(x1 / TILE) + 1), ty1 = Math.min(ROWS - 1, Math.ceil(y1 / TILE) + 2);
-  for (let y = ty0; y <= ty1; y++) for (let x = Math.max(tx0, OX); x <= tx1; x++) if (isPath(x, y)) drawPathTile(x, y);
+  for (let y = 0; y < ROWS; y++)
+    for (let x = 0; x < COLS; x++) {
+      if (isPath(x, y)) drawPathTile(x, y);
+      else {
+        ctx.drawImage(grassTiles[(x * 7 + y * 13 + x * y) % 4], x * TILE, y * TILE);
+        if (!encAt(x, y) && !objAt(x, y)) drawGrassDecor(x, y);
+      }
+    }
 
   drawTrash();
-  drawTrees(time, x0, y0, x1, y1);
-  for (const k2 of PLOT_KEYS) if (plotForSale(k2)) drawSaleSign(k2, time);
-  const visibleEnc = state.enclosures.filter(e => (e.x + encSize(e)) * TILE >= x0 - 8 && e.x * TILE <= x1 + 8 && (e.y + encSize(e)) * TILE >= y0 - 8 && e.y * TILE <= y1 + 16);
-  for (const e of visibleEnc) drawEnclosure(e, time);
-  for (const e of visibleEnc) {
+  ctx.drawImage(getForestLayer(), 0, -FOREST_PAD);
+  for (const e of state.enclosures) drawEnclosure(e);
+  for (const e of state.enclosures) {
     if (isLost(e)) drawLostOverlay(e, time);
     else drawCritters(e, dt, time);
   }
-  for (const o of state.objects.slice().sort((a, b) => a.y - b.y)) if (o.x * TILE >= x0 - 20 && o.x * TILE <= x1 + 4 && o.y * TILE >= y0 - 8 && o.y * TILE <= y1 + 24) drawObject(o, time);
-  drawCars(x0, y0, x1, y1);
+  for (const o of state.objects.slice().sort((a, b) => a.y - b.y)) drawObject(o, time);
   for (const w of staffWalkers) drawWalkerSprite(w);
   drawEscapes(time);
 
   const sorted = visitors.slice().sort((a, b) => (a.ty + (a.ny - a.ty) * a.prog) - (b.ty + (b.ny - b.ty) * b.prog));
-  for (const v of sorted) drawVisitor(v);
-
-  drawGate(time);
-  if (activeEvent && activeEvent.type === "tug") drawTug(time);
-
-  if (state.settings.effects) {
-    ctx.globalAlpha = 0.08;
-    for (const c of clouds) {
-      const cx = ((c.x + time * c.speed) % (WORLD_W + 140)) - 70;
-      if (cx > x1 || cx + 64 < x0 || c.y > y1 || c.y + 28 < y0) continue;
-      blit(ctx, cloudShadow, Math.round(cx), Math.round(c.y));
-    }
+  for (const v of sorted) {
+    const fx_ = v.tx + (v.nx - v.tx) * v.prog;
+    const fy_ = v.ty + (v.ny - v.ty) * v.prog;
+    const bob = v.prog < 1 ? Math.round(Math.abs(Math.sin(v.phase))) : 0;
+    const vx = Math.round(fx_ * TILE + 5 + v.off), vy = Math.round(fy_ * TILE + 3 + v.off * 0.5);
+    ctx.globalAlpha = Math.max(0, v.alpha);
+    ctx.fillStyle = "rgba(0,0,0,0.25)";
+    ctx.fillRect(vx, vy + 9, 6, 2);
+    ctx.drawImage(v.sprite, vx, vy - bob);
+    if (v.bubble) drawBubble(v.bubble.icon, vx + 3, vy - bob - 1);
     ctx.globalAlpha = 1;
   }
+
+  drawGate();
+  if (activeEvent && activeEvent.type === "tug") drawTug(time);
+
+  const spanW = COLS * TILE + 80;
+  ctx.globalAlpha = 0.08;
+  if (state.settings.effects) for (const c of clouds) ctx.drawImage(cloudShadow, Math.round(((c.x + time * c.speed) % spanW) - 70), c.y);
+  ctx.globalAlpha = 1;
   drawSky(time);
-  drawAmbient(time);
 
   drawHover();
 
   for (const p of particles) { ctx.fillStyle = p.col; ctx.fillRect(Math.round(p.x), Math.round(p.y), 1, 1); }
 
-  // scale the pixel buffer up to the screen, then draw floating text crisply on top
-  ctx = screenCtx;
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(pixBuf, 0, 0, bw * s, bh * s);
-  ctx.setTransform(k, 0, 0, k, -ox * s, -oy * s);
   ctx.font = "8px 'VT323', monospace";
   ctx.textAlign = "center";
   for (const f of floaters) {
@@ -1384,17 +1320,6 @@ function render(dt, time) {
     ctx.fillText(f.text, f.x, y);
     ctx.globalAlpha = 1;
   }
-}
-
-function drawSaleSign(k, time) {
-  const [tx, ty] = PLOTS[k].sign;
-  const x = tx * TILE + 4, y = ty * TILE - 2 + Math.sin(time * 2 + tx) * 0.5;
-  ctx.fillStyle = "#2a1a0c"; ctx.fillRect(x + 7, y + 8, 1.5, 9);
-  ctx.fillStyle = "#000"; ctx.fillRect(x - 6, y, 28, 10);
-  ctx.fillStyle = "#ffd23f"; ctx.fillRect(x - 5.5, y + 0.5, 27, 9);
-  ctx.fillStyle = "#fff09a"; ctx.fillRect(x - 5.5, y + 0.5, 27, 0.5);
-  ctx.fillStyle = "#2b1d00"; ctx.font = "7px 'VT323', monospace"; ctx.textAlign = "center";
-  ctx.fillText("FOR SALE", x + 8, y + 7, 25);
 }
 
 // ================= Hatch / fusion animation =================
@@ -1495,7 +1420,7 @@ function drawFx(time) {
     const bounce = k < 1 ? 1 + Math.sin(k * Math.PI) * 0.35 : 1;
     const s = 4 * bounce * Math.max(0.2, k);
     const spr = spriteFor(fx.ind);
-    const w = uW(spr) * s, h = uH(spr) * s;
+    const w = spr.width * s, h = spr.height * s;
     g.drawImage(spr, Math.round(80 - w / 2), Math.round(62 - h / 2 + Math.sin(time * 3) * 2), Math.round(w), Math.round(h));
     if (fx.ind.shiny && Math.floor(time * 4) % 2) {
       g.fillStyle = "#fff";
@@ -1527,7 +1452,7 @@ function drawFx(time) {
     [[fx.a, 30], [fx.b, 130]].forEach(([ind, startX]) => {
       const spr = spriteFor(ind);
       const x = startX + (80 - startX) * ease;
-      const w = uW(spr) * 3 * Math.abs(spin), h = uH(spr) * 3;
+      const w = spr.width * 3 * Math.abs(spin), h = spr.height * 3;
       g.drawImage(spr, Math.round(x - w / 2), Math.round(62 - h / 2 + Math.sin(fx.t * 8 + startX) * 4), Math.max(1, Math.round(w)), h);
     });
     g.fillStyle = `rgba(255,255,255,${k * 0.5})`;
@@ -1623,9 +1548,9 @@ function drawCard(dt, time) {
   g.fillStyle = "#000";
   g.fillRect(0, 0, 100, 2); g.fillRect(0, 98, 100, 2); g.fillRect(0, 0, 2, 100); g.fillRect(98, 0, 2, 100);
   const spr = spriteFor(f.ind);
-  const scale = Math.max(2, Math.min(5, Math.floor(84 / uH(spr))));
+  const scale = Math.max(2, Math.min(5, Math.floor(84 / spr.height)));
   cardCritter.phase = 0;
-  cardCritter.y = Math.round(52 + (uH(spr) - SPR_PAD_B - SPR_PAD_T / 2) * scale / 2);
+  cardCritter.y = Math.round(52 + (spr.height - SPR_PAD_B - SPR_PAD_T / 2) * scale / 2);
   cardCritter.vx = Math.sin(time * 0.7) > 0.6 ? 1 : 0;
   drawIndividual(g, f.ind, cardCritter, dt, time, scale);
   for (const p of cardParts) {
@@ -1752,7 +1677,7 @@ function renderInventory() {
     return;
   }
   for (const ind of state.inventory) {
-    const b = invSlot(ind, { onClick: () => { if (buildLocked()) return; selectedUid = ind.id; setTool("place"); } });
+    const b = invSlot(ind, { onClick: () => { selectedUid = ind.id; setTool("place"); } });
     if (ind.id === selectedUid && tool === "place") b.classList.add("selected");
     box.appendChild(b);
   }
@@ -1775,7 +1700,7 @@ function renderShop() {
       const small = el("small", "", "");
       b.appendChild(small);
       b.title = def.kind === "stand" ? `Sells for ${def.price} coins. Appeal +${def.appeal}` : `Appeal +${def.appeal}`;
-      b.addEventListener("click", () => { if (tool !== "obj:" + t && buildLocked()) return; setTool(tool === "obj:" + t ? "inspect" : "obj:" + t); });
+      b.addEventListener("click", () => setTool(tool === "obj:" + t ? "inspect" : "obj:" + t));
       shopButtons[t] = { b, small };
       box.appendChild(b);
     }
@@ -2056,8 +1981,7 @@ function renderUI(full) {
   const stars = starRating();
   if (stars !== lastStars) { lastStars = stars; renderStars(); }
   const placed = state.enclosures.reduce((s, e) => s + e.variants.length, 0);
-  $("park-info").textContent = `${state.enclosures.length} pens · ${placed} variants · ${visitors.filter(v => !v.leaving).length}/${maxGuests()} guests`;
-  renderHours();
+  $("park-info").textContent = `${state.enclosures.length} pens · ${placed} variants · ${state.objects.length} objects`;
   $("cost-path").textContent = PATH_TYPES[pathChoice].cost + "c";
   renderWorldInfo();
   $("cost-enclosure").textContent = state.enclosures.length >= maxEnclosures() ? `max ${maxEnclosures()}` : `${fmt(enclosureCost())}c · ${state.enclosures.length}/${maxEnclosures()}`;
@@ -2074,8 +1998,7 @@ function renderUI(full) {
   }
   if (activeTab === "goals" && !full) renderGoals();
   if (!full) return;
-  if (activeTab === "park") { renderShop(); renderInventory(); renderInspect(); renderBuildOptions(); renderEggs(); renderRequest(); renderStaff(); renderLand(); renderParking(); }
-  if (activeTab === "save") renderNotes($("notes-card"), 1);
+  if (activeTab === "park") { renderShop(); renderInventory(); renderInspect(); renderBuildOptions(); renderEggs(); renderRequest(); renderStaff(); renderLand(); }
   if (activeTab === "lab") renderLab();
   if (activeTab === "index") renderIndex();
   if (activeTab === "goals") { renderGoals(); renderAchievements(); renderLevelInfo(); renderPrestige(); }
@@ -2083,7 +2006,7 @@ function renderUI(full) {
 }
 
 function applyLocks() {
-  markWorldDirty();
+  forestDirty = true;
   if (!isUnlocked("size:" + encChoice.size)) encChoice.size = "small";
   if (!isUnlocked("theme:" + encChoice.theme)) encChoice.theme = "meadow";
   if (!isUnlocked("path:" + pathChoice)) pathChoice = 1;
@@ -2120,48 +2043,7 @@ function renderLevelInfo() {
   box.appendChild(ul);
 }
 
-let lastHoursOpen = null;
-function renderHours() {
-  const open = isOpen();
-  const secs = Math.ceil(secondsUntilChange()), mm = Math.floor(secs / 60), ss = String(secs % 60).padStart(2, "0");
-  $("hours-bar").classList.toggle("night", !open);
-  $("hours-text").textContent = open
-    ? `OPEN · ${clockText()} · closes at 10 PM (${mm}:${ss})`
-    : `CLOSED · ${clockText()} · night build mode · opens at 8 AM (${mm}:${ss})`;
-  if (lastHoursOpen !== open) {
-    lastHoursOpen = open;
-    $("hours-btn").textContent = open ? "Close early" : "Open park now";
-    $("build-lock").hidden = !open;
-    document.querySelectorAll(".tool").forEach(b => b.classList.toggle("locked", open && b.dataset.tool !== "inspect"));
-    if (activeTab === "park") renderUI(true);
-  }
-  document.querySelectorAll(".shop-item").forEach(b => b.classList.toggle("locked", open));
-}
-
-function renderNotes(box, limit = PATCH_NOTES.length) {
-  box.innerHTML = "";
-  for (const n of PATCH_NOTES.slice(0, limit)) {
-    const d = el("div", "note-version");
-    d.appendChild(el("h4", "", `v${n.version} · ${n.title}`));
-    const ul = el("ul");
-    for (const line of n.notes) ul.appendChild(el("li", "", line));
-    d.appendChild(ul);
-    box.appendChild(d);
-  }
-  if (limit < PATCH_NOTES.length) {
-    const b = el("button", "wide", "Read all patch notes");
-    b.addEventListener("click", showPatchNotes);
-    box.appendChild(b);
-  }
-}
-function showPatchNotes() {
-  renderNotes($("notes"));
-  const d = $("notes-dialog");
-  if (!d.open) d.showModal();
-}
-
 function renderSettings() {
-  $("set-muted").checked = !!state.settings.muted;
   $("set-sound").checked = state.settings.sound;
   $("set-coin").checked = state.settings.coinSound;
   $("set-music").checked = state.settings.music;
@@ -2170,9 +2052,8 @@ function renderSettings() {
   $("set-effects").checked = state.settings.effects;
   $("set-shake").checked = state.settings.shake;
   const btn = $("sound-toggle");
-  btn.classList.toggle("muted", !!state.settings.muted);
-  btn.title = state.settings.muted ? "Unmute" : "Mute everything";
-  btn.querySelector(".ico").style.backgroundImage = `url(${iconURL(state.settings.muted ? "mute" : "sound")})`;
+  btn.classList.toggle("muted", !state.settings.sound);
+  btn.querySelector(".ico").style.backgroundImage = `url(${iconURL(state.settings.sound ? "sound" : "mute")})`;
 }
 
 // ================= Input =================
@@ -2206,92 +2087,39 @@ function handleTileAction(x, y, isDrag) {
   }
 }
 
-// Pointer controls: left click acts, left-drag pans (or paints paths / bulldozes),
-// right or middle drag pans, two fingers pinch-zoom and pan.
-function clickAction(p) {
+canvas.addEventListener("pointerdown", e => {
+  const p = worldFromEvent(e);
+  startMusic();
   if (activeEvent && activeEvent.type === "tug" && tugHit(p)) { tugClick(p); return; }
   if (catchEscapeAt(p.gx, p.gy)) return;
   const ti = trashNear(p.gx, p.gy);
   if (ti >= 0 && (tool === "inspect" || tool === "bulldoze")) { cleanTrash(ti); sfx("click"); return; }
-  if (inBounds(p.x, p.y) && p.x >= OX && !isOwned(p.x, p.y)) {
+  if (inBounds(p.x, p.y) && !isOwned(p.x, p.y)) {
     const k = plotOf(p.x, p.y);
-    if (k && plotForSale(k)) {
-      if (isOpen()) hintOnce(`${PLOTS[k].label} is for sale. Land can be bought at night while the park is closed.`);
-      else ask({ title: "BUY LAND", text: `Buy ${PLOTS[k].label} for ${fmt(PLOTS[k].cost)} coins?`, ok: "Buy" }).then(yes => { if (yes) buyPlot(k); });
-    } else hintOnce("This land isn't for sale yet. Keep levelling up your park!");
+    if (k && plotForSale(k)) ask({ title: "BUY LAND", text: `Buy ${PLOTS[k].label} for ${fmt(PLOTS[k].cost)} coins?`, ok: "Buy" }).then(yes => { if (yes) buyPlot(k); });
+    else hintOnce("This land isn't for sale yet. Keep levelling up your park!");
     return;
   }
   if (tool === "inspect") {
     const uid = critterAt(p.gx, p.gy);
     if (uid) { openCard(uid); return; }
   }
-  handleTileAction(p.x, p.y, false);
-}
-
-const pointers = new Map();
-let drag = null;     // { mode: "pending" | "pan" | "paint", sx, sy, vx, vy }
-let pinch = null;
-const PAINT_TOOLS = ["path", "bulldoze"];
-canvas.addEventListener("contextmenu", e => e.preventDefault());
-canvas.addEventListener("pointerdown", e => {
-  startMusic();
+  painting = true;
   canvas.setPointerCapture(e.pointerId);
-  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-  if (pointers.size === 2) {
-    const [a, b] = [...pointers.values()];
-    pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), zoom: view.zoom, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2, vx: view.x, vy: view.y };
-    drag = null; painting = false;
-    return;
-  }
-  const p = worldFromEvent(e);
-  if (e.button === 1 || e.button === 2) { drag = { mode: "pan", sx: e.clientX, sy: e.clientY, vx: view.x, vy: view.y }; return; }
-  if (PAINT_TOOLS.includes(tool) && isOwned(p.x, p.y)) {
-    drag = { mode: "paint" };
-    painting = true;
-    clickAction(p);
-    return;
-  }
-  drag = { mode: "pending", sx: e.clientX, sy: e.clientY, vx: view.x, vy: view.y };
+  handleTileAction(p.x, p.y, false);
 });
 canvas.addEventListener("pointermove", e => {
-  if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-  if (pinch && pointers.size >= 2) {
-    const [a, b] = [...pointers.values()];
-    const d = Math.hypot(a.x - b.x, a.y - b.y), mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-    const r = canvas.getBoundingClientRect();
-    view.x = pinch.vx - (mx - pinch.mx) / view.zoom; view.y = pinch.vy - (my - pinch.my) / view.zoom;
-    setZoom(pinch.zoom * d / Math.max(1, pinch.d), mx - r.left, my - r.top);
-    return;
-  }
   const p = worldFromEvent(e);
   const moved = !hover || hover.x !== p.x || hover.y !== p.y;
   hover = { x: p.x, y: p.y };
-  if (drag && drag.mode === "pending" && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) > 6) drag.mode = "pan";
-  if (drag && drag.mode === "pan") {
-    view.x = drag.vx - (e.clientX - drag.sx) / view.zoom;
-    view.y = drag.vy - (e.clientY - drag.sy) / view.zoom;
-    clampView();
-    canvas.style.cursor = "grabbing";
-    return;
-  }
   canvas.style.cursor = (tool === "inspect" && critterAt(p.gx, p.gy)) || (activeEvent && activeEvent.type === "tug" && tugHit(p)) ? "pointer" : "crosshair";
   if (painting && moved) handleTileAction(p.x, p.y, true);
 });
-function endPointer(e, cancelled) {
-  pointers.delete(e.pointerId);
-  if (pinch) { if (pointers.size < 2) pinch = null; drag = null; return; }
-  if (drag && drag.mode === "pending" && !cancelled) clickAction(worldFromEvent(e));
-  drag = null;
-  painting = false;
-}
-canvas.addEventListener("pointerup", e => endPointer(e, false));
-canvas.addEventListener("pointercancel", e => endPointer(e, true));
+canvas.addEventListener("pointerup", () => { painting = false; });
+canvas.addEventListener("pointercancel", () => { painting = false; });
 canvas.addEventListener("pointerleave", () => { hover = null; });
 
-document.querySelectorAll(".tool").forEach(b => b.addEventListener("click", () => {
-  if (b.dataset.tool !== "inspect" && buildLocked()) return;
-  setTool(b.dataset.tool);
-}));
+document.querySelectorAll(".tool").forEach(b => b.addEventListener("click", () => setTool(b.dataset.tool)));
 document.querySelectorAll(".tab").forEach(b => b.addEventListener("click", () => { sfx("click"); switchTab(b.dataset.tab); }));
 $("hatch").addEventListener("click", () => hatchEgg("regular"));
 $("fuse-btn").addEventListener("click", doFuse);
@@ -2323,20 +2151,7 @@ $("card-release").addEventListener("click", () => {
 });
 $("card-close").addEventListener("click", () => cardDialog.close());
 
-function setMuted(m) {
-  state.settings.muted = m;
-  applyVolumes();
-  if (m) stopMusic(); else startMusic();
-  renderSettings();
-  if (!m) sfx("click");
-}
-$("sound-toggle").addEventListener("click", () => setMuted(!state.settings.muted));
-$("set-muted").addEventListener("change", e => setMuted(e.target.checked));
-$("hours-btn").addEventListener("click", () => { if (isOpen()) closeNow(); else openNow(); });
-$("zoom-in").addEventListener("click", () => zoomStep(1));
-$("zoom-out").addEventListener("click", () => zoomStep(-1));
-$("zoom-home").addEventListener("click", () => homeView());
-$("loader-notes").addEventListener("click", showPatchNotes);
+$("sound-toggle").addEventListener("click", () => { state.settings.sound = !state.settings.sound; renderSettings(); sfx("click"); });
 $("set-sound").addEventListener("change", e => { state.settings.sound = e.target.checked; renderSettings(); });
 $("set-coin").addEventListener("change", e => { state.settings.coinSound = e.target.checked; });
 $("set-music").addEventListener("change", e => { state.settings.music = e.target.checked; if (e.target.checked) startMusic(); else stopMusic(); });

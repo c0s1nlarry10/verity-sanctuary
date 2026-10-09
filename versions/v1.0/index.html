@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Verity Sanctuary</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="loader" class="loader">
+    <div class="loader-stars"></div>
+    <div class="loader-box">
+      <canvas id="loader-verity" width="12" height="12"></canvas>
+      <h1 class="loader-title">VERITY<br>SANCTUARY</h1>
+      <p class="loader-tag">a variant habitat tycoon</p>
+      <div class="loader-bar">
+        <div class="loader-track">
+          <div id="loader-fill" class="loader-fill"></div>
+          <canvas id="loader-roller" class="loader-roller" width="12" height="12"></canvas>
+        </div>
+        <div class="loader-pct"><span id="loader-step">Hatching eggs...</span><span id="loader-num">0%</span></div>
+      </div>
+      <button id="loader-start" class="big loader-start" hidden>▶ ENTER THE SANCTUARY</button>
+      <div class="loader-credits">
+        <p>Created by <b>Liam R</b></p>
+        <p class="small-credit">Kinda helped with the idea: <b>Manny V</b></p>
+      </div>
+    </div>
+  </div>
+  <script>
+    // Draws the loader's Verity faces and fakes early progress until the game scripts finish.
+    (function () {
+      function face(id, size) {
+        var c = document.getElementById(id), g = c.getContext("2d"), r = size / 2;
+        for (var y = 0; y < size; y++) for (var x = 0; x < size; x++) {
+          var d = Math.hypot(x - r + 0.5, y - r + 0.5);
+          if (d > r - 0.2) continue;
+          g.fillStyle = d > r - 1.2 ? "#5a3f00" : (x + y < size * 0.55 ? "#fff09a" : "#ffd23f");
+          g.fillRect(x, y, 1, 1);
+        }
+        var k = size / 12;
+        g.fillStyle = "#2b1d00";
+        [[4,4],[4,5],[7,4],[7,5],[3,7],[4,8],[5,8],[6,8],[7,8],[8,7]].forEach(function (p) { g.fillRect(Math.round(p[0] * k), Math.round(p[1] * k), Math.max(1, Math.round(k)), Math.max(1, Math.round(k))); });
+      }
+      face("loader-verity", 12); face("loader-roller", 12);
+      window.__loader = { pct: 0 };
+      var steps = ["Hatching eggs...", "Polishing fences...", "Teaching Moggity to mog...", "Censoring Boobity...", "Mopping the Backrooms..."];
+      var i = 0;
+      window.__loaderTimer = setInterval(function () {
+        if (!document.getElementById("loader-fill")) return clearInterval(window.__loaderTimer);
+        if (window.__loader.pct < 70) window.__loader.pct += 3;
+        document.getElementById("loader-fill").style.width = window.__loader.pct + "%";
+        document.getElementById("loader-roller").style.left = "calc(" + window.__loader.pct + "% - 14px)";
+        document.getElementById("loader-num").textContent = Math.floor(window.__loader.pct) + "%";
+        if (window.__loader.pct % 15 === 0) document.getElementById("loader-step").textContent = steps[i++ % steps.length];
+      }, 60);
+    })();
+  </script>
+  <header class="topbar">
+    <div class="brand">
+      <i class="ico logo" data-icon="logo"></i>
+      <div>
+        <h1>VERITY SANCTUARY</h1>
+        <p class="tagline">a variant habitat tycoon</p>
+      </div>
+      <div class="lvl-box" title="Park level: earn XP to unlock new items">
+        <span class="lvl-badge" id="park-level">1</span>
+        <div class="lvl-meta">
+          <span class="label">PARK LEVEL</span>
+          <div class="progress xp"><div id="xp-bar" class="progress-fill"></div></div>
+          <span id="xp-text" class="xp-text"></span>
+        </div>
+      </div>
+    </div>
+    <div class="stats">
+      <div class="stat coins"><i class="ico" data-icon="coin"></i><div><span class="label">COINS</span><span id="money" class="value">0</span></div></div>
+      <div class="stat"><i class="ico" data-icon="rate"></i><div><span class="label">PER SEC</span><span id="rate" class="value">0</span></div></div>
+      <div class="stat"><i class="ico" data-icon="visitor"></i><div><span class="label">VISITORS</span><span id="visitors" class="value">0</span></div></div>
+      <div class="stat"><i class="ico" data-icon="heart"></i><div><span class="label">APPEAL</span><span id="appeal" class="value">0</span></div></div>
+      <div class="stat"><i class="ico" data-icon="star"></i><div><span class="label">RATING</span><span id="stars" class="value stars"></span></div></div>
+      <button id="sound-toggle" class="icon-btn" title="Toggle sound"><i class="ico" data-icon="sound"></i></button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="park">
+      <div class="park-frame">
+        <div class="park-title">
+          <span class="world-info"><i class="ico" id="weather-ico" data-icon="sun"></i><span id="clock"></span><span id="weather-label"></span></span>
+          <span id="park-info" class="park-info"></span>
+          <button id="snapshot" class="mini" title="Download a picture of your park"><i class="ico" data-icon="camera"></i></button>
+        </div>
+        <div id="event-bar" class="event-bar" hidden>
+          <span id="event-text"></span>
+          <div class="event-timer"><div id="event-fill"></div></div>
+        </div>
+        <canvas id="game"></canvas>
+      </div>
+      <div class="hint-bar"><i class="ico" data-icon="info"></i><p id="hint" class="hint"></p></div>
+      <div class="card goal-strip">
+        <i class="ico" data-icon="trophy"></i>
+        <div class="goal-text"><span class="label">GOAL</span><span id="goal-strip-text"></span></div>
+        <div class="progress"><div id="goal-strip-bar" class="progress-fill"></div></div>
+      </div>
+    </section>
+
+    <aside class="panel">
+      <nav class="tabs">
+        <button class="tab active" data-tab="park"><i class="ico" data-icon="hammer"></i><span>Park</span></button>
+        <button class="tab" data-tab="lab"><i class="ico" data-icon="flask"></i><span>Lab</span></button>
+        <button class="tab" data-tab="index"><i class="ico" data-icon="book"></i><span>Index</span></button>
+        <button class="tab" data-tab="goals"><i class="ico" data-icon="trophy"></i><span>Goals</span></button>
+        <button class="tab" data-tab="save"><i class="ico" data-icon="disk"></i><span>Save</span></button>
+      </nav>
+
+      <!-- PARK -->
+      <div class="page" data-page="park">
+        <div class="card">
+          <h2><i class="ico" data-icon="hammer"></i>BUILD</h2>
+          <div class="tools tool-grid">
+            <button class="tool active" data-tool="inspect"><i class="ico" data-icon="inspect"></i><span>Inspect</span><small>click a variant</small></button>
+            <button class="tool" data-tool="path"><i class="ico" data-icon="path"></i><span>Path</span><small id="cost-path"></small></button>
+            <button class="tool" data-tool="enclosure"><i class="ico" data-icon="fence"></i><span>Enclosure</span><small id="cost-enclosure"></small></button>
+            <button class="tool" data-tool="bulldoze"><i class="ico" data-icon="shovel"></i><span>Bulldoze</span><small>50% refund</small></button>
+          </div>
+          <div id="build-options" class="build-options" hidden></div>
+        </div>
+
+        <div class="card">
+          <h2><i class="ico" data-icon="shop"></i>SHOPS &amp; DECOR</h2>
+          <h3>Snack stands <span>visitors buy as they pass</span></h3>
+          <div id="shop-stands" class="shop-grid"></div>
+          <h3>Decorations <span>raise park appeal</span></h3>
+          <div id="shop-decor" class="shop-grid"></div>
+          <p id="shop-more" class="small locked-note"></p>
+        </div>
+
+        <div class="card" id="request-card" hidden>
+          <h2><i class="ico" data-icon="scroll"></i>VISITOR REQUEST</h2>
+          <div id="request"></div>
+        </div>
+
+        <div class="card">
+          <h2><i class="ico" data-icon="egg"></i>INCUBATOR <small id="free-eggs"></small></h2>
+          <button id="hatch" class="big"><i class="ico egg-ico" data-icon="egg"></i><span>Hatch Egg<small id="cost-egg"></small></span></button>
+          <p class="small center">Mostly commons · 6% uncommon · 1% shiny</p>
+          <div id="special-eggs" class="special-eggs"></div>
+          <h3>Unplaced variants <span id="inv-count"></span></h3>
+          <div id="inventory" class="inventory"></div>
+        </div>
+
+        <div class="card" id="staff-card" hidden>
+          <h2><i class="ico" data-icon="staff"></i>STAFF <small id="wages"></small></h2>
+          <div id="staff"></div>
+        </div>
+
+        <div class="card" id="land-card" hidden>
+          <h2><i class="ico" data-icon="tree"></i>LAND FOR SALE</h2>
+          <div id="land"></div>
+        </div>
+
+        <div class="card" id="inspect-card" hidden>
+          <h2><i class="ico" data-icon="fence"></i><span id="inspect-title">ENCLOSURE</span></h2>
+          <div id="inspect"></div>
+        </div>
+      </div>
+
+      <!-- LAB -->
+      <div class="page" data-page="lab" hidden>
+        <div class="card">
+          <h2><i class="ico" data-icon="flask"></i>FUSION LAB <small id="lab-level"></small></h2>
+          <div class="fuse-row">
+            <button class="fuse-slot" data-slot="0"></button>
+            <span class="fuse-plus">+</span>
+            <button class="fuse-slot" data-slot="1"></button>
+            <span class="fuse-plus">=</span>
+            <div class="fuse-slot result" id="fuse-result"></div>
+          </div>
+          <div id="fuse-info" class="fuse-info"></div>
+          <button id="fuse-btn" class="big"><i class="ico" data-icon="flask"></i><span>Fuse!<small id="fuse-cost"></small></span></button>
+          <button id="lab-upgrade" class="wide"></button>
+          <h3>Pick from unplaced variants</h3>
+          <div id="lab-inventory" class="inventory"></div>
+        </div>
+        <div class="card">
+          <h2><i class="ico" data-icon="book"></i>RECIPE BOOK <small id="recipe-count"></small></h2>
+          <div id="recipes" class="recipes"></div>
+        </div>
+      </div>
+
+      <!-- INDEX -->
+      <div class="page" data-page="index" hidden>
+        <div class="card">
+          <h2><i class="ico" data-icon="book"></i>VARIANT INDEX <small id="index-count"></small></h2>
+          <div class="progress"><div id="index-bar" class="progress-fill"></div></div>
+          <div id="index-detail" class="index-detail"></div>
+          <div id="index" class="index"></div>
+        </div>
+      </div>
+
+      <!-- GOALS -->
+      <div class="page" data-page="goals" hidden>
+        <div class="card" id="prestige-card" hidden>
+          <h2><i class="ico" data-icon="shard"></i>NEW SANCTUARY <small id="shards"></small></h2>
+          <div id="prestige"></div>
+        </div>
+        <div class="card">
+          <h2><i class="ico" data-icon="star"></i>PARK LEVEL <small id="level-small"></small></h2>
+          <div id="level-info"></div>
+        </div>
+        <div class="card">
+          <h2><i class="ico" data-icon="trophy"></i>CURRENT GOAL <small id="goal-count"></small></h2>
+          <div id="goal"></div>
+        </div>
+        <div class="card">
+          <h2><i class="ico" data-icon="star"></i>ACHIEVEMENTS <small id="ach-count"></small></h2>
+          <p class="small">Each achievement gives +2% income forever.</p>
+          <div id="achievements" class="achievements"></div>
+        </div>
+      </div>
+
+      <!-- SAVE -->
+      <div class="page" data-page="save" hidden>
+        <div class="card">
+          <h2><i class="ico" data-icon="disk"></i>SAVE</h2>
+          <p class="small" id="save-status">Autosaves every 10s.</p>
+          <div class="tools">
+            <button id="save-now">Save now</button>
+            <button id="export">Export</button>
+            <button id="import">Import</button>
+            <button id="reset" class="danger">Reset</button>
+          </div>
+        </div>
+        <div class="card">
+          <h2><i class="ico" data-icon="sound"></i>SETTINGS</h2>
+          <label class="check"><input type="checkbox" id="set-sound"> Sound effects</label>
+          <label class="check"><input type="checkbox" id="set-coin"> Coin sounds</label>
+          <label class="range">Sound volume <input type="range" id="set-sfxvol" min="0" max="1" step="0.05"></label>
+          <label class="check"><input type="checkbox" id="set-music"> Music</label>
+          <label class="range">Music volume <input type="range" id="set-musicvol" min="0" max="1" step="0.05"></label>
+          <label class="check"><input type="checkbox" id="set-effects"> Weather &amp; night effects</label>
+          <label class="check"><input type="checkbox" id="set-shake"> Screen shake on rare hatches</label>
+          <button id="snapshot2" class="wide"><i class="ico" data-icon="camera"></i> Download park snapshot</button>
+        </div>
+        <div class="card">
+          <h2><i class="ico" data-icon="star"></i>CREDITS</h2>
+          <p class="credit-line">Created by <b>Liam R</b></p>
+          <p class="credit-line">Kinda helped with the idea: <b>Manny V</b></p>
+          <p class="small">A fan game inspired by the Verity meme. Not affiliated with its creators.</p>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <div id="toasts" class="toasts"></div>
+
+  <!-- Hatch / fusion animation -->
+  <div id="fx-overlay" class="overlay" hidden>
+    <div class="fx-box">
+      <canvas id="fx-canvas" width="160" height="120"></canvas>
+      <div id="fx-title" class="fx-title"></div>
+      <div id="fx-sub" class="fx-sub"></div>
+      <div class="tools center">
+        <button id="fx-inspect" hidden>Inspect</button>
+        <button id="fx-ok" class="primary">Nice!</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Close-up variant card -->
+  <dialog id="card-dialog" class="card-dialog">
+    <div class="vc">
+      <div class="vc-art">
+        <canvas id="card-canvas" width="96" height="96"></canvas>
+        <div id="card-badges" class="vc-badges"></div>
+      </div>
+      <div class="vc-info">
+        <h2 id="card-name"></h2>
+        <p id="card-species" class="vc-species"></p>
+        <div class="vc-level"><span id="card-level"></span><div class="progress"><div id="card-xp" class="progress-fill"></div></div></div>
+        <div id="card-care"></div>
+        <div id="card-stats" class="vc-stats"></div>
+        <p id="card-ability" class="vc-ability"></p>
+        <p id="card-desc" class="vc-desc"></p>
+      </div>
+    </div>
+    <div class="tools vc-actions">
+      <button id="card-pet" class="primary">Pet</button>
+      <button id="card-feed">Feed (3c)</button>
+      <button id="card-rename">Rename</button>
+      <button id="card-move"></button>
+      <button id="card-release" class="danger"></button>
+      <button id="card-close">Close</button>
+    </div>
+  </dialog>
+
+  <dialog id="ask-dialog" class="ask-dialog">
+    <form method="dialog">
+      <h2 id="ask-title"></h2>
+      <p id="ask-text" class="ask-text"></p>
+      <input id="ask-input" maxlength="16" autocomplete="off" hidden>
+      <div class="tools ask-actions">
+        <button id="ask-ok" value="ok" class="primary">OK</button>
+        <button id="ask-cancel" value="cancel">Cancel</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="snap-dialog" class="snap-dialog">
+    <form method="dialog">
+      <h2>PARK SNAPSHOT</h2>
+      <img id="snap-img" alt="A picture of your park">
+      <p class="small">Right-click (or long-press on a phone) the picture to save or share it.</p>
+      <div class="tools"><button value="close" class="primary">Close</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="save-dialog">
+    <form method="dialog">
+      <h2 id="save-dialog-title">EXPORT SAVE</h2>
+      <p class="small" id="save-dialog-help"></p>
+      <textarea id="save-code" rows="6" spellcheck="false"></textarea>
+      <div class="tools">
+        <button id="save-dialog-ok" value="ok">OK</button>
+        <button value="cancel">Close</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="js/data.js"></script>
+  <script src="js/sprites.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/game.js"></script>
+  <script src="js/systems.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
