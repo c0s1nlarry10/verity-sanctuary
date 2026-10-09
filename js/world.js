@@ -253,6 +253,7 @@ function freeStall() {
 function guestsOnSite() { return visitors.filter(v => !v.leaving).length + walkers.length + cars.reduce((s, c) => s + (c.state === "arrive" ? c.seats : 0), 0); }
 
 function spawnCar(seats) {
+  if (!isOpen()) return false;   // the car park is closed at night
   const stall = freeStall();
   if (!stall) return false;
   const fromNorth = Math.random() < 0.5;
@@ -275,7 +276,21 @@ function carLeave(c) {
   c.stall = null;
 }
 
+// At closing time, cars still heading for the car park give up: those on the road drive on
+// past, those already on the driveway turn around.
+function turnAwayCars() {
+  for (const c of cars) {
+    if (c.state !== "arrive") continue;
+    if (c.path.length >= 3) { c.path = [[c.x, c.dir === 2 ? WORLD_H + 30 : -30]]; c.state = "pass"; }
+    else { const north = Math.random() < 0.5; c.path = [[north ? laneUpX : laneDownX, driveY], [north ? laneUpX : laneDownX, north ? -30 : WORLD_H + 30]]; c.state = "leave"; }
+    c.stall = null;
+  }
+}
+const barrier = { lift: 1 };   // car park barrier: 1 = raised (open), 0 = down (closed)
+
 function updateCars(dt) {
+  if (!isOpen()) turnAwayCars();
+  barrier.lift = Math.max(0, Math.min(1, barrier.lift + (isOpen() ? dt : -dt) * 1.5));
   trafficTimer -= dt;
   if (trafficTimer < 0) { trafficTimer = 5 + Math.random() * 10; if (state.settings.effects !== false) spawnTraffic(); }
   for (const c of cars) {
@@ -316,7 +331,28 @@ function updateCars(dt) {
   walkers = walkers.filter(w => !w.arrived);
 }
 
+// A red-and-white boom barrier across the car park entrance: down at night, up by day.
+function drawBarrier() {
+  const px = 4 * TILE + 1, py = GATE.y * TILE - 4;
+  ctx.fillStyle = "rgba(0,0,0,0.25)"; ctx.fillRect(px - 1, py + 5, 6, 2);
+  ctx.fillStyle = "#000"; ctx.fillRect(px - 0.5, py - 1, 5, 7);
+  ctx.fillStyle = "#c4c4ce"; ctx.fillRect(px, py - 0.5, 4, 6);
+  ctx.fillStyle = "#e8c13a"; ctx.fillRect(px, py - 0.5, 4, 1);
+  // the arm swings from pointing south across the drive (closed) to pointing up (open)
+  const th = barrier.lift * Math.PI, cx = px + 1.5, cy = py + 1.5;
+  for (let i = 1; i <= 20; i++) {
+    ctx.fillStyle = Math.floor(i / 3) % 2 ? "#ffffff" : "#e94f4f";
+    ctx.fillRect(Math.round(cx + Math.sin(th) * i * 0.4), Math.round(cy + Math.cos(th) * i), 1.5, 1.5);
+  }
+  if (!isOpen()) {
+    ctx.fillStyle = "#000"; ctx.fillRect(px + 6, py - 9, 27, 7);
+    ctx.fillStyle = "#e94f4f"; ctx.fillRect(px + 6.5, py - 8.5, 26, 6);
+    pixelText(ctx, "CLOSED", px + 19.5, py - 7.5, "#ffffff");
+  }
+}
+
 function drawCars(x0, y0, x1, y1) {
+  drawBarrier();
   for (const c of cars.slice().sort((a, b) => a.y - b.y)) {
     if (c.x < x0 - 20 || c.x > x1 + 20 || c.y < y0 - 20 || c.y > y1 + 20) continue;
     const spr = CAR_SPRITES[c.set][c.dir];

@@ -845,7 +845,7 @@ function renderLand() {
     g.appendChild(el("b", "", p.label));
     g.appendChild(document.createTextNode(`${p.tiles} tiles of ${BIOME_LABELS[p.biome]}. Look for the FOR SALE sign.`));
     row.appendChild(g);
-    const b = el("button", "primary", `Buy ${fmt(p.cost)}c`);
+    const b = el("button", "primary build-only", `Buy ${fmt(p.cost)}c`);
     b.disabled = state.money < p.cost || isOpen();
     const go = el("button", "", "Show");
     go.addEventListener("click", () => showPlot(k));
@@ -928,15 +928,14 @@ function renderParking() {
   const next = LOT_LEVELS[lvl];
   if (!next) { box.appendChild(el("p", "small", "Your parking lot is fully upgraded.")); return; }
   if (!isUnlocked("lot:" + (lvl + 1))) {
-    const lb = el("button", "wide is-locked", `Upgrade to ${next.spaces} spaces · LV ${lvlNeeded("lot:" + (lvl + 1))}`);
+    const lb = el("button", "wide is-locked build-only", `Upgrade to ${next.spaces} spaces · LV ${lvlNeeded("lot:" + (lvl + 1))}`);
     lb.addEventListener("click", () => lockedClick("lot:" + (lvl + 1), "The next parking upgrade"));
     box.appendChild(lb);
     return;
   }
+  if (dayLocked()) { box.appendChild(el("p", "small", `Next: ${next.spaces} spaces for ${fmt(next.cost)}c. Upgrade at night while the park is closed.`)); return; }
   const b = el("button", "wide primary", `Upgrade to ${next.spaces} spaces (${fmt(next.cost)}c)`);
-  b.disabled = state.money < next.cost || isOpen();
-  b.title = isOpen() ? "Upgrades happen at night while the park is closed." : "";
+  b.disabled = state.money < next.cost;
   b.addEventListener("click", upgradeLot);
   box.appendChild(b);
-  if (isOpen()) box.appendChild(el("p", "small", "Upgrade at night while the park is closed."));
 }

@@ -14,9 +14,9 @@ const PATCH_NOTES = [
         "A redesigned front gate with a ticket booth.",
       ] },
       { title: "Park & building", notes: [
-        "Opening hours: open 8 AM to 10 PM, build at night while closed.",
+        "Opening hours: open 8 AM to 10 PM, build at night while closed. Build tools hide during the day; the Lab works all day.",
         "End-of-day report with profit and everything that levelled up.",
-        "Guests arrive by car. Upgrade the parking lot to fit more.",
+        "Guests arrive by car. Upgrade the parking lot to fit more. The barrier closes at night.",
         "Custom-shaped pens, priced by size.",
         "Seven fence styles, and pens can be remodelled.",
         "Locked items stay visible with the level that unlocks them.",

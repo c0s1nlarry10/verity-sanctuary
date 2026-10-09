@@ -561,6 +561,8 @@ function worldFromEvent(e) {
 }
 
 // Building, bulldozing and moving variants only happen while the park is closed.
+// True while the park is open (unless the admin panel allows building any time). No side effects.
+const dayLocked = () => isOpen() && !(typeof admin !== "undefined" && admin.freeBuild);
 function buildLocked() {
   if (!isOpen() || (typeof admin !== "undefined" && admin.freeBuild)) return false;
   hintOnce("The park is open! Building and moving variants unlock at 10 PM. You can also close early.");
@@ -886,7 +888,7 @@ function doFuse() {
 }
 
 function upgradeLab() {
-  if (!isUnlocked("labUpgrade") || buildLocked()) return;
+  if (!isUnlocked("labUpgrade")) return;
   if (state.labLevel >= LAB_MAX_LEVEL || !spend(labUpgradeCost())) return;
   state.labLevel++;
   sfx("levelup");
@@ -1827,7 +1829,9 @@ function renderCard() {
   if (ind.shiny) addBadge("✦ SHINY", "#fff09a");
   if (lvl >= 10) addBadge("MAX LV", "#7df9ff");
   $("card-move").textContent = e ? "Take out" : "Place in park";
+  $("card-move").hidden = dayLocked();
   $("card-release").textContent = `Release (+${fmt(releaseValue(ind))})`;
+  $("card-release").hidden = !!e && dayLocked();
   const cd = (petCooldown.get(ind.id) || 0) > performance.now();
   $("card-pet").disabled = cd;
   $("card-pet").textContent = cd ? "Happy!" : "Pet";
@@ -2054,12 +2058,11 @@ function renderInspect() {
   }
   box.appendChild(stats);
   if (THEMES[e.theme].likes.length) box.appendChild(el("p", "small", `Loved by: ${THEMES[e.theme].likes.filter(k => state.discovered[k]).map(k => VARIANTS[k].name).join(", ") || "???"} (+50% value)`));
-  // remodel: swap the theme or fence of a pen you've already built (at night)
-  const rm = el("details", "remodel");
+  // remodel: swap the theme or fence of a pen you've already built (at night only)
+  const rm = el("details", "remodel build-only");
   rm.appendChild(el("summary", "", isUnlocked("remodel") ? "Remodel this pen" : `Remodel this pen · LV ${lvlNeeded("remodel")}`));
   if (!isUnlocked("remodel")) { rm.classList.add("is-locked"); rm.appendChild(el("p", "small", `Change a pen's theme and fence. Unlocks at park level ${lvlNeeded("remodel")}.`)); }
   else {
-    if (buildLocked()) rm.appendChild(el("p", "small warn", "Remodelling happens at night while the park is closed."));
     const tchips = el("div", "chips");
     for (const k of Object.keys(THEMES)) {
       const cost = remodelCost(e, k, e.fence || "theme");
@@ -2097,10 +2100,12 @@ function renderInspect() {
     row.appendChild(name);
     const look = el("button", "", "Look");
     look.addEventListener("click", () => openCard(ind.id));
-    const out = el("button", "", "Out");
-    out.addEventListener("click", () => takeOut(ind.id));
     row.appendChild(look);
-    row.appendChild(out);
+    if (!dayLocked()) {
+      const out = el("button", "", "Out");
+      out.addEventListener("click", () => takeOut(ind.id));
+      row.appendChild(out);
+    }
     box.appendChild(row);
   }
   if (!connected) box.appendChild(el("p", "warn", "No path touches this enclosure, so visitors can't see it."));
@@ -2390,14 +2395,16 @@ function renderHours() {
   $("hours-text").textContent = open
     ? `OPEN · ${clockText()} · closes at 10 PM (${mm}:${ss})`
     : `CLOSED · ${clockText()} · night build mode · opens at 8 AM (${mm}:${ss})`;
-  if (lastHoursOpen !== open) {
-    lastHoursOpen = open;
+  const day = dayLocked();
+  if (lastHoursOpen !== day) {
+    lastHoursOpen = day;
     $("hours-btn").textContent = open ? "Close early" : "Open park now";
-    $("build-lock").hidden = !open;
-    document.querySelectorAll(".tool").forEach(b => b.classList.toggle("locked", open && b.dataset.tool !== "inspect"));
-    if (activeTab === "park") renderUI(true);
+    $("build-lock").hidden = !day;
+    document.body.classList.toggle("park-open", day);
+    if (day && tool !== "inspect") setTool("inspect");
+    renderUI(true);
+    if (cardUid && cardDialog.open) renderCard();
   }
-  document.querySelectorAll(".shop-item").forEach(b => b.classList.toggle("locked", open));
 }
 
 // Each version is a collapsible section; the newest starts open in the dialog.

@@ -372,15 +372,15 @@
           <h2><i class="ico" data-icon="hammer"></i>BUILD</h2>
           <div class="tools tool-grid">
             <button class="tool active" data-tool="inspect"><i class="ico" data-icon="inspect"></i><span>Inspect</span><small>click a variant</small></button>
-            <button class="tool" data-tool="path"><i class="ico" data-icon="path"></i><span>Path</span><small id="cost-path"></small></button>
-            <button class="tool" data-tool="enclosure"><i class="ico" data-icon="fence"></i><span>Enclosure</span><small id="cost-enclosure"></small></button>
-            <button class="tool" data-tool="bulldoze"><i class="ico" data-icon="shovel"></i><span>Bulldoze</span><small>50% refund</small></button>
+            <button class="tool build-only" data-tool="path"><i class="ico" data-icon="path"></i><span>Path</span><small id="cost-path"></small></button>
+            <button class="tool build-only" data-tool="enclosure"><i class="ico" data-icon="fence"></i><span>Enclosure</span><small id="cost-enclosure"></small></button>
+            <button class="tool build-only" data-tool="bulldoze"><i class="ico" data-icon="shovel"></i><span>Bulldoze</span><small>50% refund</small></button>
           </div>
-          <div id="build-options" class="build-options" hidden></div>
-          <p id="build-lock" class="build-lock" hidden>The park is open. Building, bulldozing and moving variants unlock at 10 PM.</p>
+          <div id="build-options" class="build-options build-only" hidden></div>
+          <p id="build-lock" class="build-lock" hidden>The park is open. Building, shops, decor and moving variants come back at 10 PM. The Lab, Incubator and care work all day.</p>
         </div>
 
-        <div class="card">
+        <div class="card build-only">
           <h2><i class="ico" data-icon="shop"></i>SHOPS &amp; DECOR</h2>
           <h3>Snack stands <span>visitors buy as they pass</span></h3>
           <div id="shop-stands" class="shop-grid"></div>
