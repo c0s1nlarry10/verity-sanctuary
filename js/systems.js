@@ -218,9 +218,9 @@ function hourOfDay() {
 function darkness() {
   const h = hourOfDay();
   if (h >= 8 && h < 17) return 0;
-  if (h >= 17 && h < 22) return ((h - 17) / 5) * 0.38;
-  if (h >= 22 || h < 5) return 0.46;
-  return 0.46 * (1 - (h - 5) / 3);
+  if (h >= 17 && h < 22) return ((h - 17) / 5) * 0.5;
+  if (h >= 22 || h < 5) return 0.62;
+  return 0.62 * (1 - (h - 5) / 3);
 }
 const isNight = () => darkness() > 0.3;
 const isEvening = () => isOpen() && hourOfDay() >= 18;
@@ -357,7 +357,8 @@ function drawSky(time) {
   if (!state.settings.effects) return;
   const vx = view.x - TILE, vy = view.y - TILE, vw = viewW() + TILE * 2, vh = viewH() + TILE * 2;
   if (weather === "rain" || weather === "storm") {
-    const n = Math.round((weather === "storm" ? 0.22 : 0.12) * vw * vh / 256);
+    // a fixed number of drops for the screen size, so zooming out doesn't turn rain into fog
+    const n = Math.round((weather === "storm" ? 0.22 : 0.12) * view.cssW * view.cssH / 1024);
     ctx.fillStyle = "rgba(170,200,255,0.55)";
     for (let i = 0; i < n; i++) {
       const x = vx + (((hash2(i, 7, 2) * vw - time * 30) % vw) + vw) % vw;
@@ -367,7 +368,7 @@ function drawSky(time) {
   }
   const d = darkness() + (weather === "storm" ? 0.18 : weather === "rain" ? 0.1 : weather === "cloudy" ? 0.05 : 0);
   if (d > 0) {
-    ctx.fillStyle = `rgba(12,16,52,${Math.min(0.7, d)})`;
+    ctx.fillStyle = `rgba(10,14,48,${Math.min(0.78, d)})`;
     ctx.fillRect(vx, vy, vw, vh);
   }
   const glow = darkness();
@@ -375,6 +376,8 @@ function drawSky(time) {
     ctx.globalCompositeOperation = "lighter";
     const lights = state.objects.filter(o => o.t === "lamp" || OBJECTS[o.t].kind === "stand").map(o => [o.x * TILE + 8, o.y * TILE, o.t === "lamp" ? 26 : 14]);
     lights.push([GATE.x * TILE + 8, GATE.y * TILE - 19, 16], [GATE.x * TILE + 8, GATE.y * TILE + 7, 16], [GATE.x * TILE + 8, GATE.y * TILE - 28, 22], [GATE.x * TILE - 9, GATE.y * TILE - 6, 10]);
+    for (const [lx, ly] of streetLamps()) lights.push([lx + 1, ly - 15, 22]);
+    for (const [ox, oy] of [[-1 + 3, -3], [YARD - 5 + 3, -3]]) lights.push([VAULT.x * TILE + ox, (VAULT.y + 3) * TILE - 12 + oy, 12]);   // the vault's gold orbs
     for (const sec of securities) lights.push([sec.c.x + sec.c.vx * 0.6, sec.c.y - 4 + sec.c.vy * 0.6, 11]);   // guards' flashlights
     for (const c of cars) if (c.state !== "parked") lights.push([c.x + (c.dir === 1 ? 8 : c.dir === 3 ? -8 : 0), c.y + (c.dir === 2 ? 8 : c.dir === 0 ? -8 : 0), 10]);
     for (const [lx, ly, r] of lights) {

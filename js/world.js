@@ -9,6 +9,27 @@ const ZONE = { OUT: 0, ROAD: 1, SIDEWALK: 2, DRIVE: 3, LOT: 4, PLAZA: 5, PARK: 6
 const lotLevel = () => Math.max(1, Math.min(LOT_LEVELS.length, state.lotLevel || 1));
 function lotRect(level = lotLevel()) { return LOT_LEVELS[level - 1].rect; }
 function inRect(x, y, r) { return x >= r[0] && x <= r[2] && y >= r[1] && y <= r[3]; }
+// Street lamps along both pavements of the main road, and a few in the car park.
+function streetLamps() {
+  const out = [];
+  for (let ty = 2; ty < ROWS; ty += 6) {
+    if (!streetRow(ty)) out.push([0 * TILE + 12, ty * TILE + 4]);
+    if (ty !== GATE.y) out.push([3 * TILE + 4, ty * TILE + 12]);
+  }
+  const r = lotRect();
+  out.push([r[0] * TILE + 2, r[1] * TILE + 2], [r[0] * TILE + 2, (r[3] + 1) * TILE - 2]);
+  return out;
+}
+function drawStreetLamps(x0, y0, x1, y1) {
+  for (const [x, y] of streetLamps()) {
+    if (x < x0 - 8 || x > x1 + 8 || y < y0 - 20 || y > y1 + 8) continue;
+    ctx.fillStyle = "rgba(0,0,0,0.25)"; ctx.fillRect(x - 1, y, 4, 1.5);
+    ctx.fillStyle = "#000"; ctx.fillRect(x - 0.5, y - 14, 2, 15); ctx.fillRect(x - 1.5, y - 16, 5, 3);
+    ctx.fillStyle = "#3a3a4a"; ctx.fillRect(x, y - 14, 1, 14);
+    ctx.fillStyle = darkness() > 0.05 ? "#fff3b0" : "#c4c4ce"; ctx.fillRect(x - 1, y - 15.5, 4, 2);
+  }
+}
+
 // Rows where a city street meets the main road from the west (matches the city grid).
 const streetRow = y => ((y + 2) % 8 + 8) % 8 < 2;
 function zoneAt(x, y) {
@@ -430,6 +451,7 @@ function drawPeds(x0, y0, x1, y1) {
 }
 
 function drawCars(x0, y0, x1, y1) {
+  drawStreetLamps(x0, y0, x1, y1);
   drawBarrier();
   drawPeds(x0, y0, x1, y1);
   for (const c of cars.slice().sort((a, b) => a.y - b.y)) {
@@ -448,13 +470,13 @@ function drawCars(x0, y0, x1, y1) {
 // ================= Camera =================
 const view = { x: 0, y: 0, zoom: 2, cssW: 800, cssH: 500, dpr: 1, fit: 0 };
 const ZOOMS = [1, 2, 3, 4];
-const VIEW_PAD = 3 * TILE;    // the camera only peeks at the city's edge
+const VIEW_PAD = 2.5 * TILE;  // the camera only peeks at the city's edge (and never into the fog)
 const viewW = () => view.cssW / view.zoom;
 const viewH = () => view.cssH / view.zoom;
 function clampView() {
   const vw = viewW(), vh = viewH();
-  view.x = vw >= WORLD_W - 0.5 ? (WORLD_W - vw) / 2 : Math.max(-VIEW_PAD, Math.min(WORLD_W + VIEW_PAD - vw, view.x));
-  view.y = vh >= WORLD_H - 0.5 ? (WORLD_H - vh) / 2 : Math.max(-VIEW_PAD, Math.min(WORLD_H + VIEW_PAD - vh, view.y));
+  view.x = vw >= WORLD_W + VIEW_PAD * 2 - 0.5 ? (WORLD_W - vw) / 2 : Math.max(-VIEW_PAD, Math.min(WORLD_W + VIEW_PAD - vw, view.x));
+  view.y = vh >= WORLD_H + VIEW_PAD * 2 - 0.5 ? (WORLD_H - vh) / 2 : Math.max(-VIEW_PAD, Math.min(WORLD_H + VIEW_PAD - vh, view.y));
 }
 function resizeView() {
   const r = canvas.getBoundingClientRect();
@@ -471,8 +493,10 @@ function resizeView() {
   else clampView();
 }
 function centerOn(wx, wy) { view.x = wx - viewW() / 2; view.y = wy - viewH() / 2; clampView(); }
-// The zoom that shows the whole world at once.
-function fitZoom() { return Math.min(view.cssW / WORLD_W, view.cssH / WORLD_H); }
+// The furthest zoom-out: as much of the world as fits while still filling the whole view
+// (no empty space or fog at the sides). On a wide screen you see the full width and pan a
+// little up and down.
+function fitZoom() { return Math.max(view.cssW / (WORLD_W + VIEW_PAD * 2), view.cssH / (WORLD_H + VIEW_PAD * 2)); }
 // Zoom steps: "whole map", then whole numbers (so art pixels stay even) above it.
 function zoomLevels() {
   const fit = fitZoom();
