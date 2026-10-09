@@ -75,7 +75,7 @@ function defaultState() {
     seenVersion: "",
     tutorialDone: false,
     bankLevel: 1,
-    vault: { x: VAULT_HOME.x, y: VAULT_HOME.y },
+    vault: { x: VAULT_HOME.x, y: VAULT_HOME.bottom - vaultSize(1) + 1 },
   };
   s.enclosures[0].variants.push(makeIndividual("verity", s, { shinyChance: 0 }));
   return s;
@@ -164,7 +164,8 @@ function sanitize(data) {
   s.bankLevel = Math.max(1, Math.min(BANK_LEVELS.length, Math.floor(Number(data.bankLevel) || 1)));
   while (s.bankLevel < BANK_LEVELS.length && BANK_LEVELS[s.bankLevel - 1].cap < (Number(data.money) || 0)) s.bankLevel++;
   const v = data.vault;
-  s.vault = v && Number.isInteger(v.x) && Number.isInteger(v.y) && v.x >= 0 && v.y >= 0 && v.x + 3 <= COLS && v.y + 3 <= ROWS ? { x: v.x, y: v.y } : { x: VAULT_HOME.x, y: VAULT_HOME.y };
+  const vn = vaultSize(s.bankLevel);
+  s.vault = v && Number.isInteger(v.x) && Number.isInteger(v.y) && v.x >= 0 && v.y >= 0 && v.x + vn <= COLS && v.y + vn <= ROWS ? { x: v.x, y: v.y } : { x: VAULT_HOME.x, y: VAULT_HOME.bottom - vn + 1 };
   if (data.worldVersion !== WORLD_VERSION && Array.isArray(data.tiles) && data.tiles.length === CORE_W * CORE_H) {
     // v1.0 parks were 24x16 tiles: move everything into the middle of the bigger world
     const tiles = new Array(COLS * ROWS).fill(0);
@@ -547,8 +548,8 @@ function bankDeposit(amount) {
   return add;
 }
 // Moving the gold pile: the one buildable that can be picked up and set down elsewhere.
-function canPlaceVault(x, y) {
-  for (let dy = 0; dy < VAULT.h; dy++) for (let dx = 0; dx < VAULT.w; dx++) {
+function canPlaceVault(x, y, n = VAULT.w) {
+  for (let dy = 0; dy < n; dy++) for (let dx = 0; dx < n; dx++) {
     const tx = x + dx, ty = y + dy;
     if (!inBounds(tx, ty)) return false;
     const z = zoneAt(tx, ty);
@@ -561,12 +562,12 @@ function canPlaceVault(x, y) {
 function startMoveVault() {
   if (buildLocked()) return;
   setTool("movevault");
-  hintOnce("Click where the gold pile should go. It needs a clear 3x3 spot on your land or by the entrance.");
+  hintOnce(`Click where the gold pile should go. It needs a clear ${VAULT.w}x${VAULT.w} spot on your land or by the entrance.`);
 }
 function placeVault(x, y) {
   if (buildLocked()) return;
-  const vx = x - 1, vy = y - 1;
-  if (!canPlaceVault(vx, vy)) return hintOnce("The gold pile needs a clear 3x3 spot on your land or by the entrance.");
+  const n = VAULT.w, vx = x - Math.floor(n / 2), vy = y - Math.floor(n / 2);
+  if (!canPlaceVault(vx, vy)) return hintOnce(`The gold pile needs a clear ${n}x${n} spot on your land or by the entrance.`);
   state.vault = { x: vx, y: vy };
   markWorldDirty();
   sfx("build");
@@ -578,8 +579,19 @@ function placeVault(x, y) {
 function upgradeBank() {
   const next = BANK_LEVELS[state.bankLevel];
   if (!next || buildLocked()) return;
-  if (!spend(next.cost, "Upgrades")) return hintOnce(`The next gold pile size costs ${fmt(next.cost)} coins.`);
+  // a bigger pile needs a bigger yard: it grows upwards (or to the left) from where it sits
+  const n = vaultSize(state.bankLevel), n2 = vaultSize(state.bankLevel + 1);
+  let spot = { x: VAULT.x, y: VAULT.y };
+  if (n2 > n) {
+    const d = n2 - n;
+    spot = [[VAULT.x, VAULT.y - d], [VAULT.x - d, VAULT.y - d], [VAULT.x, VAULT.y], [VAULT.x - d, VAULT.y]].map(([x, y]) => ({ x, y })).find(p => canPlaceVault(p.x, p.y, n2));
+    if (!spot) return hintOnce(`The bigger vault needs a clear ${n2}x${n2} space. Move the gold pile somewhere roomier first.`);
+  }
+  if (state.money < next.cost) return hintOnce(`The next gold pile size costs ${fmt(next.cost)} coins.`);
+  spend(next.cost, "Upgrades");
+  state.vault = spot;
   state.bankLevel++;
+  markWorldDirty();
   sfx("levelup");
   toast(`Gold pile upgraded! It now holds ${fmt(bankCap())} coins.`, 4000, "prosperity");
   renderUI(true);
@@ -1569,9 +1581,10 @@ function drawHover() {
     return;
   }
   if (tool === "movevault") {
-    x -= 1; y -= 1; w = h = 3;
+    const n = VAULT.w;
+    x -= Math.floor(n / 2); y -= Math.floor(n / 2); w = h = n;
     ok = canPlaceVault(x, y) && !isOpen();
-    ctx.globalAlpha = 0.6; blit(ctx, VAULT_BACK, x * TILE, y * TILE); blit(ctx, heapSprite(Math.round(Math.min(1, state.money / bankCap()) * 13)), x * TILE + 5, y * TILE + 12); ctx.globalAlpha = 1;
+    ctx.globalAlpha = 0.6; blit(ctx, vaultBack(n), x * TILE, y * TILE); ctx.globalAlpha = 1;
   } else if (tool === "enclosure" && encChoice.shape === "custom") {
     ok = canPenTile(x, y) && !isOpen();
   } else if (tool === "enclosure") {
@@ -1719,7 +1732,7 @@ const securities = [0, 1].map(i => {
   return { ind, c: { x: 0, y: 0, vx: 0, vy: 0, phase: i * 3, timer: 0 }, s: i * 0.5 };
 });
 function patrolPoint(t) {
-  const X = VAULT.x * TILE - 8, Y = VAULT.y * TILE - 2, W = YARD + 16, H = YARD + 12, L = 2 * (W + H);
+  const YARD = VAULT.w * TILE, X = VAULT.x * TILE - 8, Y = VAULT.y * TILE - 2, W = YARD + 16, H = YARD + 12, L = 2 * (W + H);
   let d = ((t % 1) + 1) % 1 * L;
   if (d < W) return [X + d, Y, 1, 0]; d -= W;
   if (d < H) return [X + W, Y + d, 0, 1]; d -= H;
@@ -1730,7 +1743,7 @@ function drawSecurity(g, sec, dt, time) {
   drawIndividual(g, sec.ind, sec.c, dt, time, 1);
 }
 function drawVault(time, dt, x0, y0, x1, y1) {
-  const X = VAULT.x * TILE, Y = VAULT.y * TILE;
+  const n = VAULT.w, YARD = n * TILE, X = VAULT.x * TILE, Y = VAULT.y * TILE;
   // walk the patrol
   for (const sec of securities) {
     sec.s += dt * 0.012;
@@ -1742,23 +1755,24 @@ function drawVault(time, dt, x0, y0, x1, y1) {
   const fill = Math.max(0, Math.min(1, state.money / bankCap()));
   const behind = securities.filter(s => s.c.y < Y + YARD / 2), front = securities.filter(s => s.c.y >= Y + YARD / 2);
   for (const sec of behind) drawSecurity(ctx, sec, dt, time);
-  blit(ctx, VAULT_BACK, X, Y);
-  const step = Math.round(fill * 13);
-  blit(ctx, heapSprite(step), X + 5, Y + 10);
+  blit(ctx, vaultBack(n), X, Y);
+  const step = Math.round(fill * 13), heap = heapSprite(n, step);
+  blit(ctx, heap, Math.round(X + YARD / 2 - uW(heap) / 2), Math.round(Y + YARD * 0.62 - uH(heap) * 0.82));
   if (step > 0) for (let i = 0; i < 3; i++) {
     const t = (time * 0.9 + i / 3) % 1;
     if (t > 0.35) continue;
-    const n = Math.floor(time * 0.9 + i / 3);
-    const sx = Math.round(X + 24 + (hash2(i, n, 61) - 0.5) * (4 + step * 1.8)), sy = Math.round(Y + 36 - hash2(i, n, 62) * (2 + step * 1.2));
+    const n2 = Math.floor(time * 0.9 + i / 3);
+    const sx = Math.round(X + YARD / 2 + (hash2(i, n2, 61) - 0.5) * YARD * 0.5 * Math.sqrt(fill)), sy = Math.round(Y + YARD * 0.62 - hash2(i, n2, 62) * YARD * 0.3 * Math.sqrt(fill));
     ctx.fillStyle = "#ffffff"; ctx.fillRect(sx, sy - 1, 1, 3); ctx.fillRect(sx - 1, sy, 3, 1);
   }
-  blit(ctx, VAULT_FRONT, X, Y + YARD - 12);
+  blit(ctx, vaultFront(n), X, Y + YARD - 12);
   // brass plaque with the pile's size
-  ctx.fillStyle = "#000"; ctx.fillRect(X + 14, Y + YARD + 5, 21, 8);
-  ctx.fillStyle = "#c9a227"; ctx.fillRect(X + 14.5, Y + YARD + 5.5, 20, 7);
-  ctx.fillStyle = "#ffe680"; ctx.fillRect(X + 14.5, Y + YARD + 5.5, 20, 1);
-  pixelText(ctx, "LV" + state.bankLevel, X + 24.5, Y + YARD + 7, "#3a2a00");
-  if (fill >= 1 && Math.floor(time * 2) % 2) { ctx.fillStyle = "#000"; ctx.fillRect(X + 15, Y - 10, 19, 8); ctx.fillStyle = "#e94f4f"; ctx.fillRect(X + 15.5, Y - 9.5, 18, 7); pixelText(ctx, "FULL", X + 24.5, Y - 8, "#ffffff"); }
+  const mx = X + YARD / 2;
+  ctx.fillStyle = "#000"; ctx.fillRect(mx - 10.5, Y + YARD + 5, 21, 8);
+  ctx.fillStyle = "#c9a227"; ctx.fillRect(mx - 10, Y + YARD + 5.5, 20, 7);
+  ctx.fillStyle = "#ffe680"; ctx.fillRect(mx - 10, Y + YARD + 5.5, 20, 1);
+  pixelText(ctx, "LV" + state.bankLevel, mx, Y + YARD + 7, "#3a2a00");
+  if (fill >= 1 && Math.floor(time * 2) % 2) { ctx.fillStyle = "#000"; ctx.fillRect(mx - 9.5, Y - 10, 19, 8); ctx.fillStyle = "#e94f4f"; ctx.fillRect(mx - 9, Y - 9.5, 18, 7); pixelText(ctx, "FULL", mx, Y - 8, "#ffffff"); }
   for (const sec of front) drawSecurity(ctx, sec, dt, time);
 }
 

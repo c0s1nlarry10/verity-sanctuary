@@ -561,11 +561,14 @@ const BANK_LEVELS = [
   { cap: 6e10,      cost: 7e9 },
 ];
 // The fenced yard starts just north-west of the entrance; it's the one thing players can move.
-const VAULT_HOME = { x: 8, y: GATE.y - 8 };
+// It grows with the gold pile's level (3x3 tiles up to 8x8), growing upwards from where it sits.
+const VAULT_HOME = { x: 8, bottom: GATE.y - 6 };
+const vaultSize = (lvl = typeof state !== "undefined" ? state.bankLevel || 1 : 1) => Math.min(8, 3 + Math.ceil((lvl - 1) / 2));
 const VAULT = {
-  w: 3, h: 3,
+  get w() { return vaultSize(); },
+  get h() { return vaultSize(); },
   get x() { return typeof state !== "undefined" && state.vault ? state.vault.x : VAULT_HOME.x; },
-  get y() { return typeof state !== "undefined" && state.vault ? state.vault.y : VAULT_HOME.y; },
+  get y() { return typeof state !== "undefined" && state.vault ? state.vault.y : VAULT_HOME.bottom - vaultSize() + 1; },
 };
 const ROAD_X = [1, 2];          // two-lane road along the west edge
 const LOT_LEVELS = [

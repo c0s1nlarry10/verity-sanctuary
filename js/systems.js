@@ -377,7 +377,7 @@ function drawSky(time) {
     const lights = state.objects.filter(o => o.t === "lamp" || OBJECTS[o.t].kind === "stand").map(o => [o.x * TILE + 8, o.y * TILE, o.t === "lamp" ? 26 : 14]);
     lights.push([GATE.x * TILE + 8, GATE.y * TILE - 19, 16], [GATE.x * TILE + 8, GATE.y * TILE + 7, 16], [GATE.x * TILE + 8, GATE.y * TILE - 28, 22], [GATE.x * TILE - 9, GATE.y * TILE - 6, 10]);
     for (const [lx, ly] of streetLamps()) lights.push([lx + 1, ly - 15, 22]);
-    for (const [ox, oy] of [[-1 + 3, -3], [YARD - 5 + 3, -3]]) lights.push([VAULT.x * TILE + ox, (VAULT.y + 3) * TILE - 12 + oy, 12]);   // the vault's gold orbs
+    for (const ox of [2, VAULT.w * TILE - 2]) lights.push([VAULT.x * TILE + ox, (VAULT.y + VAULT.h) * TILE - 15, 12]);   // the vault's gold orbs
     for (const sec of securities) lights.push([sec.c.x + sec.c.vx * 0.6, sec.c.y - 4 + sec.c.vy * 0.6, 11]);   // guards' flashlights
     for (const c of cars) if (c.state !== "parked") lights.push([c.x + (c.dir === 1 ? 8 : c.dir === 3 ? -8 : 0), c.y + (c.dir === 2 ? 8 : c.dir === 0 ? -8 : 0), 10]);
     for (const [lx, ly, r] of lights) {
@@ -960,7 +960,7 @@ function renderBank() {
   const next = BANK_LEVELS[state.bankLevel];
   const row = el("div", "tools");
   const show = el("button", "", "Show");
-  show.addEventListener("click", () => { centerOn((VAULT.x + 1.5) * TILE, (VAULT.y + 1.5) * TILE); sfx("click"); });
+  show.addEventListener("click", () => { centerOn((VAULT.x + VAULT.w / 2) * TILE, (VAULT.y + VAULT.h / 2) * TILE); sfx("click"); });
   row.appendChild(show);
   if (!dayLocked()) {
     const mv = el("button", tool === "movevault" ? "active" : "", tool === "movevault" ? "Moving..." : "Move");
@@ -970,7 +970,8 @@ function renderBank() {
   if (!next) box.appendChild(el("p", "small", "This is the biggest gold pile there is."));
   else if (dayLocked()) box.appendChild(el("p", "small", `Next size holds ${fmt(next.cap)} for ${fmt(next.cost)}c. Upgrade at night while the park is closed.`));
   else {
-    const b = el("button", "primary", `Upgrade: holds ${fmt(next.cap)} (${fmt(next.cost)}c)`);
+    const grows = vaultSize(state.bankLevel + 1) > vaultSize(state.bankLevel);
+    const b = el("button", "primary", `Upgrade: holds ${fmt(next.cap)}${grows ? `, ${vaultSize(state.bankLevel + 1)}x${vaultSize(state.bankLevel + 1)} vault` : ""} (${fmt(next.cost)}c)`);
     b.disabled = state.money < next.cost;
     b.addEventListener("click", upgradeBank);
     row.appendChild(b);

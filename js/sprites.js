@@ -1428,7 +1428,6 @@ function pixelText(g, text, x, y, color, scale = 1) {
 // ================= The gold pile (the bank) =================
 // A 3x3-tile paved yard behind an iron fence, with the gold heap in the middle. The yard is
 // split in two so the heap can sit between the back fence and the front fence.
-const YARD = 3 * TILE;
 function ironFence(g, x, y, w, horiz) {
   const R = (col, xx, yy, ww, hh) => { g.fillStyle = col; g.fillRect(xx, yy, ww, hh); };
   if (horiz) {
@@ -1440,7 +1439,11 @@ function ironFence(g, x, y, w, horiz) {
     for (let yy = y; yy < y + w; yy += 4) { R("#000", x - 1, yy, 3.5, 1.5); R("#ffd23f", x, yy, 1.5, 0.5); }
   }
 }
-const VAULT_BACK = (() => {
+// The yard is n x n tiles; it grows as the gold pile is upgraded.
+const vaultCache = new Map();
+function vaultBack(n) { const k = "b" + n; if (!vaultCache.has(k)) vaultCache.set(k, makeVaultBack(n * TILE)); return vaultCache.get(k); }
+function vaultFront(n) { const k = "f" + n; if (!vaultCache.has(k)) vaultCache.set(k, makeVaultFront(n * TILE)); return vaultCache.get(k); }
+function makeVaultBack(YARD) {
   const [c, g] = hiCanvas(YARD, YARD);
   const R = (col, x, y, w, h) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
   g.fillStyle = "rgba(0,0,0,0.35)"; g.fillRect(2, 3, YARD, YARD);
@@ -1459,8 +1462,8 @@ const VAULT_BACK = (() => {
   // side walls
   for (const x of [0, YARD - 3.5]) { R("#000", x, 4, 3.5, YARD - 8); R("#6a6474", x + 0.5, 4, 2.5, YARD - 8); for (let y = 6; y < YARD - 4; y += 4) R("#8a8494", x + 0.5, y, 2.5, 1); }
   return c;
-})();
-const VAULT_FRONT = (() => {
+}
+function makeVaultFront(YARD) {
   const [c, g] = hiCanvas(YARD, 16);
   const R = (col, x, y, w, h) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
   // front wall with bars, either side of the vault door
@@ -1479,35 +1482,67 @@ const VAULT_FRONT = (() => {
     litBlob(g, x + 3, -3, 2.6, 2.6, ramp("#ffd23f"));
   }
   return c;
-})();
-const HEAP_SPR = [];
-function heapSprite(step) {
-  if (HEAP_SPR[step]) return HEAP_SPR[step];
-  const f = step / 13, rx = 4.5 + 12 * Math.sqrt(f), ry = rx * 0.68;
-  const [c, g] = hiCanvas(38, 28);
-  const cx = 19, cy = 26 - ry;
-  const r = seeded(step * 17 + 3);
-  {
-    litBlob(g, cx, cy, rx, ry, ["#5a3a00", "#a87a00", "#d9a826", "#ffd23f", "#ffe680", "#fff6c0"]);
-    for (let i = 0; i < rx * ry * 0.7; i++) {
-      const a = r() * Math.PI * 2, d = Math.sqrt(r());
-      const x = cx + Math.cos(a) * rx * d * 0.92, y = cy + Math.sin(a) * ry * d * 0.9;
-      g.fillStyle = r() < 0.5 ? "#c99a00" : "#fff09a"; g.fillRect(Math.round(x * 2) / 2, Math.round(y * 2) / 2, 1, 0.5);
+}
+// The gold pile: a cone-shaped mound of stacked coins, lit from the top left, sized to
+// the yard (n tiles) and filled to `step` (0..13).
+const heapCache = new Map();
+function heapSprite(n, step) {
+  const key = n + ":" + step;
+  if (heapCache.has(key)) return heapCache.get(key);
+  const Y = n * TILE, f = step / 13;
+  const rx = 4 + (Y * 0.34 - 4) * Math.sqrt(f), ry = rx * 0.34, hgt = rx * 1.05 + 2;
+  const W = Math.ceil(Y * 0.8), H = Math.ceil(Y * 0.8);
+  const [c, g] = hiCanvas(W, H);
+  const cx = W / 2, by = H - ry - 1;
+  const pal = ["#3a2600", "#7a5400", "#b8860b", "#e0a91c", "#ffd23f", "#ffe680", "#fff6c0"];
+  // soft shadow on the floor
+  g.fillStyle = "rgba(60,30,0,0.35)"; g.beginPath(); g.ellipse(cx + 1.5, by + 1, rx + 1.5, ry + 1, 0, 0, Math.PI * 2); g.fill();
+  const top = x => { const d = Math.abs(x - cx) / rx; if (d > 1) return null; return by - hgt * Math.pow(1 - d, 0.85) - ry * Math.sqrt(1 - d * d) * 0.2; };
+  const bot = x => { const d = Math.abs(x - cx) / rx; return d > 1 ? null : by + ry * Math.sqrt(1 - d * d); };
+  raw(g, () => {
+    for (let px = Math.floor((cx - rx) * RES); px < (cx + rx) * RES; px++) {
+      const x = (px + 0.5) / RES, t = top(x), b = bot(x);
+      if (t === null) continue;
+      for (let py = Math.floor(t * RES); py < b * RES; py++) {
+        const y = (py + 0.5) / RES;
+        const edge = py <= Math.floor(t * RES) || py >= Math.ceil(b * RES) - 1 || (px + 1) / RES > cx + rx * 0.995 || px / RES < cx - rx * 0.995;
+        // light from the upper left: brighter on the left flank and near the peak
+        const side = (cx - x) / rx, height = (b - y) / Math.max(1, b - t);
+        let lum = side * 0.55 + height * 0.5 + 0.1;
+        // stacked-coin texture: staggered rows of coin rims
+        const row = Math.floor((y - t) / 1.5), col = Math.floor((x + (row % 2) * 1.25) / 2.5);
+        const inCoin = ((x + (row % 2) * 1.25) % 2.5) / 2.5, rim = ((y - t) % 1.5) / 1.5;
+        if (rim > 0.66) lum -= 0.35;
+        else if (rim < 0.2 && inCoin > 0.2 && inCoin < 0.6) lum += 0.3;
+        if (((row * 7 + col * 13) % 11) === 0) lum += 0.25;
+        const k = edge ? 0 : Math.max(1, Math.min(6, Math.round(2.5 + lum * 2.6 + (BAYER[py & 1][px & 1] - 0.4) * 0.6)));
+        g.fillStyle = pal[k];
+        g.fillRect(px, py, 1, 1);
+      }
     }
-    for (let i = 0; i < Math.min(6, 1 + step / 2); i++) { const x = cx - rx * 0.6 + r() * rx * 1.2; g.fillStyle = "#000"; g.fillRect(x - 0.5, cy - ry - 0.5 + r() * 3, 2, 2.5); g.fillStyle = "#ffd23f"; g.fillRect(x, cy - ry + r() * 3, 1, 1.5); }
-    if (step >= 6) { g.fillStyle = "#000"; g.fillRect(cx + rx * 0.3 - 0.5, cy - ry * 0.4 - 0.5, 4, 3); g.fillStyle = "#e94f4f"; g.fillRect(cx + rx * 0.3, cy - ry * 0.4, 3, 2); g.fillStyle = "#7df9ff"; g.fillRect(cx - rx * 0.4, cy - ry * 0.2, 1.5, 1.5); }  // gems
+  });
+  // loose coins around the base and a few gems once it's filling up
+  const r = seeded(step * 31 + n * 7);
+  for (let i = 0; i < 3 + step; i++) {
+    const a = r() * Math.PI * 2, d = 1 + r() * 0.35;
+    const x = cx + Math.cos(a) * rx * d, y = by + Math.sin(a) * ry * d + 1;
+    if (x < 1 || x > W - 2 || y > H - 1) continue;
+    g.fillStyle = "#3a2600"; g.fillRect(x - 1, y - 0.5, 2.5, 1.5); g.fillStyle = "#ffd23f"; g.fillRect(x - 0.5, y - 0.5, 1.5, 0.5);
   }
-  HEAP_SPR[step] = c;
+  if (step >= 5) for (const [gx, gy, col] of [[-0.35, -0.45, "#e94f4f"], [0.25, -0.25, "#7df9ff"], [-0.05, -0.75, "#6ee07a"]]) {
+    const x = cx + gx * rx, y = by + gy * hgt;
+    g.fillStyle = "#000"; g.fillRect(x - 1, y - 1, 3, 3); g.fillStyle = col; g.fillRect(x - 0.5, y - 0.5, 2, 2); g.fillStyle = "#fff"; g.fillRect(x - 0.5, y - 0.5, 0.5, 0.5);
+  }
+  heapCache.set(key, c);
   return c;
 }
 
-
 // ================= Securities: the gold pile's guards =================
 // A Verity in uniform: peaked navy cap with a badge, black shades under heavy angry brows,
-// a scowl, a navy vest with a gold star, and a baton.
+// a scowl, and a navy vest with a gold star.
 function buildGuardSprite(ind, blink) {
   const D = bodySize("verity", ind);
-  const [c, g] = hiCanvas(D + SPR_PAD_X * 2 + 3, D + SPR_PAD_T + SPR_PAD_B);
+  const [c, g] = hiCanvas(D + SPR_PAD_X * 2, D + SPR_PAD_T + SPR_PAD_B);
   const R = (col, x, y, w, h) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
   const ox = SPR_PAD_X, oy = SPR_PAD_T, body = ind.light ? "#e8b830" : "#f2c230";
   const inside = drawBody(g, ox, oy, D, body, null, null, ind.model || 0);
@@ -1533,8 +1568,6 @@ function buildGuardSprite(ind, blink) {
   const top = oy + inside.top;
   R("#000", ox + D * 0.12, top - 3.5, D * 0.76, 5); R("#1f2a5a", ox + D * 0.15, top - 3, D * 0.7, 3.5); R("#3a4a8a", ox + D * 0.15, top - 3, D * 0.7, 0.5);
   R("#000", ox + D * 0.08, top + 1, D * 0.9, 1.5); R("#ffd23f", ox + D / 2 - 1, top - 2.5, 2, 2); R("#fff6c0", ox + D / 2 - 1, top - 2.5, 1, 0.5);
-  // baton held at the side
-  R("#000", ox + D + 0.5, oy + D * 0.45, 2, D * 0.55); R("#2a2a32", ox + D + 1, oy + D * 0.45, 1, D * 0.55); R("#8a8a96", ox + D + 1, oy + D * 0.45, 1, 0.5);
   c.outline = true;
   return c;
 }
