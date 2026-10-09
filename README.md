@@ -6,6 +6,8 @@ A 2D pixel-art tycoon game that runs in your browser, inspired by the viral Veri
 
 Open `index.html` in a browser. There's nothing to install or build.
 
+A new park starts by choosing **Simple** mode (build any time, no feeding, litter, staff or escapes, and the gold pile and car park look after themselves) or **Pro** mode (the full game). The choice is locked until you reset the park.
+
 ### Controls
 
 - **Move the camera:** arrow keys or WASD, or drag the map (right-drag also works)
@@ -23,16 +25,18 @@ Every major version stays playable in [`versions/`](versions/index.html), each w
 
 ## Features
 
-Version 2.0. See the in-game patch notes for what changed.
+Version 2.1. See the in-game patch notes for what changed.
 
 - 27 Verity variants to discover through eggs and fusion recipes, each with its own ability
 - Every variant you own is unique: name, size, color, markings, accessory, personality and level
 - Fusion Lab, Variant Index and recipe book
 - Park XP with unlocks: enclosure sizes and themes, land, path types, staff, special eggs and more
 - Hunger and happiness, staff, trash, visitor moods, critics and influencers
-- Meme events, including the "He belongs to the Backrooms" tug-of-war
+- Guests who come and go by car, and a Guest Feedback card that tells you what to improve
+- Meme events, including "He belongs to the Backrooms", where Pirate Clark tries to drag a variant away
 - Day/night cycle, weather, chiptune music and sound effects
 - Goals, achievements, daily rewards and prestige (New Sanctuary)
+- Hover explanations for everything on the map and in the menus, and a cycling tips bar
 - Autosave, offline earnings and save export/import
 
 ## Credits

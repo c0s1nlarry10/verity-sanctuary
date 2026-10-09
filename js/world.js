@@ -309,10 +309,31 @@ function stallRoute(stall) {
   const sx = stall.x * TILE + 8, sy = stall.y * TILE + 8;
   return Math.abs(stall.y - GATE.y) >= 2 ? [[aisleX, driveY], [aisleX, sy], [sx, sy]] : [[sx, driveY], [sx, sy]];
 }
-function guestsOnSite() { return visitors.filter(v => !v.leaving).length + walkers.length + cars.reduce((s, c) => s + (c.state === "arrive" ? c.seats : 0), 0); }
+function guestsOnSite() { return visitors.filter(v => !v.leaving).length + walkers.filter(w => !w.out).length + cars.reduce((s, c) => s + (c.state === "arrive" ? c.seats : 0), 0); }
+// Last entry is 9:30 PM, so nobody arrives just to be sent home again at 10.
+const LAST_ENTRY = DAY_SECS * 13.5 / 14;
+const admitting = () => cyclePos() < LAST_ENTRY;
+
+// Someone heading for the gate (w.route is the whole walk, start to gate) turns round and
+// walks back the way they came: to their car, or off along the pavement.
+function turnBack(w) {
+  const done = w.route.length - w.path.length;
+  w.path = w.route.slice(0, Math.max(1, done)).reverse().map(p => p.slice());
+  w.out = true;
+  w.arrived = false;
+  w.delay = 0;
+}
+// A guest walks out of the gate and back to their car (or the pavement if they came on foot).
+function exitPark(v) {
+  v.gone = true;
+  const route = v.route || [[PAVE_R, WORLD_H + 3 * TILE], [PAVE_R, walkY], [plazaX, walkY], [plazaX, driveY], [GATE.x * TILE - 1, driveY]];
+  const w = { look: v.look, frames: v.frames, x: GATE.x * TILE - 1, y: driveY, route, path: [], carId: v.carId, phase: v.phase };
+  turnBack(w);
+  walkers.push(w);
+}
 
 function spawnCar(seats, delay = 0) {
-  if (!isOpen()) return false;   // the car park is closed at night
+  if (!isOpen() || !admitting()) return false;   // no new arrivals after last entry; the car park is closed at night
   const stall = freeStall();
   if (!stall) return false;
   const fromNorth = Math.random() < 0.5;
@@ -366,7 +387,8 @@ function updateCars(dt) {
           const look = randomLook(rollVisitorType());
           // walk between the parked cars to the footpath, then along it and down the paving to the gate
           const gapX = c.stall.x * TILE + (i % 2 ? 16 : 0), off = (i % 2 ? 2 : -2);
-          walkers.push({ look, frames: personFrames(look), x: gapX, y: c.y, path: [[gapX, walkY + off], [plazaX + off, walkY + off], [plazaX + off, driveY], [GATE.x * TILE - 1, driveY]], carId: c.id, delay: i * 0.35, phase: Math.random() * 6 });
+          const path = [[gapX, walkY + off], [plazaX + off, walkY + off], [plazaX + off, driveY], [GATE.x * TILE - 1, driveY]];
+          walkers.push({ look, frames: personFrames(look), x: gapX, y: c.y, route: [[gapX, c.y], ...path], path, carId: c.id, delay: i * 0.35, phase: Math.random() * 6 });
         }
       } else if (c.state !== "parked") c.done = true;
       continue;
@@ -392,12 +414,13 @@ function updateCars(dt) {
   for (const w of walkers) {
     w.phase += dt * 10;
     if (w.delay > 0) { w.delay -= dt; continue; }
+    if (!w.out && !isOpen()) turnBack(w);   // closed: head back to the car instead
     const wp = w.path[0];
     if (!wp) { w.arrived = true; continue; }
-    const dx = wp[0] - w.x, dy = wp[1] - w.y, dist = Math.hypot(dx, dy), step = 26 * dt;
+    const dx = wp[0] - w.x, dy = wp[1] - w.y, dist = Math.hypot(dx, dy), step = (w.out && !isOpen() ? 34 : 26) * dt;
     if (dist <= step) { w.x = wp[0]; w.y = wp[1]; w.path.shift(); } else { w.x += (dx / dist) * step; w.y += (dy / dist) * step; }
   }
-  for (const w of walkers) if (w.arrived) { if (isOpen()) admitVisitor(w); }
+  for (const w of walkers) if (w.arrived && !w.out) admitVisitor(w);   // walkers who reach the gate after closing were already turned back
   walkers = walkers.filter(w => !w.arrived);
 }
 
@@ -434,7 +457,7 @@ function spawnPed() {
   let x = left ? PAVE_L : PAVE_R;
   const path = [];
   const rows = crossingRows().filter(r => down ? r > 2 * TILE : r < WORLD_H - 2 * TILE);
-  const visit = isOpen() && guestsOnSite() < maxGuests() && Math.random() < 0.35;
+  const visit = isOpen() && admitting() && guestsOnSite() < maxGuests() && Math.random() < 0.35;
   const roll = Math.random();
   if (left && roll < 0.45) {
     // cross the road at a zebra crossing, then carry on along the other pavement
@@ -449,7 +472,7 @@ function spawnPed() {
   if (visit && x === PAVE_R) {
     // walk up the driveway and in through the gate
     path.push([PAVE_R, walkY], [plazaX, walkY], [plazaX, driveY], [GATE.x * TILE - 1, driveY]);
-    peds.push({ look, frames: personFrames(look), x: PAVE_R, y: y0, path, enter: true, speed: 20 + Math.random() * 8, phase: Math.random() * 6 });
+    peds.push({ look, frames: personFrames(look), x: PAVE_R, y: y0, route: [[PAVE_R, y0], ...path], path, enter: true, speed: 20 + Math.random() * 8, phase: Math.random() * 6 });
     return;
   }
   if (x === PAVE_L && Math.random() < 0.3) {
@@ -464,8 +487,10 @@ function updatePeds(dt) {
   if (pedTimer <= 0) { pedTimer = (isOpen() ? 1.2 : 3.5) + Math.random() * 2; if (peds.length < 26) spawnPed(); }
   for (const p of peds) {
     p.phase += dt * 9;
+    // on their way in when the park closes (or fills up): turn round and go back the way they came
+    if (p.enter && (!isOpen() || guestsOnSite() >= maxGuests())) { turnBack(p); p.enter = false; }
     const wp = p.path[0];
-    if (!wp) { p.done = true; if (p.enter && isOpen() && guestsOnSite() < maxGuests()) admitVisitor(p); continue; }
+    if (!wp) { p.done = true; if (p.enter) admitVisitor(p); continue; }
     const dx = wp[0] - p.x, dy = wp[1] - p.y, dist = Math.hypot(dx, dy), step = p.speed * dt;
     if (dist <= step) { p.x = wp[0]; p.y = wp[1]; p.path.shift(); } else { p.x += (dx / dist) * step; p.y += (dy / dist) * step; }
   }

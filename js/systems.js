@@ -49,6 +49,22 @@ function upgradeLot() {
   renderUI(true);
 }
 
+// Simple mode: the car park grows by itself, for free, at the levels Pro players can buy it.
+function autoLot() {
+  if (!isSimple()) return;
+  const next = lotLevel() + 1;
+  if (next > LOT_LEVELS.length || state.level < (UNLOCK_LEVEL["lot:" + next] || 1)) return;
+  const r = LOT_LEVELS[next - 1].rect, n = VAULT.w;
+  if (VAULT.x <= r[2] && VAULT.x + n - 1 >= r[0] && VAULT.y <= r[3] && VAULT.y + n - 1 >= r[1]) {
+    const spot = findVaultSpot(n, r);
+    if (!spot) return;   // nowhere to move the gold pile yet; try again later
+    state.vault = spot;
+  }
+  state.lotLevel = next;
+  markWorldDirty();
+  toast(`The car park grew! Room for ${maxGuests()} guests now.`, 4000, "verity");
+}
+
 // ================= Care (hunger & happiness) =================
 const careActive = () => isUnlocked("care");
 function careMult(ind) {
@@ -198,7 +214,7 @@ function drawWalkerSprite(w) {
 // ================= Trash =================
 function trashIndexAt(x, y) { return state.trash.findIndex(t => t.x === x && t.y === y); }
 function dropTrash(x, y) {
-  if (!isPath(x, y) || state.trash.length >= 60) return;
+  if (isSimple() || !isPath(x, y) || state.trash.length >= 60) return;   // no litter in Simple mode
   state.trash.push({ x, y, ox: 3 + Math.floor(Math.random() * 9), oy: 4 + Math.floor(Math.random() * 8), k: Math.floor(Math.random() * TRASH_SPR.length) });
 }
 function cleanTrash(i) {
@@ -209,7 +225,12 @@ function trashNear(gx, gy) {
   return state.trash.findIndex(t => Math.abs(t.x * TILE + t.ox + 1 - gx) <= 4 && Math.abs(t.y * TILE + t.oy + 1 - gy) <= 4);
 }
 function drawTrash() {
-  for (const t of state.trash) blit(ctx, TRASH_SPR[t.k], t.x * TILE + t.ox, t.y * TILE + t.oy);
+  ctx.fillStyle = "rgba(0,0,0,0.28)";
+  for (const t of state.trash) {
+    const spr = TRASH_SPR[t.k] || TRASH_SPR[0], x = t.x * TILE + t.ox, y = t.y * TILE + t.oy;
+    ctx.fillRect(x, y + spr.height, spr.width, 1);   // a little shadow underneath
+    blit(ctx, spr, x, y);
+  }
 }
 
 // ================= Bubbles =================
@@ -229,14 +250,24 @@ function hourOfDay() {
   const p = cyclePos();
   return p < DAY_SECS ? 8 + 14 * p / DAY_SECS : (22 + 10 * (p - DAY_SECS) / NIGHT_SECS) % 24;
 }
+// How dark the world is. While the park is open it only gets a gentle dusk (6 to 10 PM),
+// so open hours never look like night. Night falls in the hour after closing, and dawn
+// comes up from 5 AM so the park is fully lit when it opens at 8.
+const NIGHT_DARK = 0.62, DUSK_DARK = 0.3;
 function darkness() {
   const h = hourOfDay();
-  if (h >= 8 && h < 17) return 0;
-  if (h >= 17 && h < 22) return ((h - 17) / 5) * 0.5;
-  if (h >= 22 || h < 5) return 0.62;
-  return 0.62 * (1 - (h - 5) / 3);
+  if (h >= 8 && h < 18) return 0;
+  if (h >= 18 && h < 22) return ((h - 18) / 4) * DUSK_DARK;
+  if (h >= 22 && h < 23) return DUSK_DARK + (NIGHT_DARK - DUSK_DARK) * (h - 22);
+  if (h >= 23 || h < 5) return NIGHT_DARK;
+  return NIGHT_DARK * (1 - (h - 5) / 3);
 }
-const isNight = () => darkness() > 0.3;
+// Darkness including the weather. Clouds and rain dim the day, but never to night levels.
+function skyDarkness() {
+  const extra = weather === "storm" ? 0.18 : weather === "rain" ? 0.1 : weather === "cloudy" ? 0.05 : 0;
+  return Math.min(isOpen() ? 0.42 : 0.82, darkness() + extra);
+}
+const isNight = () => !isOpen() && darkness() > DUSK_DARK;
 const isEvening = () => isOpen() && hourOfDay() >= 18;
 function secondsUntilChange() { const p = cyclePos(); return p < DAY_SECS ? DAY_SECS - p : CYCLE_SECS - p; }
 
@@ -287,8 +318,9 @@ function closeDay() {
   // the night crew sweeps up half the litter
   state.trash.splice(0, Math.ceil(state.trash.length / 2));
   if (activeEvent) { activeEvent = null; eventTimer = 60; }
-  for (const v of visitors) v.leaving = true;
-  walkers = [];
+  for (const v of visitors) leaveVisitor(v);   // everyone heads back to their cars
+  for (const w of walkers) if (!w.out) turnBack(w);
+  guestQuotes = [];
   for (const esc of escapes.values()) toast(`${esc.ind.name} wandered back home for the night.`, 2500, esc.ind.k);
   escapes.clear();
   const report = state.day;
@@ -314,6 +346,7 @@ function closeNow() {
 }
 
 function showDayReport(d) {
+  if (document.getElementById("loader")) return;   // never over the loading screen
   const box = $("day-report");
   box.innerHTML = "";
   const sum = o => Object.values(o).reduce((a, b) => a + b, 0);
@@ -342,6 +375,10 @@ function showDayReport(d) {
     cols.appendChild(col);
   }
   box.appendChild(cols);
+  const fb = el("div", "report-growth");
+  fb.appendChild(el("h4", "", "What guests said"));
+  fb.appendChild(feedbackList(d.feedback, 4));
+  box.appendChild(fb);
   const growth = el("div", "report-growth");
   growth.appendChild(el("h4", "", "What levelled up"));
   const xpGain = Math.max(0, Math.round(totalParkXp() - d.xpStart));
@@ -393,7 +430,7 @@ function drawSky(time) {
       ctx.fillRect(x, y, 0.5, 4);
     }
   }
-  const d = Math.min(0.82, darkness() + (weather === "storm" ? 0.18 : weather === "rain" ? 0.1 : weather === "cloudy" ? 0.05 : 0));
+  const d = skyDarkness();
   if (d > 0) {
     // Night lighting works like a light map: the scene is covered in darkness, and each light
     // cuts a pool out of it (with soft, banded falloff), so the ground under a lamp shows its
@@ -464,23 +501,127 @@ function rollVisitorType() {
 }
 
 function visitorMoodStep(v) {
-  v.mood -= 3;
-  if (trashIndexAt(v.tx, v.ty) >= 0) { v.mood -= 8; if (Math.random() < 0.3) v.bubble = { icon: "angry", t: 1.2 }; }
+  v.mood -= 2;
+  if (trashIndexAt(v.tx, v.ty) >= 0) { v.mood -= 8; if (++v.litter >= 3) gripe(v, "trash"); if (Math.random() < 0.3) v.bubble = { icon: "angry", t: 1.2 }; }
   const crowd = visitors.filter(o => o !== v && !o.leaving && o.tx === v.tx && o.ty === v.ty).length;
-  if (crowd >= 3) v.mood -= 4;
+  if (crowd >= 3) { v.mood -= 4; if (++v.crowds >= 2) gripe(v, "crowded"); }
   if (staffWalkers.some(w => w.type === "mascot" && Math.abs(w.tx - v.tx) + Math.abs(w.ty - v.ty) <= 1)) { v.mood += 10; if (Math.random() < 0.3) v.bubble = { icon: "heart", t: 1.2 }; }
-  if (weather === "rain" || weather === "storm") v.mood -= weather === "storm" ? 4 : 2;
+  if ((weather === "rain" || weather === "storm") && !isSimple()) { v.mood -= weather === "storm" ? 4 : 2; gripe(v, "weather"); }
   if (Math.random() < 0.003) dropTrash(v.tx, v.ty);
   if (v.mood <= 0 && !v.leaving) {
     v.bubble = { icon: v.pensSeen ? "bored" : "angry", t: 2 };
-    leaveVisitor(v);
+    leaveVisitor(v, true);
   }
 }
 
-function leaveVisitor(v) {
+// Time to go home: the guest turns for the gate (game.js) and tells us how their visit went.
+function leaveVisitor(v, fedUp) {
   if (v.leaving) return;
+  if (v.age > 45 || fedUp) {   // stayed long enough to judge the park, or left early in a huff
+    if (v.pensSeen < 2) gripe(v, "boring");
+    if (!v.ate && !v.standsSeen) gripe(v, "hungry");
+    if (!v.decorSeen && v.age > 90) gripe(v, "bare");
+  }
   v.leaving = true;
+  v.fedUp = !!fedUp;
   if (v.type === "critic") criticReview(v);
+  recordFeedback(v);
+}
+
+// ================= Game modes =================
+// A new park picks Simple or Pro before it starts. The choice is saved and stays until reset.
+function chooseMode() {
+  if (state.mode) return Promise.resolve(state.mode);
+  return new Promise(resolve => {
+    const dlg = $("mode-dialog"), box = $("mode-options");
+    box.innerHTML = "";
+    for (const [k, m] of Object.entries(MODES)) {
+      const b = el("button", "mode-option");
+      b.type = "button";
+      b.appendChild(el("b", "", m.label.toUpperCase()));
+      b.appendChild(el("span", "", m.desc));
+      const ul = el("ul");
+      for (const p of m.points) ul.appendChild(el("li", "", p));
+      b.appendChild(ul);
+      b.appendChild(el("span", "pick", "▶ " + m.pick));
+      b.addEventListener("click", () => { dlg.close(); setMode(k); resolve(k); });
+      box.appendChild(b);
+    }
+    dlg.addEventListener("cancel", e => e.preventDefault());   // a choice has to be made
+    dlg.showModal();
+  });
+}
+function setMode(k) {
+  state.mode = k;
+  if (k === "simple") {
+    // switch off what Simple mode doesn't have
+    state.staff = {};
+    syncStaff();
+    state.trash = [];
+    escapes.clear();
+  }
+  applyLocks();
+  saveGame();
+  sfx("achievement");
+  toast(`${MODES[k].label} mode it is. Have fun!`, 3500, "verity");
+  renderUI(true);
+}
+
+// ================= Guest feedback =================
+// Each guest can raise each complaint once. Complaints are tallied in the day's report and
+// the most recent ones are quoted in the Guest Feedback card.
+let guestQuotes = [];   // newest first: { k, who }
+function gripe(v, k) {
+  if (!v || v.leaving || v.gripes.has(k)) return;
+  v.gripes.add(k);
+}
+function recordFeedback(v) {
+  const d = state.day;
+  if (!d) return;
+  const f = d.feedback || (d.feedback = { guests: 0, happy: 0, gripes: {} });
+  f.guests++;
+  if (!v.fedUp && v.gripes.size <= 1) f.happy++;   // stayed as long as they meant to
+  for (const k of v.gripes) {
+    f.gripes[k] = (f.gripes[k] || 0) + 1;
+    if (k !== "weather" || Math.random() < 0.2) guestQuotes.unshift({ k, who: randItem(GUEST_NAMES) });
+  }
+  guestQuotes.length = Math.min(guestQuotes.length, 4);
+}
+const GUEST_NAMES = ["Sam", "Priya", "Jordan", "Mei", "Alex", "Tomás", "Ava", "Kwame", "Lena", "Omar", "Rosa", "Finn", "Hana", "Leo", "Zoe", "Ravi"];
+// Today's complaints, most common first: [[key, count], ...]. The weather goes last, since
+// the things players can fix matter more.
+const topGripes = f => Object.entries((f && f.gripes) || {}).filter(([k]) => COMPLAINTS[k]).sort((a, b) => (a[0] === "weather") - (b[0] === "weather") || b[1] - a[1]);
+function feedbackList(f, max) {
+  const wrap = el("div", "feedback");
+  const guests = f ? f.guests : 0;
+  if (!guests) { wrap.appendChild(el("p", "small", "No guests have left yet today. Their thoughts will show up here.")); return wrap; }
+  const pct = Math.round(100 * f.happy / guests);
+  wrap.appendChild(el("p", "feedback-score " + (pct >= 70 ? "good" : pct >= 40 ? "" : "bad"), `${pct}% of ${fmt(guests)} guests left happy`));
+  const top = topGripes(f).slice(0, max);
+  if (!top.length) wrap.appendChild(el("p", "small", "No complaints. Keep it up!"));
+  for (const [k, n] of top) {
+    const row = el("div", "feedback-row");
+    const head = el("div", "feedback-head");
+    head.appendChild(el("span", "feedback-quote", `"${COMPLAINTS[k].quote}"`));
+    head.appendChild(el("b", "", `${Math.round(100 * n / guests)}%`));
+    row.appendChild(head);
+    row.appendChild(el("p", "small feedback-fix", COMPLAINTS[k].fix));
+    wrap.appendChild(row);
+  }
+  return wrap;
+}
+function renderFeedback() {
+  const box = $("feedback");
+  if (!box) return;
+  box.innerHTML = "";
+  if (!state.day) { box.appendChild(el("p", "small", "The park is closed. Check last night's report for what guests said.")); return; }
+  box.appendChild(feedbackList(state.day.feedback, 3));
+  if (guestQuotes.length) {
+    const recent = el("div", "feedback-recent");
+    recent.appendChild(el("h3", "", "Overheard just now"));
+    for (const q of guestQuotes) recent.appendChild(el("p", "small", `${q.who}: "${COMPLAINTS[q.k].quote}"`));
+    box.appendChild(recent);
+  }
 }
 
 function criticReview(v) {
@@ -547,7 +688,7 @@ function tickRequests() {
 // ================= Escapes =================
 const escapes = new Map();   // ind.id -> { ind, e, x, y, vx, vy, t }
 function tickEscapes() {
-  if (!isUnlocked("events") || !isOpen()) return;
+  if (!isUnlocked("events") || !isOpen() || isSimple()) return;   // no escapes in Simple mode
   for (const { ind, e } of placedList()) {
     const chance = ESCAPERS[ind.k];
     if (!chance || escapes.has(ind.id) || isLost(e) || (activeEvent && activeEvent.ind === ind)) continue;
@@ -562,7 +703,7 @@ function tickEscapes() {
     if (--esc.t <= 0) { escapes.delete(id); toast(`${esc.ind.name} wandered back home.`, 3000, esc.ind.k); continue; }
     for (const v of visitors) {
       const vx = (v.tx + (v.nx - v.tx) * v.prog) * TILE + 8, vy = (v.ty + (v.ny - v.ty) * v.prog) * TILE + 8;
-      if (!v.leaving && Math.hypot(vx - esc.x, vy - esc.y) < 18) { v.mood -= 12; v.bubble = { icon: "scared", t: 1.2 }; }
+      if (!v.leaving && Math.hypot(vx - esc.x, vy - esc.y) < 18) { v.mood -= 12; v.bubble = { icon: "scared", t: 1.2 }; gripe(v, "scared"); }
     }
   }
 }
@@ -624,7 +765,7 @@ function rollEgg(t) {
 }
 
 // ================= Daily reward =================
-function dayKey(d) { return d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate(); }
+const dayKey = todayKey;
 function checkDaily() {
   const today = dayKey(new Date());
   if (state.daily.last === today) return;
@@ -653,7 +794,7 @@ async function doPrestige() {
   const keep = {
     discovered: state.discovered, recipesKnown: state.recipesKnown, achievements: state.achievements,
     stats: state.stats, settings: state.settings, daily: state.daily, goal: state.goal,
-    shards: state.shards + gain, totalEarned: state.totalEarned, worldClock: Math.floor(state.worldClock / CYCLE_SECS) * CYCLE_SECS + DAY_SECS + 1, seenVersion: state.seenVersion, tutorialDone: true,
+    shards: state.shards + gain, totalEarned: state.totalEarned, worldClock: Math.floor(state.worldClock / CYCLE_SECS) * CYCLE_SECS + DAY_SECS + 1, seenVersion: state.seenVersion, tutorialDone: true, mode: state.mode,
   };
   state = Object.assign(defaultState(), keep);
   state.stats.prestiges++;
@@ -703,6 +844,7 @@ function downloadSnapshot() {
 
 // ================= Per-second hook =================
 function systemsSecond() {
+  autoLot();
   tickCare();
   staffSecond();
   tickRequests();
@@ -758,7 +900,8 @@ function thumb(src, w, h) {
 function renderBuildOptions() {
   const box = $("build-options");
   box.innerHTML = "";
-  if (tool === "path") {
+  if (tool === "path" && isSimple()) box.hidden = true;   // one kind of path in Simple mode
+  else if (tool === "path") {
     const types = Object.keys(PATH_TYPES).map(Number);
     box.appendChild(el("h4", "", "PATH TYPE"));
     const chips = el("div", "chips");
@@ -770,7 +913,7 @@ function renderBuildOptions() {
     box.appendChild(el("h4", "", "SHAPE"));
     const shapes = el("div", "chips");
     for (const k of Object.keys(ENC_TYPES)) shapes.appendChild(chip(`${ENC_TYPES[k].label} ${ENC_TYPES[k].size}x${ENC_TYPES[k].size}`, `holds ${ENC_TYPES[k].cap} · ${fmt(enclosureCost(k))}c`, !custom && encChoice.size === k, () => { encChoice.shape = "square"; encChoice.size = k; renderUI(true); }, null, "size:" + k));
-    shapes.appendChild(chip("Custom shape", `paint up to ${customMaxTiles()} tiles`, custom, () => { encChoice.shape = "custom"; renderUI(true); }, null, "size:custom"));
+    if (inMode("size:custom")) shapes.appendChild(chip("Custom shape", `paint up to ${customMaxTiles()} tiles`, custom, () => { encChoice.shape = "custom"; renderUI(true); }, null, "size:custom"));
     box.appendChild(shapes);
     if (custom) {
       const n = penDraft.size, problem = draftProblem();
@@ -793,13 +936,15 @@ function renderBuildOptions() {
     for (const k of Object.keys(THEMES)) themes.appendChild(chip(THEMES[k].label, `x${THEMES[k].costMult} cost`, encChoice.theme === k, () => { encChoice.theme = k; renderUI(true); }, thumb(makeEncGround(3, k), 24, 24), "theme:" + k));
     box.appendChild(themes);
     box.appendChild(el("p", "opt-desc", THEMES[encChoice.theme].desc));
-    box.appendChild(el("h4", "", "FENCE"));
-    const fences = el("div", "chips");
-    for (const k of Object.keys(FENCE_TYPES)) {
-      const art = fenceThumb(k === "theme" ? THEME_FENCE[encChoice.theme] : k, encChoice.theme);
-      fences.appendChild(chip(FENCE_TYPES[k].label, FENCE_TYPES[k].costMult === 1 ? "no extra" : `x${FENCE_TYPES[k].costMult} cost`, encChoice.fence === k, () => { encChoice.fence = k; renderUI(true); }, art, k === "theme" || k === "wood" ? null : "fence:" + k));
+    if (!isSimple()) {
+      box.appendChild(el("h4", "", "FENCE"));
+      const fences = el("div", "chips");
+      for (const k of Object.keys(FENCE_TYPES)) {
+        const art = fenceThumb(k === "theme" ? THEME_FENCE[encChoice.theme] : k, encChoice.theme);
+        fences.appendChild(chip(FENCE_TYPES[k].label, FENCE_TYPES[k].costMult === 1 ? "no extra" : `x${FENCE_TYPES[k].costMult} cost`, encChoice.fence === k, () => { encChoice.fence = k; renderUI(true); }, art, k === "theme" || k === "wood" ? null : "fence:" + k));
+      }
+      box.appendChild(fences);
     }
-    box.appendChild(fences);
     box.hidden = false;
   } else box.hidden = true;
 }
@@ -851,7 +996,7 @@ function renderRequest() {
 function renderStaff() {
   const types = Object.keys(STAFF);
   const card = $("staff-card");
-  card.hidden = false;
+  card.hidden = isSimple();
   $("wages").textContent = wagesPerSec() ? `-${fmtVal(wagesPerSec())}c/s` : "";
   const box = $("staff");
   box.innerHTML = "";
@@ -954,6 +1099,7 @@ function drawPlotFlash(time) {
 }
 
 function renderPrestige() {
+  $("prestige-card").hidden = isSimple();
   const card = $("prestige-card");
   card.hidden = false;
   card.classList.toggle("card-locked", !isUnlocked("prestige") && !state.shards);
@@ -977,6 +1123,7 @@ const BIOME_LABELS = { meadow: "meadow", oak: "oak forest", pine: "pine forest",
 function renderParking() {
   const box = $("parking");
   if (!box) return;
+  $("parking-card").hidden = isSimple();
   box.innerHTML = "";
   const lvl = lotLevel(), cur = LOT_LEVELS[lvl - 1];
   const parked = cars.filter(c => c.state === "parked").length;
@@ -1001,6 +1148,7 @@ function renderParking() {
 function renderBank() {
   const box = $("bank");
   if (!box) return;
+  $("bank-card").hidden = isSimple();
   box.innerHTML = "";
   const cap = bankCap(), fill = Math.min(1, state.money / cap);
   $("bank-level").textContent = "LV " + state.bankLevel;

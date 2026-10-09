@@ -31,24 +31,27 @@ function makeIndividual(k, s, opts = {}) {
 }
 
 // ================= State =================
+const todayKey = (d = new Date()) => d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate();
 function defaultState() {
   const tiles = new Array(COLS * ROWS).fill(0);
   for (let x = GATE.x; x <= GATE.x + 12; x++) tiles[GATE.y * COLS + x] = 1;
   const s = {
     version: SAVE_VERSION,
-    money: 150,
+    money: ENC_TYPES.small.cost + EGGS.regular.base,   // just enough for the first pen and the first egg
     tiles,
-    enclosures: [{ id: 1, x: OX + 4, y: OY + 5, s: 3, theme: "meadow", variants: [], lostUntil: 0 }],
+    enclosures: [],   // a new park starts empty: the first pen and egg are bought
+    penVer: 2,
+    mode: "",   // "simple" or "pro", picked on the first visit and locked until a reset
     objects: [],
     inventory: [],
-    discovered: { verity: true },
+    discovered: {},
     recipesKnown: {},
     eggsHatched: 0,
     totalEarned: 0,
     visitorsServed: 0,
     incomeRate: 0,
     lastSaved: Date.now(),
-    nextId: 2,
+    nextId: 1,
     nextUid: 1,
     labLevel: 0,
     level: 1,
@@ -65,7 +68,7 @@ function defaultState() {
     freeEggs: 0,
     freeGolden: 0,
     eggCounts: { regular: 0, golden: 0, cursed: 0 },
-    daily: { last: "", streak: 0 },
+    daily: { last: todayKey(), streak: 0 },   // the first daily reward comes tomorrow, so the first egg is bought
     shards: 0,
     runEarned: 0,
     worldClock: DAY_SECS + 1,
@@ -77,7 +80,6 @@ function defaultState() {
     bankLevel: 1,
     vault: { x: VAULT_HOME.x, y: VAULT_HOME.bottom - vaultSize(1) + 1 },
   };
-  s.enclosures[0].variants.push(makeIndividual("verity", s, { shinyChance: 0 }));
   return s;
 }
 
@@ -109,6 +111,7 @@ let petCooldown = new Map();
 let tickCount = 0;
 let hasElectricity = false;
 let activeTab = "park";
+let gameStarted = false;   // the world waits behind the loading screen until the player enters
 
 // ================= Save / load =================
 function saveGame() {
@@ -147,6 +150,9 @@ function sanitize(data) {
   const base = defaultState();
   if (!data || typeof data !== "object") return base;
   const s = Object.assign(base, data);
+  s.mode = MODES[data.mode] ? data.mode : "";
+  const oldPens = data.penVer !== 2;   // pens built before 2.1's roomier sizes
+  s.penVer = 2;
   s.stats = Object.assign(defaultState().stats, data.stats || {});
   s.settings = Object.assign(defaultState().settings, data.settings || {});
   s.plots = data.plots && typeof data.plots === "object" ? Object.assign({ start: true }, data.plots) : { start: true, east: true, south: true, corner: true };
@@ -201,10 +207,11 @@ function sanitize(data) {
     .map(e => {
       const out = { id: e.id, x: e.x, y: e.y, lostUntil: Number(e.lostUntil) || 0, theme: THEMES[e.theme] ? e.theme : "meadow",
         fence: FENCE_TYPES[e.fence] ? e.fence : "theme", paid: Math.max(0, Number(e.paid) || 0) };
-      const okBox = Number.isInteger(e.w) && Number.isInteger(e.h) && e.w > 0 && e.h > 0 && e.w <= 16 && e.h <= 16;
+      const okBox = Number.isInteger(e.w) && Number.isInteger(e.h) && e.w > 0 && e.h > 0 && e.w <= CUSTOM_PEN.maxSpan && e.h <= CUSTOM_PEN.maxSpan;
       const mask = okBox && Array.isArray(e.mask) ? [...new Set(e.mask.filter(i => Number.isInteger(i) && i >= 0 && i < e.w * e.h))] : [];
-      if (mask.length) Object.assign(out, { w: e.w, h: e.h, mask });
-      else out.s = SIZE_KEY[e.s] ? e.s : 3;
+      if (mask.length) { Object.assign(out, { w: e.w, h: e.h, mask }); if (oldPens || e.oldCap) out.oldCap = true; }
+      else if (oldPens) { out.s = OLD_SIZE_KEY[e.s] ? e.s : 3; out.k = OLD_SIZE_KEY[out.s]; }
+      else { out.k = ENC_TYPES[e.k] ? e.k : SIZE_KEY[e.s] || "small"; out.s = Number.isInteger(e.s) && e.s >= 3 && e.s <= 20 ? e.s : ENC_TYPES[out.k].size; }
       out.variants = (Array.isArray(e.variants) ? e.variants : []).map(x => sanitizeInd(x, s)).filter(Boolean).slice(0, capOf(out));
       return out;
     });
@@ -223,7 +230,6 @@ function sanitize(data) {
   for (const e of s.enclosures) if (!e.id) e.id = s.nextId++;
   for (const o of s.objects) if (!o.id) o.id = s.nextId++;
   if (typeof s.discovered !== "object" || !s.discovered) s.discovered = {};
-  s.discovered.verity = true;
   for (const ind of all) s.discovered[ind.k] = true;
   if (typeof s.recipesKnown !== "object" || !s.recipesKnown) s.recipesKnown = {};
   if (typeof s.achievements !== "object" || !s.achievements) s.achievements = {};
@@ -297,6 +303,7 @@ function importSave(code) {
   syncStaff();
   rebuildGrids();
   ensureVaultSpot();
+  growOldPens();
   saveGame();
   applyLocks();
   renderUI(true);
@@ -331,11 +338,21 @@ function encCells(e) {
   return out;
 }
 const encTiles = e => e.mask ? e.mask.length : encW(e) * encH(e);
-const capOf = e => e.mask ? capForTiles(e.mask.length) : ENC_TYPES[SIZE_KEY[encSize(e)]].cap;
-const encAppeal = e => e.mask ? appealForTiles(e.mask.length) : ENC_TYPES[SIZE_KEY[encSize(e)]].appeal;
+const encType = e => ENC_TYPES[e.k] || ENC_TYPES[SIZE_KEY[encSize(e)]] || ENC_TYPES.small;
+const capOf = e => e.mask ? (e.oldCap ? oldCapForTiles : capForTiles)(e.mask.length) : encType(e).cap;
+const encAppeal = e => e.mask ? appealForTiles(e.mask.length) : encType(e).appeal;
 const fenceKeyOf = e => e.fence && e.fence !== "theme" ? e.fence : null;
-const encSprite = e => e.mask ? makePenSprite(encW(e), encH(e), encMaskSet(e), e.theme, fenceKeyOf(e)) : makeEncGround(encSize(e), e.theme, fenceKeyOf(e));
-const encLabel = e => e.mask ? `Custom (${e.mask.length} tiles)` : `${ENC_TYPES[SIZE_KEY[encSize(e)]].label} ${encSize(e)}x${encSize(e)}`;
+// Each pen remembers its own sprite until its shape, theme or fence changes.
+const encSprites = new WeakMap();
+function encSprite(e) {
+  const k = [e.theme, fenceKeyOf(e), e.s, e.w, e.h].join("|"), hit = encSprites.get(e);
+  if (hit && hit.k === k && hit.mask === e.mask) return hit.spr;
+  const spr = e.mask ? makePenSprite(encW(e), encH(e), encMaskSet(e), e.theme, fenceKeyOf(e)) : makeEncGround(encSize(e), e.theme, fenceKeyOf(e));
+  encSprites.set(e, { k, mask: e.mask, spr });
+  return spr;
+}
+const draftSprites = new Map();
+const encLabel = e => e.mask ? `Custom (${e.mask.length} tiles)` : `${encType(e).label} ${encSize(e)}x${encSize(e)}`;
 const encAt = (x, y) => inBounds(x, y) ? encGrid[idx(x, y)] : 0;
 const objAt = (x, y) => inBounds(x, y) ? objGrid[idx(x, y)] : 0;
 const getEnc = id => state.enclosures.find(e => e.id === id);
@@ -410,14 +427,19 @@ function touchesPath(x, y, w, h) {
 }
 
 // ================= Park XP & unlocks =================
-const isUnlocked = id => state.level >= (UNLOCK_LEVEL[id] || 1);
+const isSimple = () => state.mode === "simple";
+// Whether this game mode has a feature at all (Simple mode leaves some out for good).
+const inMode = id => !(isSimple() && SIMPLE_OFF.some(p => p.endsWith(":") ? id.startsWith(p) : id === p));
+const isUnlocked = id => inMode(id) && state.level >= (UNLOCK_LEVEL[id] || 1);
+const modeUnlocks = () => UNLOCKS.filter(u => inMode(u.id));
+const modeAchievements = () => ACHIEVEMENTS.filter(a => !a.pro || !isSimple());
 function maxEnclosures() {
   let n = 2;
   for (const u of UNLOCKS) if (u.id.startsWith("enc:") && state.level >= u.level) n++;
   return n;
 }
 function nextUnlockLevel() {
-  const u = UNLOCKS.find(u => u.level > state.level);
+  const u = modeUnlocks().find(u => u.level > state.level);
   return u ? u.level : null;
 }
 function fuseLevelFor(rarity) { return UNLOCK_LEVEL["fuse:" + rarity]; }
@@ -430,7 +452,7 @@ function gainParkXp(amount) {
     state.xp -= xpToNext(state.level);
     state.level++;
     leveled = true;
-    const unlocked = UNLOCKS.filter(u => u.level === state.level).map(u => u.name);
+    const unlocked = modeUnlocks().filter(u => u.level === state.level).map(u => u.name);
     toast(`Park level ${state.level}!` + (unlocked.length ? ` Unlocked: ${unlocked.join(", ")}.` : ""), 6000, "celebrity");
   }
   if (leveled) {
@@ -455,7 +477,7 @@ function customPenCost(n, theme = encChoice.theme, fence = encChoice.fence) {
 }
 // What a pen is worth before the "more pens cost more" growth: used for refunds and remodels.
 function penBaseValue(e, theme = e.theme, fence = e.fence || "theme") {
-  const base = e.mask ? customPenBase(e.mask.length) : ENC_TYPES[SIZE_KEY[encSize(e)]].cost;
+  const base = e.mask ? customPenBase(e.mask.length) : encType(e).cost;
   return Math.round(base * THEMES[theme].costMult * fenceMult(fence));
 }
 function customMaxTiles() {
@@ -540,7 +562,8 @@ function payFor(ind, e) {
 }
 
 // ---- the bank ----
-const bankCap = () => BANK_LEVELS[Math.max(0, Math.min(BANK_LEVELS.length, state.bankLevel || 1) - 1)].cap;
+const bankLevelCap = () => BANK_LEVELS[Math.max(0, Math.min(BANK_LEVELS.length, state.bankLevel || 1) - 1)].cap;
+const bankCap = () => isSimple() ? Infinity : bankLevelCap();   // Simple mode: the pile never fills up
 const isVault = (x, y) => x >= VAULT.x && x < VAULT.x + VAULT.w && y >= VAULT.y && y < VAULT.y + VAULT.h;
 let bankFullNoticeAt = 0;
 // Adds coins up to the bank's capacity and returns how many fit.
@@ -667,9 +690,10 @@ function worldFromEvent(e) {
 
 // Building, bulldozing and moving variants only happen while the park is closed.
 // True while the park is open (unless the admin panel allows building any time). No side effects.
-const dayLocked = () => isOpen() && !(typeof admin !== "undefined" && admin.freeBuild);
+// Simple mode builds any time.
+const dayLocked = () => isOpen() && !isSimple() && !(typeof admin !== "undefined" && admin.freeBuild);
 function buildLocked() {
-  if (!isOpen() || (typeof admin !== "undefined" && admin.freeBuild)) return false;
+  if (!dayLocked()) return false;
   hintOnce("The park is open! Building and moving variants unlock at 10 PM. You can also close early.");
   sfx("fail");
   return true;
@@ -683,6 +707,21 @@ function canPlaceEnclosure(x, y, n = ENC_TYPES[encChoice.size].size) {
       if (!inBounds(tx, ty) || !isOwned(tx, ty) || state.tiles[idx(tx, ty)] !== 0 || encAt(tx, ty) || objAt(tx, ty) || isVault(tx, ty)) return false;
     }
   return true;
+}
+// Small pens from before 2.1 are 3x3. Grow each one to 4x4 if there's clear land around
+// it (it may shift left or up to fit). Older Medium and Large pens keep their size.
+function growOldPens() {
+  let grew = 0;
+  for (const e of state.enclosures) {
+    if (e.mask) continue;
+    const n = encType(e).size, d = n - e.s;
+    if (d !== 1) continue;
+    const free = (x, y) => inBounds(x, y) && isOwned(x, y) && (encAt(x, y) === e.id || (state.tiles[idx(x, y)] === 0 && !encAt(x, y) && !objAt(x, y) && !isVault(x, y)));
+    const fits = (x0, y0) => { for (let y = y0; y < y0 + n; y++) for (let x = x0; x < x0 + n; x++) if (!free(x, y)) return false; return true; };
+    for (let oy = 0; oy <= d && e.s < n; oy++) for (let ox = 0; ox <= d; ox++) if (fits(e.x - ox, e.y - oy)) { e.x -= ox; e.y -= oy; e.s = n; grew++; rebuildGrids(); break; }
+  }
+  if (grew) critterPos.clear();
+  return grew;
 }
 const canPlaceObject = (x, y) => inBounds(x, y) && isOwned(x, y) && !isPath(x, y) && !encAt(x, y) && !objAt(x, y) && !isVault(x, y);
 const encOffset = n => Math.floor((n - 1) / 2);
@@ -706,7 +745,7 @@ function placeEnclosure(x, y) {
   if (!canPlaceEnclosure(ex, ey)) return hintOnce(`This enclosure needs a clear ${n}x${n} patch of your own grass.`);
   const cost = enclosureCost();
   if (!spend(cost)) return hintOnce(`Enclosures cost ${fmt(cost)} coins.`);
-  state.enclosures.push({ id: state.nextId++, x: ex, y: ey, s: n, theme: encChoice.theme, fence: encChoice.fence || "theme", paid: cost, variants: [], lostUntil: 0 });
+  state.enclosures.push({ id: state.nextId++, x: ex, y: ey, s: n, k: encChoice.size, theme: encChoice.theme, fence: encChoice.fence || "theme", paid: cost, variants: [], lostUntil: 0 });
   rebuildGrids();
   sfx("build");
   gainParkXp(XP.enclosure);
@@ -735,7 +774,8 @@ function draftProblem() {
   if (cells.length < CUSTOM_PEN.min) return `Paint at least ${CUSTOM_PEN.min} tiles.`;
   if (cells.some(([x, y]) => !canPenTile(x, y))) return "Some tiles are blocked.";
   const xs = cells.map(c => c[0]), ys = cells.map(c => c[1]);
-  if (Math.max(...xs) - Math.min(...xs) >= 16 || Math.max(...ys) - Math.min(...ys) >= 16) return "Too spread out (16 tiles across at most).";
+  const span = CUSTOM_PEN.maxSpan;
+  if (Math.max(...xs) - Math.min(...xs) >= span || Math.max(...ys) - Math.min(...ys) >= span) return `Too spread out (${span} tiles across at most).`;
   const seen = new Set([cells[0].join(",")]), queue = [cells[0]];
   while (queue.length) { const [x, y] = queue.pop(); for (const [dx, dy] of DIRS) { const k = (x + dx) + "," + (y + dy); if (penDraft.has(k) && !seen.has(k)) { seen.add(k); queue.push([x + dx, y + dy]); } } }
   if (seen.size !== cells.length) return "All tiles must join up into one pen.";
@@ -865,7 +905,8 @@ function hatchEgg(type = "regular") {
   if (type === "golden") state.stats.golden++;
   if (type === "cursed") state.stats.cursed++;
   gainParkXp(XP.hatch * (type === "regular" ? 1 : 3));
-  const roll = rollEgg(type);
+  // the very first egg always hatches a Verity, the one that started it all
+  const roll = type === "regular" && state.stats.hatched === 1 ? { key: "verity", shiny: 0 } : rollEgg(type);
   const ind = makeIndividual(roll.key, state, { shinyChance: roll.shiny });
   if (roll.grumpy && Math.random() < 0.5) ind.trait = "grumpy";
   const isNew = addNew(ind);
@@ -1003,16 +1044,18 @@ function upgradeLab() {
 
 // ================= Visitors =================
 // Guests walk from their car to the gate (world.js), then enter here and pay for a ticket.
+// Each one wanders the paths for a random length of time, then walks back out of the gate
+// and returns to their car the way they came (w.route).
 function admitVisitor(w) {
   const look = w ? w.look : randomLook(rollVisitorType());
   const type = look.type;
   visitors.push({
-    type, look, frames: w ? w.frames : personFrames(look), carId: w ? w.carId : 0,
+    type, look, frames: w ? w.frames : personFrames(look), carId: w ? w.carId : 0, route: w ? w.route : null,
     mood: 70, pensSeen: 0, bubble: null,
     tx: GATE.x, ty: GATE.y, px: GATE.x - 1, py: GATE.y, nx: GATE.x, ny: GATE.y,
     prog: 1, speed: (type === "kid" ? 1.4 : 1.1) + Math.random() * 0.6,
-    steps: 25 + Math.floor(Math.random() * 40) + Math.min(90, state.enclosures.length * 4),   // bigger parks: longer walks
-    seen: new Set(), alpha: 0.4, leaving: false,
+    age: 0, stay: 20 + Math.random() * 45 + Math.min(60, state.enclosures.length * 3),   // seconds in the park; bigger parks keep guests longer
+    seen: new Set(), alpha: 0.4, leaving: false, gripes: new Set(), ate: false, standsSeen: 0, decorSeen: 0, deadEnds: 0, litter: 0, crowds: 0,
     off: Math.floor(Math.random() * 9) - 4, offY: Math.floor(Math.random() * 7) - 3,   // where across the path this guest walks
     phase: Math.random() * 6,
   });
@@ -1022,7 +1065,6 @@ function admitVisitor(w) {
   if (state.day) state.day.visitors++;
   gainParkXp(XP.visitor * (1 + state.level * 0.15));
 }
-const spawnVisitor = () => admitVisitor(null);
 
 function arriveAt(v) {
   for (const [dx, dy] of DIRS) {
@@ -1034,6 +1076,8 @@ function arriveAt(v) {
       if (!isLost(e)) {
         let pay = 0;
         for (const ind of e.variants) if (!(activeEvent && activeEvent.ind === ind) && !escapes.has(ind.id)) pay += payFor(ind, e);
+        if (!e.variants.length) gripe(v, "empty");
+        if (careActive() && e.variants.some(i => i.food < 25)) gripe(v, "sad");
         if (pay > 0) {
           earn(pay, v.tx * TILE + 8, v.ty * TILE - 4, undefined, "Exhibits");
           sfx("coin");
@@ -1048,11 +1092,14 @@ function arriveAt(v) {
     if (oid && !v.seen.has("o" + oid)) {
       v.seen.add("o" + oid);
       const def = OBJECTS[getObj(oid).t];
+      if (def.kind === "decor") v.decorSeen++;
       const buyMult = (hasElectricity ? 1.5 : 1) * (VISITOR_TYPES[v.type].buyMult || 1);
+      if (def.kind === "stand") v.standsSeen++;
       if (def.kind === "stand" && Math.random() < STAND_BUY_CHANCE * buyMult) {
         earn(def.price * globalMult(), nx * TILE + 8, ny * TILE - 6, "#ff9ad5", "Snacks");
         sfx("coin");
         v.mood += 8;
+        v.ate = true;
         if (Math.random() < 0.4) v.bubble = { icon: "food", t: 1.2 };
         if (Math.random() < 0.35) dropTrash(v.tx, v.ty);
       }
@@ -1060,21 +1107,60 @@ function arriveAt(v) {
   }
 }
 
+// How many steps each path tile is from the gate, following paths. Rebuilt at most twice a
+// second, so guests heading home always follow the paths as they are now.
+let exitField = new Int32Array(COLS * ROWS), exitFieldAt = -1;
+const exitQueue = new Int32Array(COLS * ROWS);
+function exitDist() {
+  if (exitFieldAt >= 0 && performance.now() - exitFieldAt < 500) return exitField;
+  exitFieldAt = performance.now();
+  exitField.fill(-1);
+  if (!isPath(GATE.x, GATE.y)) return exitField;
+  let head = 0, tail = 0;
+  exitField[idx(GATE.x, GATE.y)] = 0;
+  exitQueue[tail++] = idx(GATE.x, GATE.y);
+  while (head < tail) {
+    const i = exitQueue[head++], x = i % COLS, y = (i - x) / COLS;
+    for (const [dx, dy] of DIRS) {
+      const nx = x + dx, ny = y + dy;
+      if (!isPath(nx, ny) || exitField[idx(nx, ny)] >= 0) continue;
+      exitField[idx(nx, ny)] = exitField[i] + 1;
+      exitQueue[tail++] = idx(nx, ny);
+    }
+  }
+  return exitField;
+}
+
 function updateVisitor(v, dt) {
   v.phase += dt * 10;
   if (v.bubble) { v.bubble.t -= dt; if (v.bubble.t <= 0) v.bubble = null; }
-  if (v.leaving) { v.alpha -= dt * 2; return; }
+  if (v.fading) { v.alpha -= dt * 2; return; }
   v.alpha = Math.min(1, v.alpha + dt * 3);
-  if (!isPath(v.tx, v.ty)) { leaveVisitor(v); return; }
+  if (!isPath(v.tx, v.ty)) { leaveVisitor(v); v.fading = true; return; }   // the path was bulldozed under them
+  v.age += dt;
   if (v.prog < 1) {
-    v.prog = Math.min(1, v.prog + dt * v.speed * PATH_TYPES[state.tiles[idx(v.tx, v.ty)]].speed);
-    if (v.prog >= 1) { v.tx = v.nx; v.ty = v.ny; arriveAt(v); visitorMoodStep(v); }
+    const hurry = v.leaving ? (isOpen() ? 1.3 : 2.4) : 1;
+    v.prog = Math.min(1, v.prog + dt * v.speed * hurry * PATH_TYPES[state.tiles[idx(v.tx, v.ty)]].speed);
+    if (v.prog >= 1) {
+      v.tx = v.nx; v.ty = v.ny;
+      if (!v.leaving) { arriveAt(v); visitorMoodStep(v); }
+    }
     return;
   }
-  if (--v.steps <= 0) { leaveVisitor(v); return; }
+  if (!v.leaving && v.age >= v.stay) leaveVisitor(v);
+  if (v.leaving) {
+    // head for the gate along the paths, then out to the car park
+    const d = exitDist(), here = d[idx(v.tx, v.ty)];
+    if (here === 0) { exitPark(v); return; }
+    const next = here > 0 && DIRS.map(([dx, dy]) => ({ x: v.tx + dx, y: v.ty + dy })).find(p => isPath(p.x, p.y) && d[idx(p.x, p.y)] === here - 1);
+    if (!next) { v.fading = true; return; }   // cut off from the gate: slip away
+    v.px = v.tx; v.py = v.ty; v.nx = next.x; v.ny = next.y; v.prog = 0;
+    return;
+  }
   const opts = DIRS.map(([dx, dy]) => ({ x: v.tx + dx, y: v.ty + dy })).filter(p => isPath(p.x, p.y));
-  if (!opts.length) { leaveVisitor(v); return; }
+  if (!opts.length) { leaveVisitor(v); v.fading = true; return; }
   const forward = opts.filter(p => !(p.x === v.px && p.y === v.py));
+  if (!forward.length && opts.length === 1 && !(v.tx === GATE.x && v.ty === GATE.y) && ++v.deadEnds >= 3) gripe(v, "deadend");
   const choice = randItem(forward.length ? forward : opts);
   v.px = v.tx; v.py = v.ty;
   v.nx = choice.x; v.ny = choice.y;
@@ -1101,7 +1187,7 @@ function startEvent(forceType, forceKey) {
     activeEvent = { type, t: 0, dur: 30, icon: "celebrity", text: "Variant Parade! Tickets cost 3x and twice as many visitors arrive." };
   } else {
     activeEvent = { type, ind: p.ind, e: p.e, t: 0, dur: 15, clicks: 0, need: 12, icon: p.ind.k,
-      text: `He belongs to the Backrooms! Click Steve and Pirate Clark to save ${p.ind.name}!` };
+      text: `He belongs to the Backrooms! Pirate Clark is dragging ${p.ind.name} away. Click him to save ${p.ind.name}!` };
   }
   sfx("event");
   toast(activeEvent.text, 4500, activeEvent.icon);
@@ -1129,13 +1215,12 @@ function endEvent(win) {
   renderUI(true);
 }
 
+// Pirate Clark stands just outside the pen, hauling the variant towards a doorway into the Backrooms.
 function tugActors() {
   const e = activeEvent.e;
-  return [
-    { spr: STEVE_SPR, x: e.x * TILE - 11, y: e.y * TILE + 18 },
-    { spr: PIRATE_SPR, x: (e.x + encW(e)) * TILE + 3, y: e.y * TILE + 18 },
-  ];
+  return [{ spr: PIRATE_SPR, x: (e.x + encW(e)) * TILE + 2, y: e.y * TILE + 18 }];
 }
+const tugDoor = e => ({ x: (e.x + encW(e)) * TILE + 13, y: e.y * TILE + 9 });
 
 function tugHit(p) {
   const e = activeEvent.e;
@@ -1148,7 +1233,8 @@ function tugClick(p) {
   ev.clicks++;
   sfx("tug");
   for (let i = 0; i < 5; i++) particles.push({ x: p.gx, y: p.gy, vx: (Math.random() - 0.5) * 60, vy: -Math.random() * 50, life: 0.5, col: randItem(["#fff", "#ffd23f", "#ff5c7a"]) });
-  floaters.push({ x: p.gx, y: p.gy - 4, text: randItem(["POW", "BONK", "NO!", "MINE"]), t: 0.4, color: "#fff" });
+  floaters.push({ x: p.gx, y: p.gy - 4, text: randItem(["POW", "BONK", "NO!", "LET GO"]), t: 0.4, color: "#fff" });
+  ev.stun = 0.35;
   if (ev.clicks >= ev.need) endEvent(true);
 }
 
@@ -1167,6 +1253,7 @@ function updateEvent(dt) {
     return;
   }
   ev.t += dt;
+  if (ev.stun) ev.stun = Math.max(0, ev.stun - dt);
   if (ev.t >= ev.dur) endEvent(false);
 }
 
@@ -1183,7 +1270,7 @@ function checkProgress() {
     toast(`Goal complete: ${g.text}! ${keptText(kept, g.reward)}`, 4500, "lovity");
   }
   let changed = false;
-  for (const a of ACHIEVEMENTS) {
+  for (const a of modeAchievements()) {
     if (state.achievements[a.id] || !a.test()) continue;
     state.achievements[a.id] = Date.now();
     changed = true;
@@ -1216,7 +1303,7 @@ function secondTick() {
   hasElectricity = placed.some(p => p.ind.k === "electricity");
   systemsSecond();
   checkProgress();
-  if (activeTab === "park") renderShopState();
+  if (activeTab === "park") { renderShopState(); if (tickCount % 2 === 0) renderFeedback(); }
 }
 
 function update(dt) {
@@ -1236,7 +1323,7 @@ function update(dt) {
   updateCars(dt);
   updateAmbient(dt);
   for (const v of visitors) updateVisitor(v, dt);
-  visitors = visitors.filter(v => !(v.leaving && v.alpha <= 0));
+  visitors = visitors.filter(v => !v.gone && !(v.fading && v.alpha <= 0));
 
   for (const f of floaters) f.t += dt;
   floaters = floaters.filter(f => f.t < 1.2);
@@ -1556,21 +1643,28 @@ function drawTug(time) {
   const ev = activeEvent;
   const e = ev.e;
   const cx = e.x * TILE + encW(e) * TILE / 2, cy = e.y * TILE + encH(e) * TILE * 0.7;
-  const pull = Math.round(Math.sin(time * 7) * 4);
-  const actors = tugActors();
+  const [clark] = tugActors(), door = tugDoor(e);
+  // the Backrooms doorway: a flickering slice of yellow wallpaper and buzzing light
+  const flick = Math.sin(time * 23) > 0.85 ? 0.6 : 1;
+  ctx.fillStyle = "#000"; ctx.fillRect(door.x - 1, door.y - 1, 12, 20);
+  ctx.fillStyle = "#c9b458"; ctx.fillRect(door.x, door.y, 10, 18);
+  ctx.fillStyle = "#b09a42"; for (let i = 1; i < 10; i += 3) ctx.fillRect(door.x + i, door.y, 1, 18);
+  ctx.globalAlpha = flick; ctx.fillStyle = "#fff6c0"; ctx.fillRect(door.x + 2, door.y + 1, 6, 1); ctx.globalAlpha = 1;
+  ctx.fillStyle = "#6e6233"; ctx.fillRect(door.x, door.y + 15, 10, 3);
+  // the variant slides towards the fence as time runs out; each bonk makes Clark lose his grip
+  const drag = Math.min(1, ev.t / ev.dur) * (1 - 0.6 * ev.clicks / ev.need);
+  const shake = ev.stun ? 0 : Math.round(Math.sin(time * 7) * 2);
+  const vx = cx + (clark.x - 4 - cx) * drag * 0.85 + shake, vy = cy + (clark.y + 10 - cy) * drag * 0.5;
   ctx.strokeStyle = "#e0c080";
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(actors[0].x + 8, actors[0].y + 8); ctx.lineTo(cx - 3 + pull, cy - 5);
-  ctx.moveTo(actors[1].x, actors[1].y + 8); ctx.lineTo(cx + 3 + pull, cy - 5);
+  ctx.moveTo(clark.x + 1, clark.y + 8); ctx.lineTo(vx + 3, vy - 5);
   ctx.stroke();
-  const c = { x: cx + pull, y: cy, vx: 1, vy: 0, phase: 0 };
-  drawIndividual(ctx, ev.ind, c, 0, time);
-  actors.forEach((a, i) => {
-    const lean = Math.round(Math.sin(time * 7 + (i ? Math.PI : 0)));
-    ctx.fillStyle = "rgba(0,0,0,0.25)"; ctx.fillRect(a.x, a.y + 13, 8, 2);
-    blit(ctx, a.spr, a.x + lean, a.y);
-  });
+  drawIndividual(ctx, ev.ind, { x: vx, y: vy, vx: 1, vy: 0, phase: 0 }, 0, time);
+  const lean = ev.stun ? -2 : Math.round(Math.sin(time * 7)) + 1;
+  ctx.fillStyle = "rgba(0,0,0,0.25)"; ctx.fillRect(clark.x, clark.y + 13, 8, 2);
+  blit(ctx, PIRATE_SPR, clark.x + lean, clark.y);
+  if (ev.stun) drawBubble("angry", clark.x + 4, clark.y - 2);
   const bw = encW(e) * TILE;
   ctx.fillStyle = "#000"; ctx.fillRect(e.x * TILE, e.y * TILE - 12, bw, 5);
   ctx.fillStyle = "#ff5c7a"; ctx.fillRect(e.x * TILE + 1, e.y * TILE - 11, Math.round((bw - 2) * (1 - ev.t / ev.dur)), 1);
@@ -1589,7 +1683,7 @@ function drawPenDraft() {
   const x0 = Math.min(...cells.map(c => c[0])), y0 = Math.min(...cells.map(c => c[1]));
   const w = Math.max(...cells.map(c => c[0])) - x0 + 1, h = Math.max(...cells.map(c => c[1])) - y0 + 1;
   ctx.globalAlpha = 0.75;
-  blit(ctx, makePenSprite(w, h, new Set(cells.map(([x, y]) => (x - x0) + "," + (y - y0))), encChoice.theme, encChoice.fence === "theme" ? null : encChoice.fence), x0 * TILE, y0 * TILE);
+  blit(ctx, makePenSprite(w, h, new Set(cells.map(([x, y]) => (x - x0) + "," + (y - y0))), encChoice.theme, encChoice.fence === "theme" ? null : encChoice.fence, draftSprites, 1), x0 * TILE, y0 * TILE);
   ctx.globalAlpha = 1;
   const bad = cells.filter(([x, y]) => !canPenTile(x, y));
   ctx.fillStyle = "rgba(255,60,90,0.45)";
@@ -1647,12 +1741,25 @@ function drawHover() {
   ctx.strokeRect(x * TILE + 0.5, y * TILE + 0.5, w * TILE - 1, h * TILE - 1);
 }
 
+// Where a guest stands within a path tile (centre x, feet y, relative to the tile's corner).
+// Guests spread across the path, but stay clear of whatever is beside it: they keep off the
+// edges next to grass, pens and props, and well back from the tall stands and decor in front.
+function guestSpot(v, x, y) {
+  const lo = isPath(x - 1, y) ? 3 : 7, hi = isPath(x + 1, y) ? 13 : 9;
+  const below = isPath(x, y + 1) ? 18 : objAt(x, y + 1) ? 9 : 12;
+  const top = Math.min(12, below - 3);
+  return [lo + (hi - lo) * (v.off + 4) / 8, top + (below - top) * ((v.offY ?? 0) + 3) / 6];
+}
+function visitorFeet(v) {
+  const [ax, ay] = guestSpot(v, v.tx, v.ty), [bx, by] = guestSpot(v, v.nx, v.ny), t = v.prog;
+  return [(v.tx + (v.nx - v.tx) * t) * TILE + ax + (bx - ax) * t, (v.ty + (v.ny - v.ty) * t) * TILE + ay + (by - ay) * t];
+}
+
 function drawVisitor(v) {
-  const fx_ = v.tx + (v.nx - v.tx) * v.prog;
-  const fy_ = v.ty + (v.ny - v.ty) * v.prog;
-  const walking = v.prog < 1 && !v.leaving;
+  const walking = v.prog < 1;
   const frame = walking ? (Math.floor(v.phase) % 2 ? 1 : 2) : 0;
-  const vx = fx_ * TILE + 4.5 + v.off, vy = fy_ * TILE + 3 + (v.offY ?? v.off * 0.5);
+  const [cx, feet] = visitorFeet(v);
+  const vx = cx - 3.5, vy = feet - 12;
   ctx.globalAlpha = Math.max(0, v.alpha);
   ctx.fillStyle = "rgba(0,0,0,0.25)";
   const spr = v.frames[frame], head = vy + 12 - uH(spr);
@@ -1707,13 +1814,15 @@ function render(dt, time) {
     else drawCritters(e, dt, time);
   }
   drawVault(time, dt, x0, y0, x1, y1);
-  for (const o of state.objects.slice().sort((a, b) => a.y - b.y)) if (o.x * TILE >= x0 - 20 && o.x * TILE <= x1 + 4 && o.y * TILE >= y0 - 8 && o.y * TILE <= y1 + 24) drawObject(o, time);
+  // props and guests share one depth order, so a guest walking behind a snack stand is hidden by it
+  const depth = [];
+  for (const o of state.objects) if (o.x * TILE >= x0 - 20 && o.x * TILE <= x1 + 4 && o.y * TILE >= y0 - 8 && o.y * TILE <= y1 + 24) depth.push([(o.y + 1) * TILE, o]);
+  for (const v of visitors) { const f = visitorFeet(v); if (f[0] >= x0 - 16 && f[0] <= x1 + 16 && f[1] >= y0 - 4 && f[1] <= y1 + 24) depth.push([f[1], v]); }
+  depth.sort((a, b) => a[0] - b[0]);
+  for (const [, it] of depth) if (it.frames) drawVisitor(it); else drawObject(it, time);
   drawCars(x0, y0, x1, y1);
   for (const w of staffWalkers) drawWalkerSprite(w);
   drawEscapes(time);
-
-  const sorted = visitors.slice().sort((a, b) => (a.ty + (a.ny - a.ty) * a.prog) - (b.ty + (b.ny - b.ty) * b.prog));
-  for (const v of sorted) drawVisitor(v);
 
   drawGate(time);
   if (activeEvent && activeEvent.type === "tug") drawTug(time);
@@ -1783,7 +1892,7 @@ function drawVault(time, dt, x0, y0, x1, y1) {
     sec.c.minX = sec.c.maxX = px; sec.c.minY = sec.c.maxY = py;
   }
   if (X > x1 + 24 || X + YARD < x0 - 24 || Y > y1 + 24 || Y + YARD < y0 - 32) return;
-  const fill = Math.max(0, Math.min(1, state.money / bankCap()));
+  const fill = Math.max(0, Math.min(1, state.money / bankLevelCap()));
   const behind = securities.filter(s => s.c.y < Y + YARD / 2), front = securities.filter(s => s.c.y >= Y + YARD / 2);
   for (const sec of behind) drawSecurity(ctx, sec, dt, time);
   blit(ctx, vaultBack(n), X, Y);
@@ -2014,9 +2123,9 @@ function renderCard() {
   const care = $("card-care");
   care.innerHTML = "";
   if (careActive()) care.appendChild(careBars(ind));
-  else care.appendChild(el("p", "small locked-note", `Feeding and happiness unlock at park level ${lvlNeeded("care")}.`));
+  else if (inMode("care")) care.appendChild(el("p", "small locked-note", `Feeding and happiness unlock at park level ${lvlNeeded("care")}.`));
   if (e && likesTheme(ind, e)) care.appendChild(el("p", "small", `Loves its ${THEMES[e.theme].label} home (+50% value)`));
-  $("card-feed").hidden = !e;
+  $("card-feed").hidden = !e || !inMode("care");
   $("card-feed").classList.toggle("is-locked", !careActive());
   $("card-feed").disabled = !careActive() || ind.food >= 95;
   $("card-ability").textContent = def.ability;
@@ -2176,10 +2285,7 @@ function ask({ title, text, ok = "OK", input = null, password = false }) {
   });
 }
 
-function hintOnce(msg) {
-  hintTimer = 2.5;
-  $("hint").textContent = msg;
-}
+function hintOnce(msg) { showHint(msg, 3.5); }
 
 function setSaveStatus(msg) { $("save-status").textContent = msg; }
 
@@ -2257,10 +2363,11 @@ function setTool(t) {
   tool = t;
   if (t !== "place") selectedUid = 0;
   document.querySelectorAll(".tool").forEach(b => b.classList.toggle("active", b.dataset.tool === t));
+  // the tool's instructions take over the tips bar for a few seconds
   if (t.startsWith("obj:")) {
     const def = OBJECTS[t.slice(4)];
-    $("hint").textContent = `Click grass to place a ${def.name}.` + (def.kind === "stand" ? " Stands must touch a path to sell." : "");
-  } else $("hint").textContent = TOOL_HINTS[t];
+    showHint(`Click grass to place a ${def.name}.` + (def.kind === "stand" ? " Stands must touch a path to sell." : ""), 6);
+  } else if (t !== "inspect") showHint(TOOL_HINTS[t], 6);
   renderBuildOptions();
   renderUI(true);
 }
@@ -2272,6 +2379,30 @@ function switchTab(name) {
   document.querySelectorAll(".page").forEach(p => { p.hidden = p.dataset.page !== name; });
   renderUI(true);
 }
+
+// ---- collapsible cards ----
+// Every card starts folded; click its header to open it. The cards a player has opened are
+// remembered in settings.
+// a card is known by its id, or by its title (ignoring the live numbers in the header)
+const cardTitle = c => [...c.querySelector("h2").childNodes].filter(n => n.nodeType === 3).map(n => n.textContent).join("").trim();
+const cardKey = c => c.closest(".page").dataset.page + ":" + (c.id || cardTitle(c));
+function setCollapsed(card, folded) {
+  card.classList.toggle("collapsed", folded);
+  card.querySelector("h2").setAttribute("aria-expanded", String(!folded));
+  const open = state.settings.openCards || (state.settings.openCards = {});
+  if (folded) delete open[cardKey(card)]; else open[cardKey(card)] = true;
+}
+function applyCollapsed() {
+  const open = state.settings.openCards || {};
+  document.querySelectorAll(".page > .card").forEach(c => { if (c.querySelector(":scope > h2")) setCollapsed(c, !open[cardKey(c)]); });
+}
+document.querySelectorAll(".page > .card > h2").forEach(h => {
+  h.tabIndex = 0;
+  h.setAttribute("role", "button");
+  const toggle = () => { sfx("click"); setCollapsed(h.parentElement, !h.parentElement.classList.contains("collapsed")); };
+  h.addEventListener("click", toggle);
+  h.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } });
+});
 
 function invSlot(ind, opts = {}) {
   const b = el("button", "slot");
@@ -2362,6 +2493,7 @@ function renderInspect() {
   const e = getEnc(inspectedId);
   card.hidden = !e;
   if (!e) return;
+  if (card.dataset.pen !== String(e.id)) { card.dataset.pen = e.id; setCollapsed(card, false); }   // a newly clicked pen always shows
   const box = $("inspect");
   box.innerHTML = "";
   const income = e.variants.reduce((s, ind) => s + expectedValue(ind, e), 0);
@@ -2382,6 +2514,7 @@ function renderInspect() {
   if (THEMES[e.theme].likes.length) box.appendChild(el("p", "small", `Loved by: ${THEMES[e.theme].likes.filter(k => state.discovered[k]).map(k => VARIANTS[k].name).join(", ") || "???"} (+50% value)`));
   // remodel: swap the theme or fence of a pen you've already built (at night only)
   const rm = el("details", "remodel build-only");
+  rm.hidden = !inMode("remodel");
   rm.appendChild(el("summary", "", isUnlocked("remodel") ? "Remodel this pen" : `Remodel this pen · LV ${lvlNeeded("remodel")}`));
   if (!isUnlocked("remodel")) { rm.classList.add("is-locked"); rm.appendChild(el("p", "small", `Change a pen's theme and fence. Unlocks at park level ${lvlNeeded("remodel")}.`)); }
   else {
@@ -2603,8 +2736,9 @@ function renderAchievements() {
   const box = $("achievements");
   box.innerHTML = "";
   const n = Object.keys(state.achievements).length;
-  $("ach-count").textContent = `${n}/${ACHIEVEMENTS.length}`;
-  for (const a of ACHIEVEMENTS) {
+  const list = modeAchievements();
+  $("ach-count").textContent = `${list.filter(a => state.achievements[a.id]).length}/${list.length}`;
+  for (const a of list) {
     const got = !!state.achievements[a.id];
     const d = el("div", "ach" + (got ? "" : " locked"));
     const i = el("i", "ico");
@@ -2662,11 +2796,14 @@ function renderUI(full) {
   }
   if (activeTab === "goals" && !full) renderGoals();
   if (!full) return;
-  if (activeTab === "park") { renderShop(); renderInventory(); renderInspect(); renderBuildOptions(); renderEggs(); renderRequest(); renderStaff(); renderLand(); renderParking(); renderBank(); }
+  if (activeTab === "park") { renderShop(); renderInventory(); renderInspect(); renderBuildOptions(); renderEggs(); renderRequest(); renderFeedback(); renderStaff(); renderLand(); renderParking(); renderBank(); }
   if (activeTab === "save") renderNotes($("notes-card"), PATCH_NOTES.length, false);
   if (activeTab === "lab") renderLab();
   if (activeTab === "index") renderIndex();
   if (activeTab === "goals") { renderGoals(); renderAchievements(); renderLevelInfo(); renderPrestige(); }
+  $("mode-tag").hidden = !state.mode;
+  $("mode-tag").textContent = state.mode ? MODES[state.mode].label.toUpperCase() : "";
+  $("mode-note").textContent = state.mode ? `Mode: ${MODES[state.mode].label}. Reset your park to choose again.` : "";
   if (activeTab === "save") renderSettings();
 }
 
@@ -2675,6 +2812,8 @@ function applyLocks() {
   if (!isUnlocked("size:" + encChoice.size)) encChoice.size = "small";
   if (!isUnlocked("theme:" + encChoice.theme)) encChoice.theme = "meadow";
   if (!isUnlocked("path:" + pathChoice)) pathChoice = 1;
+  if (!isUnlocked("size:custom")) encChoice.shape = "square";
+  if (isSimple()) encChoice.fence = "theme";
   const labTab = document.querySelector('.tab[data-tab="lab"]');
   labTab.hidden = false;
   labTab.classList.toggle("is-locked", !isUnlocked("lab"));
@@ -2698,7 +2837,7 @@ function renderLevelInfo() {
   const next = nextUnlockLevel();
   const nx = el("div", "level-next");
   if (next) {
-    const count = UNLOCKS.filter(u => u.level === next).length;
+    const count = modeUnlocks().filter(u => u.level === next).length;
     nx.appendChild(el("b", "", `NEXT UNLOCK: LV ${next}`));
     nx.appendChild(el("div", "", `${count} hidden reward${count > 1 ? "s" : ""} waiting. ${state.level < MAX_PARK_LEVEL ? fmt(xpToNext(state.level) - state.xp) + " XP to your next level." : ""}`));
   } else nx.appendChild(el("b", "", "EVERYTHING UNLOCKED"));
@@ -2717,7 +2856,7 @@ function renderHours() {
   $("hours-bar").classList.toggle("night", !open);
   $("hours-text").textContent = open
     ? `OPEN · ${clockText()} · closes at 10 PM (${mm}:${ss})`
-    : `CLOSED · ${clockText()} · night build mode · opens at 8 AM (${mm}:${ss})`;
+    : `CLOSED · ${clockText()} · ${isSimple() ? "" : "night build mode · "}opens at 8 AM (${mm}:${ss})`;
   const day = dayLocked();
   if (lastHoursOpen !== day) {
     lastHoursOpen = day;
@@ -2775,6 +2914,7 @@ function renderSettings() {
   $("set-musicvol").value = state.settings.musicVol;
   $("set-effects").checked = state.settings.effects;
   $("set-shake").checked = state.settings.shake;
+  $("set-hovertips").checked = state.settings.hoverTips !== false;
   $("set-feedback").checked = !state.settings.noFeedbackReminder;
   const btn = $("sound-toggle");
   btn.classList.toggle("muted", !!state.settings.muted);
@@ -2958,6 +3098,7 @@ $("set-sfxvol").addEventListener("input", e => { state.settings.sfxVol = +e.targ
 $("set-musicvol").addEventListener("input", e => { state.settings.musicVol = +e.target.value; applyVolumes(); });
 $("set-effects").addEventListener("change", e => { state.settings.effects = e.target.checked; });
 $("set-shake").addEventListener("change", e => { state.settings.shake = e.target.checked; });
+$("set-hovertips").addEventListener("change", e => { state.settings.hoverTips = e.target.checked; if (!e.target.checked) cancelTip(); });
 $("set-feedback").addEventListener("change", e => { state.settings.noFeedbackReminder = !e.target.checked; if (e.target.checked) startFeedbackReminders(); else clearTimeout(feedbackTimer); });
 $("snapshot").addEventListener("click", () => downloadSnapshot());
 $("snapshot2").addEventListener("click", () => downloadSnapshot());

@@ -1,8 +1,47 @@
 "use strict";
 
 // ================= Version =================
-const GAME_VERSION = "2.0";
+const GAME_VERSION = "2.1";
 const PATCH_NOTES = [
+  {
+    version: "2.1", title: "Simple & Pro",
+    sections: [
+      { title: "Simple and Pro modes", notes: [
+        "New parks start by choosing a mode. Pro is the full game, exactly as before.",
+        "Simple mode: build any time, no feeding, litter, escapes or staff, a gold pile that never fills, a car park that grows by itself, and square pens with plain paths.",
+        "The mode is locked for that park. Reset your park to choose again. Existing parks choose once when they next open.",
+      ] },
+      { title: "Guests", notes: [
+        "Guests now stay for a random length of time, then walk back out of the gate to their car (or off down the street) instead of vanishing.",
+        "At closing time everyone heads home on foot. Nobody walks into the car park or up to the gate once the park is closed, and last entry is 9:30 PM.",
+        "Guests stay on their side of the path and are drawn behind snack stands and decorations, so they no longer overlap them.",
+        "New Guest Feedback card (Park tab) and a \"What guests said\" section in the day report: what share of guests left happy, their top complaints and how to fix them.",
+      ] },
+      { title: "New parks", notes: [
+        "New parks start empty, with just enough coins for your first enclosure and your first egg, which always hatches a Verity.",
+        "The tutorial walks you through building that first pen.",
+      ] },
+      { title: "Help", notes: [
+        "Rest your mouse on anything for 5 seconds to learn what it is: variants, pens, stands, guests, the gold pile, buttons and stats. Turn it off in Settings.",
+        "The bar under the map now cycles through game tips. Click it for the next one.",
+        "Side panel cards start folded. Click a card's header to open it, and again to fold it away. Your choice is remembered.",
+      ] },
+      { title: "Pens", notes: [
+        "Roomier pens: Small is now 4x4, Medium 12x12 and Large 20x20, with the same capacities, so variants aren't packed in.",
+        "Custom pens can be up to 50x50 tiles once Large pens unlock (20 tiles with Small, 144 with Medium).",
+        "Existing Small pens grow to 4x4 when there's free land around them. Older pens keep their size and capacity, so nothing is lost.",
+      ] },
+      { title: "Events", notes: [
+        "\"He belongs to the Backrooms\" now stars Pirate Clark alone, dragging a variant towards a Backrooms doorway. Click him to make him let go.",
+      ] },
+      { title: "Fixes", notes: [
+        "The day report no longer pops up on the loading screen. The park waits until you enter.",
+        "Evenings, rain and storms no longer make the open park look like night. Night falls after closing time.",
+        "Litter is drawn in proper colours: soda cans, crisp packets, bottles, cups and napkins.",
+        "Patch notes open by themselves the first time you load a new version.",
+      ] },
+    ],
+  },
   {
     version: "2.0", title: "Bigger, Brighter, Busier",
     sections: [
@@ -52,6 +91,27 @@ const PATCH_NOTES = [
   },
 ];
 
+// ================= Game modes =================
+// Chosen once when a park starts, and locked until the park is reset. Pro is the full game.
+// Simple keeps the heart of it (eggs, pens, paths, shops, guests, the Lab) and drops the
+// systems that take the most explaining.
+const MODES = {
+  simple: { label: "Simple", pick: "Play Simple", desc: "Relaxed and easy to learn.", points: [
+    "Build any time, day or night",
+    "No feeding, litter, escapes or staff to manage",
+    "The gold pile never fills up, and parking grows by itself",
+    "Square pens and plain paths: fewer choices, same fun",
+  ] },
+  pro: { label: "Pro", pick: "Play Pro", desc: "The full sanctuary, every system.", points: [
+    "Build at night while the park is closed",
+    "Feed variants, hire staff, sweep litter and catch escapes",
+    "Upgrade the gold pile and the car park yourself",
+    "Custom pens, fences, path types, remodelling and prestige",
+  ] },
+};
+// Unlocks that never arrive in Simple mode (ids, or prefixes ending in ":").
+const SIMPLE_OFF = ["care", "staff:", "fence:", "size:custom", "remodel", "path:2", "path:3", "prestige", "lot:"];
+
 // ================= Core constants =================
 const TILE = 16;            // world units per tile
 const COLS = 113;           // world size in tiles. COLS - 1 and ROWS + 2 are multiples of 8
@@ -63,7 +123,6 @@ const WORLD_W = COLS * TILE, WORLD_H = ROWS * TILE;
 const WORLD_VERSION = 3;
 // earlier world layouts, so their saves can be moved into this one
 const OLD_WORLDS = { 2: { cols: 72, rows: 48, ox: 14, oy: 18 } };
-const ENC_SIZE = 3;         // enclosures are 3x3 tiles
 const ENC_CAPACITY = 4;
 const SAVE_KEY = "verity-sanctuary-save";
 const SAVE_VERSION = 2;
@@ -322,7 +381,7 @@ const UNLOCKS = [
   { level: 3,  id: "requests",     name: "Visitor requests" },
   { level: 4,  id: "theme:pool",   name: "Pool enclosures" },
   { level: 4,  id: "staff:janitor", name: "Janitors" },
-  { level: 5,  id: "size:medium",  name: "Medium 4x4 enclosures" },
+  { level: 5,  id: "size:medium",  name: "Medium 12x12 enclosures" },
   { level: 5,  id: "path:2",       name: "Stone paths" },
   { level: 5,  id: "staff:keeper", name: "Keepers" },
   { level: 6,  id: "egg:golden",   name: "Golden eggs" },
@@ -331,7 +390,7 @@ const UNLOCKS = [
   { level: 8,  id: "staff:mascot", name: "Verity Mascot" },
   { level: 9,  id: "theme:stage",  name: "Stage enclosures" },
   { level: 9,  id: "plot:corner",  name: "More land for sale" },
-  { level: 10, id: "size:large",   name: "Large 5x5 enclosures" },
+  { level: 10, id: "size:large",   name: "Large 20x20 enclosures" },
   { level: 10, id: "path:3",       name: "Yellow brick paths" },
   { level: 10, id: "egg:cursed",   name: "Cursed eggs" },
   { level: 12, id: "theme:backrooms", name: "Backrooms enclosures" },
@@ -357,11 +416,14 @@ UNLOCK_LEVEL["fuse:common"] = UNLOCK_LEVEL["fuse:uncommon"] = UNLOCK_LEVEL.lab;
 
 // ================= Enclosure sizes & themes =================
 const ENC_TYPES = {
-  small:  { label: "Small",  size: 3, cap: 4, cost: 100,  appeal: 0 },
-  medium: { label: "Medium", size: 4, cap: 6, cost: 450,  appeal: 1.5 },
-  large:  { label: "Large",  size: 5, cap: 9, cost: 1600, appeal: 4 },
+  small:  { label: "Small",  size: 4, cap: 4, cost: 100,  appeal: 0 },
+  medium: { label: "Medium", size: 12, cap: 6, cost: 450,  appeal: 1.5 },
+  large:  { label: "Large",  size: 20, cap: 9, cost: 1600, appeal: 4 },
 };
-const SIZE_KEY = { 3: "small", 4: "medium", 5: "large" };
+const SIZE_KEY = { 4: "small", 12: "medium", 20: "large" };
+// Before 2.1 pens were smaller (3x3, 4x4, 5x5). Older pens keep their type (and so their
+// capacity); old Small pens grow to 4x4 when there's room.
+const OLD_SIZE_KEY = { 3: "small", 4: "medium", 5: "large" };
 // Fences: "theme" uses the theme's own fence. costMult applies to the whole pen.
 const FENCE_TYPES = {
   theme:  { label: "Theme",        costMult: 1 },
@@ -373,11 +435,22 @@ const FENCE_TYPES = {
   wall:   { label: "Gold",         costMult: 1.6 },
 };
 // Custom pens: paint any connected shape. Price and capacity grow with the tile count
-// (a 3x3 costs about the same as a Small pen, 16 tiles about a Medium, 25 about a Large).
-const CUSTOM_PEN = { min: 4, maxTiles: { small: 12, medium: 20, large: 30 } };
-const customPenBase = n => Math.round(100 * Math.pow(n / 9, 2.6) / 10) * 10;
-const capForTiles = n => Math.max(2, Math.floor(n * 0.36 + 0.9));
-const appealForTiles = n => Math.max(0, Math.round((n - 9) * 0.17 * 10) / 10);
+// (16 tiles match a Small pen, 144 a Medium, 400 a Large), up to 50x50 tiles at the top.
+const CUSTOM_PEN = { min: 4, maxSpan: 50, maxTiles: { small: 20, medium: 144, large: 2500 } };
+// Smoothly between these points (on a log scale of tile count): [tiles, cap, cost, appeal]
+const PEN_CURVE = [[4, 2, 30, 0], [16, 4, 100, 0], [144, 6, 450, 1.5], [400, 9, 1600, 4], [2500, 14, 8000, 8]];
+function penCurve(n, col) {
+  const P = PEN_CURVE, t = Math.log(Math.max(P[0][0], Math.min(P[P.length - 1][0], n)));
+  let i = 0;
+  while (i < P.length - 2 && t > Math.log(P[i + 1][0])) i++;
+  const a = Math.log(P[i][0]), b = Math.log(P[i + 1][0]), f = (t - a) / (b - a);
+  return P[i][col] + (P[i + 1][col] - P[i][col]) * f;
+}
+const customPenBase = n => Math.round(penCurve(n, 2) / 10) * 10;
+const capForTiles = n => Math.max(2, Math.floor(penCurve(n, 1) + 0.05));
+const appealForTiles = n => Math.round(penCurve(n, 3) * 10) / 10;
+// custom pens painted before 2.1 keep the capacity they were built with
+const oldCapForTiles = n => Math.max(2, Math.floor(n * 0.36 + 0.9));
 const THEMES = {
   meadow:    { label: "Meadow",    costMult: 1,   likes: [], desc: "Plain grass. Nobody minds it." },
   pool:      { label: "Pool",      costMult: 1.5, likes: ["humidity", "lovity", "sanity", "gravity", "elasticity"], desc: "A splash pool for water lovers." },
@@ -542,6 +615,19 @@ const CURSED_POOL = [["falsity", 30], ["cruelty", 22], ["ferocity", 16], ["toxic
 const CARE = { foodDecay: 100 / 1200, feedCost: 3, petJoy: 15, joyDrift: 0.02, offlineFloor: 40 };
 
 // ================= Visitors =================
+// What guests grumble about on their way out, and what the player can do about it.
+const COMPLAINTS = {
+  boring:  { quote: "There wasn't much to see.",             fix: "Build more pens beside your paths and put variants in them." },
+  hungry:  { quote: "I couldn't find anything to eat.",      fix: "Build snack stands along the busiest paths." },
+  trash:   { quote: "There was litter everywhere!",          fix: "Hire janitors to sweep up after guests." },
+  crowded: { quote: "The paths were packed.",                fix: "Lay more paths, ideally in loops, so guests can spread out." },
+  deadend: { quote: "The paths kept going nowhere.",         fix: "Join dead ends up into loops so guests don't double back." },
+  empty:   { quote: "Some pens were empty.",                 fix: "Put a variant in every pen, or bulldoze the empty ones." },
+  sad:     { quote: "The variants looked hungry.",           fix: "Feed hungry pens, or hire keepers to do it for you." },
+  bare:    { quote: "The park looked a bit bare.",           fix: "Place decorations like flower beds, benches and lamps by the paths." },
+  scared:  { quote: "A variant got loose and scared me!",    fix: "Click escaped variants to catch them fast. Variants escape bigger pens less often." },
+  weather: { quote: "We got soaked in the rain.",            fix: "Nothing to do about the weather, but more appeal keeps guests cheerful." },
+};
 const VISITOR_TYPES = {
   normal:     { weight: 78 },
   kid:        { weight: 10, buyMult: 1.6 },
@@ -629,14 +715,14 @@ ACHIEVEMENTS.push(
   { id: "bigpen",   name: "Go Big",           desc: "Build a Large enclosure.",         test: () => state.enclosures.some(e => e.s === 5 || (e.mask && e.mask.length >= 25)) },
   { id: "themes",   name: "Interior Designer", desc: "Build every enclosure theme.",    test: () => Object.keys(THEMES).every(t => state.enclosures.some(e => e.theme === t)) },
   { id: "brick",    name: "Follow the Road",  desc: "Lay 10 yellow brick paths.",       test: () => state.tiles.filter(t => t === 3).length >= 10 },
-  { id: "staff",    name: "Full Staff",       desc: "Hire one of every staff type.",    test: () => Object.keys(STAFF).every(t => (state.staff[t] || 0) > 0) },
-  { id: "clean",    name: "Clean Freak",      desc: "Clean up 50 pieces of trash.",     test: () => state.stats.trashCleaned >= 50 },
-  { id: "fed",      name: "Well Fed",         desc: "Feed variants 100 times.",         test: () => state.stats.feeds >= 100 },
+  { pro: true, id: "staff", name: "Full Staff",       desc: "Hire one of every staff type.",    test: () => Object.keys(STAFF).every(t => (state.staff[t] || 0) > 0) },
+  { pro: true, id: "clean", name: "Clean Freak",      desc: "Clean up 50 pieces of trash.",     test: () => state.stats.trashCleaned >= 50 },
+  { pro: true, id: "fed", name: "Well Fed",         desc: "Feed variants 100 times.",         test: () => state.stats.feeds >= 100 },
   { id: "golden",   name: "Golden Child",     desc: "Hatch a golden egg.",              test: () => state.stats.golden >= 1 },
   { id: "cursed",   name: "Cursed!",          desc: "Hatch a cursed egg.",              test: () => state.stats.cursed >= 1 },
-  { id: "catch",    name: "Escape Artist",    desc: "Catch an escaped variant.",        test: () => state.stats.escapesCaught >= 1 },
+  { pro: true, id: "catch", name: "Escape Artist",    desc: "Catch an escaped variant.",        test: () => state.stats.escapesCaught >= 1 },
   { id: "requests", name: "Crowd Favourite",  desc: "Complete 10 visitor requests.",    test: () => state.stats.requests >= 10 },
   { id: "critic",   name: "Critic's Choice",  desc: "Get a 5-star critic review.",      test: () => state.stats.reviews5 >= 1 },
   { id: "streak",   name: "Daily Devotee",    desc: "Reach a 7-day login streak.",      test: () => state.daily.streak >= 7 },
-  { id: "reborn",   name: "Reborn",           desc: "Start a New Sanctuary.",           test: () => state.stats.prestiges >= 1 },
+  { pro: true, id: "reborn", name: "Reborn",           desc: "Start a New Sanctuary.",           test: () => state.stats.prestiges >= 1 },
 );

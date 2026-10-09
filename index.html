@@ -14,6 +14,7 @@
     <div class="loader-box">
       <i class="rivet tl"></i><i class="rivet tr"></i><i class="rivet bl"></i><i class="rivet br"></i>
       <canvas id="loader-verity" width="52" height="52"></canvas>
+      <p class="loader-splash">Now with<br>Simple mode!</p>
       <h1 class="loader-title">VERITY<br>SANCTUARY</h1>
       <p class="loader-tag">a verity habitat tycoon</p>
       <p class="loader-version"><span id="loader-version">Version 2.0</span> · <button id="loader-notes" class="linkish" type="button">What's new?</button></p>
@@ -29,7 +30,7 @@
         </div>
         <div class="loader-pct"><span id="loader-step">Hatching eggs...</span><span id="loader-num">0%</span></div>
       </div>
-      <p class="loader-tip"><b>TIP</b><span id="loader-tip">Build at night. The park is closed from 10 PM to 8 AM.</span></p>
+      <p class="loader-tip"><b>TIP</b><span id="loader-tip">In Pro mode you build at night, while the park is closed.</span></p>
       <button id="loader-start" class="big loader-start" hidden>▶ ENTER THE SANCTUARY</button>
       <div class="loader-credits">
         <p>Created by <b>Liam R</b></p>
@@ -326,7 +327,7 @@
       // progress (main.js finishes it once the game is ready) and rotating tips
       window.__loader = { pct: 0 };
       var steps = ["Hatching eggs...", "Polishing fences...", "Teaching Moggity to mog...", "Fitting Boobity's tank top...", "Mopping the Backrooms...", "Paving the parking lot..."];
-      var tips = ["Build at night. The park is closed from 10 PM to 8 AM.", "Arrow keys or WASD move the camera. Scroll to zoom.", "A bigger parking lot brings in more guests.", "Fuse two variants in the Lab to discover new ones.", "Fed, happy variants earn more coins.", "Some variants love certain enclosure themes.", "Buy wild land to grow your sanctuary.", "He belongs to the Backrooms. Don't let him out."];
+      var tips = ["In Pro mode you build at night, while the park is closed.", "Arrow keys or WASD move the camera. Scroll to zoom.", "A bigger parking lot brings in more guests.", "Fuse two variants in the Lab to discover new ones.", "Simple mode lets you build at any time of day.", "Some variants love certain enclosure themes.", "Buy wild land to grow your sanctuary.", "He belongs to the Backrooms. Don't let him out."];
       var i = 0, tipI = 0;
       window.__loaderTimer = setInterval(function () {
         if (!document.getElementById("loader-fill")) return clearInterval(window.__loaderTimer);
@@ -348,7 +349,7 @@
       <i class="ico logo" data-icon="logo"></i>
       <div>
         <h1>VERITY SANCTUARY</h1>
-        <p class="tagline">a verity habitat tycoon <span class="ver" id="ver-tag">v2.0</span></p>
+        <p class="tagline">a verity habitat tycoon <span class="ver" id="ver-tag">v2.0</span> <span class="ver mode-tag" id="mode-tag" hidden></span></p>
       </div>
       <div class="lvl-box" title="Park level: earn XP to unlock new items">
         <span class="lvl-badge" id="park-level">1</span>
@@ -443,6 +444,11 @@
         <div class="card" id="request-card">
           <h2><i class="ico" data-icon="scroll"></i>VISITOR REQUEST</h2>
           <div id="request"></div>
+        </div>
+
+        <div class="card" id="feedback-card">
+          <h2><i class="ico" data-icon="visitor"></i>GUEST FEEDBACK</h2>
+          <div id="feedback"></div>
         </div>
 
         <div class="card">
@@ -545,6 +551,7 @@
             <button id="import">Import</button>
             <button id="reset" class="danger">Reset</button>
           </div>
+          <p class="small" id="mode-note"></p>
         </div>
         <div class="card">
           <h2><i class="ico" data-icon="sound"></i>SETTINGS</h2>
@@ -556,6 +563,7 @@
           <label class="range">Music volume <input type="range" id="set-musicvol" min="0" max="1" step="0.05"></label>
           <label class="check"><input type="checkbox" id="set-effects"> Weather &amp; night effects</label>
           <label class="check"><input type="checkbox" id="set-shake"> Screen shake on rare hatches</label>
+          <label class="check"><input type="checkbox" id="set-hovertips"> Explain things when I hover over them</label>
           <label class="check"><input type="checkbox" id="set-feedback"> Feedback reminders (every 10 min)</label>
           <button id="admin-btn" class="wide"><i class="ico" data-icon="staff"></i> Admin panel</button>
           <button id="tut-replay" class="wide"><i class="ico" data-icon="info"></i> Replay tutorial</button>
@@ -635,6 +643,12 @@
     </div>
   </dialog>
 
+  <dialog id="mode-dialog" class="mode-dialog">
+    <h2>CHOOSE YOUR MODE</h2>
+    <p class="small">You can't switch later. Resetting your park lets you choose again.</p>
+    <div id="mode-options" class="mode-options"></div>
+  </dialog>
+
   <dialog id="day-dialog" class="day-dialog">
     <form method="dialog">
       <h2 id="day-title">DAY REPORT</h2>
@@ -701,6 +715,7 @@
   <script src="js/systems.js"></script>
   <script src="js/admin.js"></script>
   <script src="js/tutorial.js"></script>
+  <script src="js/help.js"></script>
   <script src="js/main.js"></script>
 </body>
 </html>
