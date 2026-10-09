@@ -242,7 +242,7 @@ function pickWeighted(list, r) { let t = 0; for (const [k, w] of list) { t += w;
 // tiles; they're scenery and vanish when you build on or next to that tile.
 function buildTrees() {
   treeInstances = [];
-  const maxLot = LOT_LEVELS[LOT_LEVELS.length - 1].rect;
+  const maxLot = lotRect();
   const built = (x, y) => { for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (isPath(x + dx, y + dy) || encAt(x + dx, y + dy) || objAt(x + dx, y + dy) || isVault(x + dx, y + dy)) return true; return false; };
   for (let y = 0; y < ROWS; y++)
     for (let x = 0; x < COLS; x++) {
@@ -327,7 +327,9 @@ function turnAwayCars() {
 }
 const barrier = { lift: 1 };   // car park barrier: 1 = raised (open), 0 = down (closed)
 
+let carClock = 0;   // game-time seconds, so parked cars leave on time even when the game runs fast
 function updateCars(dt) {
+  carClock += dt;
   updatePeds(dt);
   if (!isOpen()) turnAwayCars();
   barrier.lift = Math.max(0, Math.min(1, barrier.lift + (isOpen() ? dt : -dt) * 1.5));
@@ -338,7 +340,7 @@ function updateCars(dt) {
     if (!wp) {
       if (c.state === "arrive") {
         c.state = "parked";
-        c.parkedAt = performance.now();
+        c.parkedAt = carClock;
         c.dir = c.stall.y < GATE.y ? 0 : 2;
         for (let i = 0; i < c.seats; i++) {
           const look = randomLook(rollVisitorType());
@@ -356,7 +358,7 @@ function updateCars(dt) {
   for (const c of cars) {
     if (c.state !== "parked") continue;
     const busy = visitors.some(v => v.carId === c.id) || walkers.some(w => w.carId === c.id);
-    if (!busy && performance.now() - c.parkedAt > 4000) carLeave(c);
+    if (!busy && carClock - c.parkedAt > 4) carLeave(c);
   }
   cars = cars.filter(c => !c.done);
   for (const w of walkers) {

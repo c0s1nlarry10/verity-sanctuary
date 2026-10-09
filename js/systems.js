@@ -31,7 +31,16 @@ function buyPlot(k) {
 function upgradeLot() {
   const next = lotLevel() + 1;
   if (next > LOT_LEVELS.length || !isUnlocked("lot:" + next) || buildLocked()) return;
+  // the bigger lot may need the gold pile's spot: the Securities move it somewhere free nearby
+  const r = LOT_LEVELS[next - 1].rect, n = VAULT.w;
+  const overlaps = VAULT.x <= r[2] && VAULT.x + n - 1 >= r[0] && VAULT.y <= r[3] && VAULT.y + n - 1 >= r[1];
+  let newSpot = null;
+  if (overlaps) {
+    newSpot = findVaultSpot(n, r);
+    if (!newSpot) return hintOnce("The bigger lot needs the gold pile's spot, and there's nowhere free to move it. Clear some space first.");
+  }
   if (!spend(LOT_LEVELS[next - 1].cost, "Parking")) return hintOnce(`The upgrade costs ${fmt(LOT_LEVELS[next - 1].cost)} coins.`);
+  if (newSpot) { state.vault = newSpot; toast("The Securities moved the gold pile to make room for the cars.", 3500, "prosperity"); }
   state.lotLevel = next;
   markWorldDirty();
   sfx("build");
@@ -82,11 +91,12 @@ function feedPen(e, free = false) {
 let staffWalkers = [];
 let staffTick = 0;
 const staffCount = t => state.staff[t] || 0;
-function hireCost(t) { return Math.round(STAFF[t].hire * Math.pow(1.5, staffCount(t))); }
+// No limit on staff: each extra hire of the same role costs 25% more than the last.
+function hireCost(t) { return Math.round(STAFF[t].hire * Math.pow(1 + 0.3 * staffCount(t), 1.4)); }
 function wagesPerSec() { return Object.keys(STAFF).reduce((s, t) => s + staffCount(t) * STAFF[t].wage, 0); }
 
 function hireStaff(t) {
-  if (!isUnlocked("staff:" + t) || staffCount(t) >= STAFF[t].max) return;
+  if (!isUnlocked("staff:" + t)) return;
   if (!spend(hireCost(t), "Staff")) return hintOnce(`Hiring a ${STAFF[t].label} costs ${fmt(hireCost(t))} coins.`);
   state.staff[t] = staffCount(t) + 1;
   syncStaff();
@@ -270,6 +280,8 @@ function openDay(quiet = false) {
 }
 
 function closeDay() {
+  // the night crew sweeps up half the litter
+  state.trash.splice(0, Math.ceil(state.trash.length / 2));
   if (activeEvent) { activeEvent = null; eventTimer = 60; }
   for (const v of visitors) v.leaving = true;
   walkers = [];
@@ -552,7 +564,8 @@ function catchEscapeAt(gx, gy) {
 
 // ================= Eggs =================
 function eggUnlocked(t) { return t === "regular" || isUnlocked("egg:" + t); }
-function eggCostOf(t) { return Math.round(EGGS[t].base * Math.pow(EGGS[t].growth, state.eggCounts[t] || 0)); }
+// Eggs get pricier the more of that kind you hatch: quadratic growth, so prices stay reachable.
+function eggCostOf(t) { return Math.round(EGGS[t].base * Math.pow(1 + (EGGS[t].growth - 1) * 0.8 * (state.eggCounts[t] || 0), 2)); }
 function freeEggsOf(t) { return t === "regular" ? state.freeEggs : t === "golden" ? state.freeGolden : 0; }
 
 function rollEgg(t) {
@@ -821,8 +834,8 @@ function renderStaff() {
     g.appendChild(el("b", "", `${def.label} ×${staffCount(t)}`));
     g.appendChild(document.createTextNode(`${def.desc} Wage ${def.wage}c/s.`));
     row.appendChild(g);
-    const hire = el("button", "primary", staffCount(t) >= def.max ? "Max" : `Hire ${fmt(hireCost(t))}c`);
-    hire.disabled = staffCount(t) >= def.max || state.money < hireCost(t);
+    const hire = el("button", "primary", `Hire ${fmt(hireCost(t))}c`);
+    hire.disabled = state.money < hireCost(t);
     hire.addEventListener("click", () => hireStaff(t));
     row.appendChild(hire);
     if (staffCount(t)) {

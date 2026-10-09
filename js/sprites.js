@@ -1483,21 +1483,14 @@ function makeVaultFront(YARD) {
   }
   return c;
 }
-// The gold pile: a cone-shaped mound of stacked coins, lit from the top left, sized to
-// the yard (n tiles) and filled to `step` (0..13).
-const heapCache = new Map();
-function heapSprite(n, step) {
-  const key = n + ":" + step;
-  if (heapCache.has(key)) return heapCache.get(key);
-  const Y = n * TILE, f = step / 13;
-  const rx = 4 + (Y * 0.34 - 4) * Math.sqrt(f), ry = rx * 0.34, hgt = rx * 1.05 + 2;
-  const W = Math.ceil(Y * 0.8), H = Math.ceil(Y * 0.8);
-  const [c, g] = hiCanvas(W, H);
-  const cx = W / 2, by = H - ry - 1;
-  const pal = ["#3a2600", "#7a5400", "#b8860b", "#e0a91c", "#ffd23f", "#ffe680", "#fff6c0"];
-  // soft shadow on the floor
-  g.fillStyle = "rgba(60,30,0,0.35)"; g.beginPath(); g.ellipse(cx + 1.5, by + 1, rx + 1.5, ry + 1, 0, 0, Math.PI * 2); g.fill();
-  const top = x => { const d = Math.abs(x - cx) / rx; if (d > 1) return null; return by - hgt * Math.pow(1 - d, 0.85) - ry * Math.sqrt(1 - d * d) * 0.2; };
+// The gold in the vault: a carpet of coins that spreads across the floor, a main heap in the
+// middle and smaller heaps that appear as it fills, until the yard is mostly gold.
+// The sprite covers the yard's floor (n tiles) and is drawn for a fill `step` of 0..13.
+const GOLD_PAL = ["#3a2600", "#7a5400", "#b8860b", "#e0a91c", "#ffd23f", "#ffe680", "#fff6c0"];
+function drawMound(g, cx, by, rx) {
+  const ry = rx * 0.34, hgt = rx * 1.0 + 2;
+  g.fillStyle = "rgba(60,30,0,0.3)"; g.beginPath(); g.ellipse(cx + 1.5, by + 1, rx + 1.5, ry + 1, 0, 0, Math.PI * 2); g.fill();
+  const top = x => { const d = Math.abs(x - cx) / rx; return d > 1 ? null : by - hgt * Math.pow(1 - d, 0.85) - ry * Math.sqrt(1 - d * d) * 0.2; };
   const bot = x => { const d = Math.abs(x - cx) / rx; return d > 1 ? null : by + ry * Math.sqrt(1 - d * d); };
   raw(g, () => {
     for (let px = Math.floor((cx - rx) * RES); px < (cx + rx) * RES; px++) {
@@ -1506,31 +1499,53 @@ function heapSprite(n, step) {
       for (let py = Math.floor(t * RES); py < b * RES; py++) {
         const y = (py + 0.5) / RES;
         const edge = py <= Math.floor(t * RES) || py >= Math.ceil(b * RES) - 1 || (px + 1) / RES > cx + rx * 0.995 || px / RES < cx - rx * 0.995;
-        // light from the upper left: brighter on the left flank and near the peak
-        const side = (cx - x) / rx, height = (b - y) / Math.max(1, b - t);
-        let lum = side * 0.55 + height * 0.5 + 0.1;
-        // stacked-coin texture: staggered rows of coin rims
-        const row = Math.floor((y - t) / 1.5), col = Math.floor((x + (row % 2) * 1.25) / 2.5);
-        const inCoin = ((x + (row % 2) * 1.25) % 2.5) / 2.5, rim = ((y - t) % 1.5) / 1.5;
-        if (rim > 0.66) lum -= 0.35;
-        else if (rim < 0.2 && inCoin > 0.2 && inCoin < 0.6) lum += 0.3;
-        if (((row * 7 + col * 13) % 11) === 0) lum += 0.25;
-        const k = edge ? 0 : Math.max(1, Math.min(6, Math.round(2.5 + lum * 2.6 + (BAYER[py & 1][px & 1] - 0.4) * 0.6)));
-        g.fillStyle = pal[k];
+        let lum = (cx - x) / rx * 0.55 + (b - y) / Math.max(1, b - t) * 0.5 + 0.1;
+        const row = Math.floor((y - t) / 1.5), inCoin = ((x + (row % 2) * 1.25) % 2.5) / 2.5, rim = ((y - t) % 1.5) / 1.5;
+        if (rim > 0.66) lum -= 0.35; else if (rim < 0.2 && inCoin > 0.2 && inCoin < 0.6) lum += 0.3;
+        if (((row * 7 + Math.floor(x / 2.5) * 13) % 11) === 0) lum += 0.25;
+        g.fillStyle = GOLD_PAL[edge ? 0 : Math.max(1, Math.min(6, Math.round(2.5 + lum * 2.6 + (BAYER[py & 1][px & 1] - 0.4) * 0.6)))];
         g.fillRect(px, py, 1, 1);
       }
     }
   });
-  // loose coins around the base and a few gems once it's filling up
-  const r = seeded(step * 31 + n * 7);
-  for (let i = 0; i < 3 + step; i++) {
-    const a = r() * Math.PI * 2, d = 1 + r() * 0.35;
-    const x = cx + Math.cos(a) * rx * d, y = by + Math.sin(a) * ry * d + 1;
-    if (x < 1 || x > W - 2 || y > H - 1) continue;
+}
+const heapCache = new Map();
+function heapSprite(n, step) {
+  const key = n + ":" + step;
+  if (heapCache.has(key)) return heapCache.get(key);
+  const Y = n * TILE, W = Y - 8, H = Y - 16, f = step / 13;
+  const [c, g] = hiCanvas(W, H);
+  const cx = W / 2, cy = H * 0.62, r = seeded(n * 97 + step);
+  // carpet of coins spreading out across the floor
+  const sx = 4 + (W / 2 - 2) * Math.pow(f, 0.75), sy = 3 + (H / 2 - 2) * Math.pow(f, 0.75);
+  raw(g, () => {
+    for (let py = 0; py < H * RES; py++) for (let px = 0; px < W * RES; px++) {
+      const x = (px + 0.5) / RES, y = (py + 0.5) / RES;
+      const wob = 1 + (valueNoise(px, py, 9, n + 77) - 0.5) * 0.35;
+      const d = ((x - cx) / sx) ** 2 + ((y - cy) / sy) ** 2;
+      if (d > wob) continue;
+      const coin = ((Math.floor(x / 2) + Math.floor(y / 1.5)) % 2), shine = (px * 7 + py * 13) % 17 === 0;
+      const k = d > wob * 0.92 ? 1 : shine ? 6 : coin ? 4 : 3;
+      g.fillStyle = GOLD_PAL[k - ((x - cx) / sx > 0.4 ? 1 : 0)];
+      g.fillRect(px, py, 1, 1);
+    }
+  });
+  // heaps: back corners appear first, then the front ones, then the big one in the middle
+  const mounds = [];
+  if (f > 0.3) mounds.push([cx - W * 0.28, cy - H * 0.18, (W * 0.1) * Math.min(1, (f - 0.3) / 0.4) + 2], [cx + W * 0.28, cy - H * 0.2, (W * 0.1) * Math.min(1, (f - 0.3) / 0.4) + 2]);
+  if (f > 0.6) mounds.push([cx - W * 0.3, cy + H * 0.18, (W * 0.09) * Math.min(1, (f - 0.6) / 0.3) + 2], [cx + W * 0.3, cy + H * 0.2, (W * 0.09) * Math.min(1, (f - 0.6) / 0.3) + 2]);
+  mounds.push([cx, cy + 2, 3.5 + W * 0.26 * Math.sqrt(f)]);
+  mounds.sort((a, b2) => a[1] - b2[1]);
+  for (const [mx, my, mr] of mounds) drawMound(g, mx, my, mr);
+  // loose coins and gems
+  for (let i = 0; i < 4 + step * 2; i++) {
+    const a = r() * Math.PI * 2, d = 0.7 + r() * 0.5;
+    const x = cx + Math.cos(a) * sx * d, y = cy + Math.sin(a) * sy * d;
+    if (x < 1 || x > W - 2 || y < 1 || y > H - 1) continue;
     g.fillStyle = "#3a2600"; g.fillRect(x - 1, y - 0.5, 2.5, 1.5); g.fillStyle = "#ffd23f"; g.fillRect(x - 0.5, y - 0.5, 1.5, 0.5);
   }
-  if (step >= 5) for (const [gx, gy, col] of [[-0.35, -0.45, "#e94f4f"], [0.25, -0.25, "#7df9ff"], [-0.05, -0.75, "#6ee07a"]]) {
-    const x = cx + gx * rx, y = by + gy * hgt;
+  if (step >= 5) for (let i = 0; i < 2 + step / 3; i++) {
+    const x = cx + (r() - 0.5) * sx * 1.4, y = cy + (r() - 0.5) * sy * 1.2, col = ["#e94f4f", "#7df9ff", "#6ee07a", "#c77dff"][i % 4];
     g.fillStyle = "#000"; g.fillRect(x - 1, y - 1, 3, 3); g.fillStyle = col; g.fillRect(x - 0.5, y - 0.5, 2, 2); g.fillStyle = "#fff"; g.fillRect(x - 0.5, y - 0.5, 0.5, 0.5);
   }
   heapCache.set(key, c);

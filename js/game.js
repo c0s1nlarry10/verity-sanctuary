@@ -150,7 +150,7 @@ function sanitize(data) {
   s.stats = Object.assign(defaultState().stats, data.stats || {});
   s.settings = Object.assign(defaultState().settings, data.settings || {});
   s.plots = data.plots && typeof data.plots === "object" ? Object.assign({ start: true }, data.plots) : { start: true, east: true, south: true, corner: true };
-  s.staff = Object.fromEntries(Object.keys(STAFF).map(t => [t, Math.max(0, Math.min(STAFF[t].max, Math.floor(Number((data.staff || {})[t]) || 0)))]));
+  s.staff = Object.fromEntries(Object.keys(STAFF).map(t => [t, Math.max(0, Math.min(999, Math.floor(Number((data.staff || {})[t]) || 0)))]));
   s.trash = (Array.isArray(data.trash) ? data.trash : []).filter(t => t && Number.isInteger(t.x) && Number.isInteger(t.y)).slice(0, 60);
   s.request = data.request && VARIANTS[data.request.k] ? data.request : null;
   s.eggCounts = Object.assign({ regular: Number(data.eggsHatched) || 0, golden: 0, cursed: 0 }, data.eggCounts || {});
@@ -189,6 +189,8 @@ function sanitize(data) {
     for (const o of Array.isArray(s.objects) ? s.objects : []) if (o) { o.x += dx; o.y += dy; }
     for (const t of s.trash) { t.x += dx; t.y += dy; }
   }
+  // older saves timed lost pens in real-world milliseconds; clear any of those
+  for (const e of Array.isArray(s.enclosures) ? s.enclosures : []) if (e && !(e.lostUntil <= s.worldClock + 120)) e.lostUntil = 0;
   s.worldVersion = WORLD_VERSION;
   for (const k of Object.keys(s.plots)) if (!PLOTS[k]) delete s.plots[k];
   if (!Array.isArray(s.tiles) || s.tiles.length !== COLS * ROWS) s.tiles = defaultState().tiles;
@@ -338,7 +340,8 @@ const objAt = (x, y) => inBounds(x, y) ? objGrid[idx(x, y)] : 0;
 const getEnc = id => state.enclosures.find(e => e.id === id);
 const getObj = id => state.objects.find(o => o.id === id);
 const randItem = arr => arr[Math.floor(Math.random() * arr.length)];
-const isLost = e => e.lostUntil > Date.now();
+// a pen lost in the Backrooms comes back after 60 seconds of game time
+const isLost = e => e.lostUntil > state.worldClock;
 
 function allIndividuals() { return [...state.inventory, ...state.enclosures.flatMap(e => e.variants)]; }
 function placedList() { return state.enclosures.flatMap(e => e.variants.map(ind => ({ ind, e }))); }
@@ -440,7 +443,8 @@ function gainParkXp(amount) {
 
 let encChoice = { size: "small", theme: "meadow", fence: "theme", shape: "square" };
 let pathChoice = 1;
-const penGrowth = () => Math.pow(1.3, Math.max(0, state.enclosures.length - 1));
+// Each extra pen costs a bit more than the last (steady growth, not exponential).
+const penGrowth = () => 1 + 0.35 * Math.pow(Math.max(0, state.enclosures.length - 1), 1.5);
 const fenceMult = f => (FENCE_TYPES[f] || FENCE_TYPES.theme).costMult;
 function enclosureCost(size = encChoice.size, theme = encChoice.theme, fence = encChoice.fence) {
   return Math.round(ENC_TYPES[size].cost * THEMES[theme].costMult * fenceMult(fence) * penGrowth());
@@ -458,7 +462,7 @@ function customMaxTiles() {
   return CUSTOM_PEN.maxTiles[best];
 }
 function eggCost() { return eggCostOf("regular"); }
-function objectCost(t) { return Math.round(OBJECTS[t].cost * Math.pow(1.15, state.objects.filter(o => o.t === t).length)); }
+function objectCost(t) { return Math.round(OBJECTS[t].cost * Math.pow(1 + 0.12 * state.objects.filter(o => o.t === t).length, 1.5)); }
 function labUpgradeCost() { return 500 * Math.pow(4, state.labLevel); }
 function releaseValue(ind) { return Math.round(VARIANTS[ind.k].value * 5 * (ind.shiny ? 5 : 1) * (1 + 0.1 * (levelOf(ind) - 1))); }
 
@@ -470,7 +474,8 @@ function parkAppeal() {
   for (const e of state.enclosures) a += encAppeal(e);
   for (const t of state.tiles) if (t > 1) a += PATH_TYPES[t].appeal;
   a += staffCount("mascot") * STAFF.mascot.appeal;
-  a -= state.trash.length * 0.5;
+  // litter hurts, but can never wipe out more than 40% of the park's appeal
+  a -= Math.min(a * 0.4, state.trash.length * 0.5);
   return Math.max(0, a);
 }
 function starRating() {
@@ -555,9 +560,19 @@ function canPlaceVault(x, y, n = VAULT.w) {
     const z = zoneAt(tx, ty);
     if (z !== ZONE.OUT && !(z === ZONE.PARK && isOwned(tx, ty))) return false;
     if (state.tiles[idx(tx, ty)] || encAt(tx, ty) || objAt(tx, ty)) return false;
-    if (tx === GATE.x && ty === GATE.y) return false;
+    if (Math.abs(tx - GATE.x) <= 1 && ty >= GATE.y - 3 && ty <= GATE.y + 1) return false;   // keep the gate and its sign clear
   }
   return true;
+}
+// The free n x n spot nearest the entrance (avoiding the rectangle `avoid`, e.g. a growing lot).
+function findVaultSpot(n, avoid) {
+  let best = null, bd = Infinity;
+  for (let y = 0; y + n <= ROWS; y++) for (let x = 0; x + n <= COLS; x++) {
+    if (avoid && x <= avoid[2] && x + n - 1 >= avoid[0] && y <= avoid[3] && y + n - 1 >= avoid[1]) continue;
+    const d = Math.hypot(x + n / 2 - GATE.x, y + n / 2 - GATE.y);
+    if (d < bd && canPlaceVault(x, y, n)) { bd = d; best = { x, y }; }
+  }
+  return best;
 }
 function startMoveVault() {
   if (buildLocked()) return;
@@ -584,8 +599,10 @@ function upgradeBank() {
   let spot = { x: VAULT.x, y: VAULT.y };
   if (n2 > n) {
     const d = n2 - n;
-    spot = [[VAULT.x, VAULT.y - d], [VAULT.x - d, VAULT.y - d], [VAULT.x, VAULT.y], [VAULT.x - d, VAULT.y]].map(([x, y]) => ({ x, y })).find(p => canPlaceVault(p.x, p.y, n2));
-    if (!spot) return hintOnce(`The bigger vault needs a clear ${n2}x${n2} space. Move the gold pile somewhere roomier first.`);
+    const options = [];
+    for (let dy = d; dy >= 0; dy--) for (let dx = 0; dx <= d; dx++) options.push({ x: VAULT.x - dx, y: VAULT.y - dy });
+    spot = options.find(p => canPlaceVault(p.x, p.y, n2)) || findVaultSpot(n2);   // no room to grow here: move to the nearest free spot
+    if (!spot) return hintOnce(`The bigger vault needs a clear ${n2}x${n2} space somewhere. Clear some room first.`);
   }
   if (state.money < next.cost) return hintOnce(`The next gold pile size costs ${fmt(next.cost)} coins.`);
   spend(next.cost, "Upgrades");
@@ -981,7 +998,7 @@ function admitVisitor(w) {
     mood: 70, pensSeen: 0, bubble: null,
     tx: GATE.x, ty: GATE.y, px: GATE.x - 1, py: GATE.y, nx: GATE.x, ny: GATE.y,
     prog: 1, speed: (type === "kid" ? 1.4 : 1.1) + Math.random() * 0.6,
-    steps: 25 + Math.floor(Math.random() * 40),
+    steps: 25 + Math.floor(Math.random() * 40) + Math.min(90, state.enclosures.length * 4),   // bigger parks: longer walks
     seen: new Set(), alpha: 0.4, leaving: false,
     off: Math.floor(Math.random() * 5) - 2,
     phase: Math.random() * 6,
@@ -990,7 +1007,7 @@ function admitVisitor(w) {
   earn(ticket, GATE.x * TILE + 8, GATE.y * TILE, undefined, "Tickets");
   state.visitorsServed++;
   if (state.day) state.day.visitors++;
-  gainParkXp(XP.visitor);
+  gainParkXp(XP.visitor * (1 + state.level * 0.15));
 }
 const spawnVisitor = () => admitVisitor(null);
 
@@ -1092,7 +1109,7 @@ function endEvent(win) {
     sfx("fanfare", 2);
     toast(`${ev.ind.name} stays! +${fmt(reward)} coins`, 4000, ev.ind.k);
   } else {
-    e.lostUntil = Date.now() + 60000;
+    e.lostUntil = state.worldClock + 60;
     sfx("fail");
     toast(`${ev.ind.name} got dragged into the Backrooms... Enclosure #${encNumber(e)} is closed for 60s.`, 5000, "backrooms");
   }
@@ -1192,7 +1209,8 @@ function secondTick() {
 function update(dt) {
   const appeal = parkAppeal();
   const parade = activeEvent && activeEvent.type === "parade" ? 2 : 1;
-  const interval = Math.max(0.3, 5 / (1 + appeal * 0.25)) / parade * spawnFactor();
+  // more appeal keeps bringing more guests (the car park and parking spaces are the real limit)
+  const interval = Math.max(0.08, 5 / (1 + appeal * 0.25)) / parade * spawnFactor();
   tickWorld(dt);
   updateCityCars(dt);
   updateStaff(dt);
@@ -1315,7 +1333,7 @@ function drawLostOverlay(e, time) {
     for (let i = 3; i < TILE - 2; i += 4) ctx.fillRect(x * TILE + i, y * TILE + 2, 1, TILE - 4);
   }
   pixelText(ctx, "?", px + W / 2, py + H / 2 - 4 + Math.round(Math.sin(time * 3) * 2), "#3a2a00", 2);
-  pixelText(ctx, Math.ceil((e.lostUntil - Date.now()) / 1000) + "S", px + W / 2, py + H - 9, "#3a2a00");
+  pixelText(ctx, Math.ceil(e.lostUntil - state.worldClock) + "S", px + W / 2, py + H - 9, "#3a2a00");
 }
 
 // In a custom pen a variant's body must stay over tiles that belong to the pen.
@@ -1757,7 +1775,7 @@ function drawVault(time, dt, x0, y0, x1, y1) {
   for (const sec of behind) drawSecurity(ctx, sec, dt, time);
   blit(ctx, vaultBack(n), X, Y);
   const step = Math.round(fill * 13), heap = heapSprite(n, step);
-  blit(ctx, heap, Math.round(X + YARD / 2 - uW(heap) / 2), Math.round(Y + YARD * 0.62 - uH(heap) * 0.82));
+  blit(ctx, heap, X + 4, Y + 6);
   if (step > 0) for (let i = 0; i < 3; i++) {
     const t = (time * 0.9 + i / 3) % 1;
     if (t > 0.35) continue;

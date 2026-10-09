@@ -7,37 +7,35 @@ const PATCH_NOTES = [
     version: "2.0", title: "Bigger, Brighter, Busier",
     sections: [
       { title: "World", notes: [
-        "Over 20x bigger, with 39 plots of wild land to buy.",
-        "11 biomes that blend seamlessly, including new snowy forests and cherry blossom groves.",
-        "A city surrounds the sanctuary, with traffic and windows that light up at night.",
-        "Minimap and a whole-map zoom. Move with arrow keys/WASD, zoom with scroll or +/-.",
-        "A redesigned front gate with a ticket booth.",
+        "Over 20x bigger, with 42 plots of wild land in 11 biomes that blend into each other.",
+        "A city surrounds the sanctuary, with traffic, pedestrians, crosswalks and lit windows at night.",
+        "Minimap, a whole-map zoom, arrow keys/WASD to move, scroll or +/- to zoom.",
+        "A new front gate, street lamps, and darker nights where every light glows.",
       ] },
       { title: "Park & building", notes: [
-        "Opening hours: open 8 AM to 10 PM, build at night while closed. Build tools hide during the day; the Lab works all day.",
-        "End-of-day report with profit and everything that levelled up.",
-        "Guests arrive by car. Upgrade the parking lot to fit more. The barrier closes at night.",
-        "Custom-shaped pens, priced by size.",
-        "Seven fence styles, and pens can be remodelled.",
+        "Open 8 AM to 10 PM; build at night while closed. A report shows each day's profit.",
+        "Guests arrive by car. The parking lot now grows all the way down the park.",
+        "Custom-shaped pens, seven fence styles, and remodelling.",
+        "No limit on staff, and more pen slots as your park levels up.",
         "Locked items stay visible with the level that unlocks them.",
       ] },
-      { title: "Variants", notes: [
-        "Your coins live in a gold pile by the entrance that grows with your wealth, fenced in and patrolled by Securities. Upgrade it now and then to hold more, and move it at night if you like.",
-        "Every variant ends in -ity: meet Liminality, Blockity and Piratity.",
-        "8 rounded body models (Round, Tall, Wide, Egg, Bulb, Squish, Lean, Tilt), so no two look alike. Accessories are retired.",
-        "Boobity ditched the censor bar for a tank top (with plenty of jiggle).",
-        "Jelly-like jiggle: they squash, stretch, lean and wiggle.",
-        "They sleep through the night and wake up at 8 AM.",
+      { title: "Money", notes: [
+        "Your coins live in a gold pile, guarded by Securities. Upgrade it to hold more; the vault grows and you can move it.",
+        "Prices now rise steadily instead of exploding, and late game progression keeps going.",
       ] },
-      { title: "Look & sound", notes: [
-        "Retro pixel art on one shared 16x16 grid.",
-        "More animation: walking guests, swaying trees, water and fireflies.",
-        "A new animated loading screen.",
+      { title: "Variants", notes: [
+        "Every variant ends in -ity: meet Liminality, Blockity and Piratity.",
+        "8 rounded body models, so no two look alike. Accessories are retired.",
+        "Jelly-like jiggle, sleep at night, and unique emotes in close-up.",
+        "Boobity traded the censor bar for a tank top and blond hair.",
+      ] },
+      { title: "Look & feel", notes: [
+        "Retro pixel art on one shared grid, with bigger variants and people.",
+        "An animated loading screen with every variant in the parade.",
         "Mute now silences music too.",
       ] },
       { title: "Interface", notes: [
-        "A skippable tutorial for new players (replay it from the Save tab).",
-        "Patch notes button and Instagram link in the top bar.",
+        "A skippable tutorial, patch notes button and Instagram link.",
         "Show on a plot of land highlights it in yellow.",
       ] },
     ],
@@ -72,7 +70,7 @@ const AUTOSAVE_MS = 10000;
 const OFFLINE_CAP_SEC = 8 * 3600;
 const OFFLINE_RATE = 0.5;
 const PATH_COST = 5;
-const MAX_VISITORS_CAP = 160;
+const MAX_VISITORS_CAP = 900;
 const SHINY_CHANCE = 0.01;
 const EGG_UNCOMMON_CHANCE = 0.06;
 const LAB_MAX_LEVEL = 5;
@@ -265,7 +263,8 @@ const ACHIEVEMENTS = [
 
 // ================= Park XP & unlocks =================
 const MAX_PARK_LEVEL = 30;
-const xpToNext = level => Math.round(120 * Math.pow(1.32, level - 1));
+// XP needed for the next level grows 26% per level; guests give more XP as the park grows.
+const xpToNext = level => Math.round(120 * Math.pow(1.26, level - 1));
 const XP = {
   hatch: 10,
   discover: tier => 40 * (tier + 1),
@@ -312,6 +311,11 @@ const UNLOCKS = [
   { level: 5,  id: "lot:3",        name: "Parking lot upgrade" },
   { level: 8,  id: "lot:4",        name: "Parking lot upgrade" },
   { level: 12, id: "lot:5",        name: "Parking lot upgrade" },
+  { level: 14, id: "lot:6",        name: "Bigger parking lot" },
+  { level: 17, id: "lot:7",        name: "Bigger parking lot" },
+  { level: 20, id: "lot:8",        name: "Bigger parking lot" },
+  { level: 24, id: "lot:9",        name: "Huge parking lot" },
+  { level: 27, id: "lot:10",       name: "Parking from the top of the park to the bottom" },
   { level: 3,  id: "care",         name: "Variant care (keep them fed!)" },
   { level: 3,  id: "plot:east",    name: "New land for sale" },
   { level: 3,  id: "requests",     name: "Visitor requests" },
@@ -339,6 +343,12 @@ const UNLOCKS = [
   { level: 12, id: "fence:wall",   name: "Gold fences" },
   { level: 4,  id: "remodel",      name: "Remodel pens (change theme and fence)" },
 ];
+// more enclosure slots as the park grows into its land: one each at 17-19, then two per level
+{
+  let n = 11;
+  for (const lv of [17, 18, 19]) UNLOCKS.push({ level: lv, id: "enc:" + n++, name: "+1 enclosure slot" });
+  for (let lv = 21; lv <= MAX_PARK_LEVEL; lv++) for (let k = 0; k < 2; k++) UNLOCKS.push({ level: lv, id: "enc:" + n++, name: "+1 enclosure slot" });
+}
 UNLOCKS.sort((a, b) => a.level - b.level);
 const UNLOCK_LEVEL = {};
 for (const u of UNLOCKS) UNLOCK_LEVEL[u.id] = u.level;
@@ -514,9 +524,9 @@ UNLOCKS.sort((a, b) => a.level - b.level);
 
 // ================= Staff =================
 const STAFF = {
-  janitor: { label: "Janitor",       hire: 200,  wage: 0.25, max: 4, desc: "Sweeps trash off the paths." },
-  keeper:  { label: "Keeper",        hire: 350,  wage: 0.4,  max: 6, desc: "Feeds hungry pens for free." },
-  mascot:  { label: "Verity Mascot", hire: 1200, wage: 1,    max: 2, appeal: 6, desc: "A giant Verity suit. +6 appeal, cheers visitors up." },
+  janitor: { label: "Janitor",       hire: 200,  wage: 0.25, desc: "Sweeps trash off the paths." },
+  keeper:  { label: "Keeper",        hire: 350,  wage: 0.4,  desc: "Feeds hungry pens for free." },
+  mascot:  { label: "Verity Mascot", hire: 1200, wage: 1,    appeal: 6, desc: "A giant Verity suit. +6 appeal, cheers visitors up." },
 };
 
 // ================= Eggs =================
@@ -560,9 +570,9 @@ const BANK_LEVELS = [
   { cap: 1.2e10,    cost: 1.4e9 },
   { cap: 6e10,      cost: 7e9 },
 ];
-// The fenced yard starts just north-west of the entrance; it's the one thing players can move.
-// It grows with the gold pile's level (3x3 tiles up to 8x8), growing upwards from where it sits.
-const VAULT_HOME = { x: 8, bottom: GATE.y - 6 };
+// The fenced yard starts in the top corner of the starting meadow, near the entrance; it's
+// the one thing players can move. It grows with the gold pile's level (3x3 up to 8x8 tiles).
+const VAULT_HOME = { x: OX + 1, bottom: OY + 3 };
 const vaultSize = (lvl = typeof state !== "undefined" ? state.bankLevel || 1 : 1) => Math.min(8, 3 + Math.ceil((lvl - 1) / 2));
 const VAULT = {
   get w() { return vaultSize(); },
@@ -571,13 +581,21 @@ const VAULT = {
   get y() { return typeof state !== "undefined" && state.vault ? state.vault.y : VAULT_HOME.bottom - vaultSize() + 1; },
 };
 const ROAD_X = [1, 2];          // two-lane road along the west edge
+// The car park grows out from the driveway until it runs the full height of the park.
+// Spaces = stall columns x rows (the driveway row has no stalls).
 const LOT_LEVELS = [
-  { spaces: 6,  cost: 0,     rect: [10, GATE.y - 1, 13, GATE.y + 1] },
-  { spaces: 12, cost: 800,   rect: [10, GATE.y - 2, 13, GATE.y + 2] },
-  { spaces: 20, cost: 3000,  rect: [8, GATE.y - 2, 13, GATE.y + 2] },
-  { spaces: 30, cost: 9000,  rect: [8, GATE.y - 3, 13, GATE.y + 3] },
-  { spaces: 48, cost: 25000, rect: [7, GATE.y - 4, 13, GATE.y + 4] },
+  { cost: 0,       rect: [10, GATE.y - 1, 13, GATE.y + 1] },
+  { cost: 800,     rect: [10, GATE.y - 2, 13, GATE.y + 2] },
+  { cost: 3000,    rect: [8, GATE.y - 2, 13, GATE.y + 2] },
+  { cost: 9000,    rect: [8, GATE.y - 3, 13, GATE.y + 3] },
+  { cost: 25000,   rect: [7, GATE.y - 4, 13, GATE.y + 4] },
+  { cost: 70000,   rect: [7, GATE.y - 7, 13, GATE.y + 7] },
+  { cost: 200000,  rect: [7, GATE.y - 11, 13, GATE.y + 11] },
+  { cost: 600000,  rect: [7, GATE.y - 17, 13, GATE.y + 17] },
+  { cost: 1800000, rect: [7, GATE.y - 26, 13, GATE.y + 26] },
+  { cost: 5000000, rect: [7, 0, 13, ROWS - 1] },
 ];
+for (const l of LOT_LEVELS) l.spaces = (l.rect[2] - l.rect[0]) * (l.rect[3] - l.rect[1]);
 const GUESTS_PER_SPACE = 3;
 const WEATHER = {
   clear:  { label: "Sunny",  weight: 50, spawn: 1,   icon: "sun" },
