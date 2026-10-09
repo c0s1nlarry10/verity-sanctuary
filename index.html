@@ -212,6 +212,20 @@
         g.fillStyle = "#4d4488"; for (i = 0; i < 4; i++) g.fillRect(Math.round(x0 + (i + 0.5) * w / 4 - w / 8), Math.round(y0 - w / 5 - (i % 2 ? 2 : 0)), Math.round(w / 4), 1);
         g.fillStyle = "#2c2558"; g.fillRect(x0, y0 + Math.round(w / 6), w, 2);
       }
+      // once the game scripts are loaded, the parade uses every variant's real sprite
+      var realParade = null;
+      function buildRealParade() {
+        var tricks = ["flip", "spin", "boing", "wiggle", "twirl"];
+        realParade = VARIANT_KEYS.map(function (k, i) {
+          var def = VARIANTS[k], seed = 7000 + i * 131;
+          var ind = { id: -3000 - i, k: k, seed: seed, model: Math.floor(Math.random() * BODY_MODELS.length), size: 0, hue: 0, light: 0, mark: "none", acc: "none", trait: "chill", shiny: false };
+          var spr = buildVariantSprite(k, ind, false);
+          var trick = k === "boobity" ? "shimmy" : def.move === "float" ? "float" : def.move === "glitch" ? "glitch" : def.move === "zoom" ? "dash" : def.move === "squash" ? "boing" : def.move === "jitter" ? "wiggle" : tricks[i % tricks.length];
+          return { spr: spr, trick: trick };
+        });
+        // shuffle so the line-up changes every visit
+        for (var j = realParade.length - 1; j > 0; j--) { var q = Math.floor(Math.random() * (j + 1)), t = realParade[j]; realParade[j] = realParade[q]; realParade[q] = t; }
+      }
       var shoot = null, last = performance.now(), T = 0;
       function frame(now) {
         if (!document.getElementById("loader-scene")) return;
@@ -239,17 +253,43 @@
           for (var rr = 12; rr > 2; rr -= 3) { g.globalAlpha = 0.07 * fl; g.fillStyle = "#ffcf5a"; g.beginPath(); g.arc(L[0], L[1], rr, 0, 7); g.fill(); }
           g.globalAlpha = 1; g.fillStyle = "#fff09a"; g.fillRect(L[0] - 1, L[1] - 1, 2, 2);
         }
-        // the variant parade
-        var gap = 30, total = PARADE.length * gap + W * 0.3, speed = 16;
-        for (i = 0; i < PARADE.length; i++) {
-          var p = PARADE[i], x = ((T * speed + W * 0.55 - i * gap) % (W + total) + (W + total)) % (W + total) - p.r * 2 - 6;
-          if (x < -40 || x > W + 40) continue;
-          var hopT = (T * 2.2 + i * 0.37) % 1, hop = Math.sin(hopT * Math.PI) * 6;
-          var sw = p.spr.width, y = pathY + 3 - sw + 2 - Math.round(hop);
-          g.globalAlpha = 0.35 - hop * 0.03; g.fillStyle = "#000";
-          g.beginPath(); g.ellipse(Math.round(x + sw / 2), pathY + 3, Math.max(2, p.r - hop * 0.4), 1.5, 0, 0, 7); g.fill(); g.globalAlpha = 1;
-          if (hopT < 0.08 || hopT > 0.94) g.drawImage(p.spr, Math.round(x - 1), y + 2, sw + 2, sw - 2);
-          else g.drawImage(p.spr, Math.round(x), y);
+        // the variant parade: simple faces until the game has loaded, then every variant's
+        // real sprite in a random body model, bouncing along with its own trick now and then
+        if (!realParade && typeof buildVariantSprite === "function" && typeof VARIANT_KEYS !== "undefined") buildRealParade();
+        var list = realParade || PARADE, gap = realParade ? 30 : 30, total = list.length * gap + W * 0.25, speed = 16;
+        for (i = 0; i < list.length; i++) {
+          var p = list[i], sw = p.spr.width, sh = p.spr.height;
+          var x = ((T * speed + W * 0.55 - i * gap) % (W + total) + (W + total)) % (W + total) - sw - 6;
+          var hopT = (T * 2.2 + i * 0.37) % 1, hop = Math.sin(hopT * Math.PI) * 6, sx = 1, sy = 1, rot = 0, dx = 0, alpha = 1;
+          if (hopT < 0.08 || hopT > 0.94) { sx = 1.12; sy = 0.86; }                 // squash on landing
+          else if (hopT < 0.25) { sx = 0.92; sy = 1.08; }                           // stretch on take-off
+          var tr = p.trick ? (T * 0.22 + i * 0.137) % 1 : 1, pr = tr / 0.22;
+          if (tr < 0.22) {
+            switch (p.trick) {
+              case "flip": hop = Math.sin(pr * Math.PI) * 18; rot = pr * Math.PI * 2; break;
+              case "spin": sx = Math.cos(pr * Math.PI * 4); break;
+              case "boing": hop = Math.sin(pr * Math.PI) * 22; sy = 1 + Math.sin(pr * Math.PI * 3) * 0.25; sx = 2 - sy; break;
+              case "wiggle": rot = Math.sin(pr * Math.PI * 10) * 0.35; hop *= 0.4; break;
+              case "dash": dx = Math.sin(pr * Math.PI) * 26; hop *= 0.3; break;
+              case "float": hop = 6 + Math.sin(pr * Math.PI) * 12; rot = Math.sin(pr * Math.PI * 4) * 0.15; sx = sy = 1; break;
+              case "glitch": dx = (Math.random() < 0.3 ? (Math.random() - 0.5) * 8 : 0); alpha = Math.random() < 0.2 ? 0.4 : 1; break;
+              case "shimmy": dx = Math.sin(pr * Math.PI * 14) * 2; rot = Math.sin(pr * Math.PI * 14) * 0.12; hop *= 0.3; break;
+              case "twirl": rot = -pr * Math.PI * 2; hop = Math.sin(pr * Math.PI) * 10; break;
+            }
+          } else if (p.trick === "float") { hop = 5 + Math.sin(T * 2 + i) * 2; sx = sy = 1; }
+          x += dx;
+          if (x < -50 || x > W + 50) continue;
+          var footY = pathY + 3 + (realParade ? 3 : 0);   // real sprites have 3px of padding under the body
+          g.globalAlpha = Math.max(0.08, 0.35 - hop * 0.012); g.fillStyle = "#000";
+          g.beginPath(); g.ellipse(Math.round(x + sw / 2), pathY + 3, Math.max(2, sw * 0.35 - hop * 0.15), 1.5, 0, 0, 7); g.fill();
+          g.globalAlpha = alpha;
+          g.save();
+          g.translate(Math.round(x + sw / 2), Math.round(footY - hop - sh / 2));
+          if (rot) g.rotate(rot);
+          g.scale(sx, sy);
+          g.drawImage(p.spr, -Math.round(sw / 2), -Math.round(sh / 2));
+          g.restore();
+          g.globalAlpha = 1;
         }
         // fireflies
         for (i = 0; i < flies.length; i++) {
