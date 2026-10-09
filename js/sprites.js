@@ -460,25 +460,39 @@ function accessoryShine(g, o, acc) {
 const CHEST_KEY = "boobity";
 const TANK = "#f4f4f8";
 const chestCache = new Map();
-function chestParts(D) {
-  if (chestCache.has(D)) return chestCache.get(D);
-  const r = D * 0.22, w = r * 2 + 1, h = r * 2 + 1;
-  const mound = () => { const [c, g] = hiCanvas(w, h); litBlob(g, w / 2, h / 2, r, r * 0.88, ramp("#ececf4")); return c; };
-  const parts = { left: mound(), right: mound(), r };
-  chestCache.set(D, parts);
+function chestParts(D, color) {
+  const key = D + color;
+  if (chestCache.has(key)) return chestCache.get(key);
+  const r = D * 0.22, w = r * 2 + 1, h = r * 2 + 1, neck = h * 0.42;
+  const mound = (left) => {
+    const [c, g] = hiCanvas(w, h);
+    litBlob(g, w / 2, h / 2, r, r * 0.88, ramp(color));                   // skin
+    g.save(); g.beginPath(); g.rect(0, neck, w, h); g.clip();
+    litBlob(g, w / 2, h / 2, r, r * 0.88, ramp("#ececf4"));               // tank top fabric
+    g.restore();
+    g.fillStyle = shade(TANK, -55);                                         // neckline edge
+    for (let x = 1; x < w - 1; x += 0.5) {
+      const nx = (x - w / 2) / r, ny = Math.sqrt(Math.max(0, 1 - nx * nx));
+      if ((neck - h / 2) / (r * 0.88) < ny) g.fillRect(x, neck - 0.5 + (left ? -1 : 1) * (x - w / 2) * 0.12, 0.5, 0.5);
+    }
+    return c;
+  };
+  const parts = { left: mound(true), right: mound(false), r, neck };
+  chestCache.set(key, parts);
   return parts;
 }
-// Draws the chest with the body box at (bx, by), size D, scaled by (kx, ky). jl/jr are the
-// jiggle offsets of the left and right sides in units.
-function drawChest(g, bx, by, D, color, kx = 1, ky = 1, jl = 0, jr = 0) {
-  const p = chestParts(D), w = uW(p.left), h = uH(p.left);
+// Draws the chest with the body box at (bx, by), size D, scaled by (kx, ky). j holds the
+// jiggle offsets [leftX, leftY, rightX, rightY] in units.
+function drawChest(g, bx, by, D, color, kx = 1, ky = 1, j = [0, 0, 0, 0]) {
+  const p = chestParts(D, color), w = uW(p.left), h = uH(p.left);
   const cy = by + (D * 0.72) * ky;
   const lx = bx + (D / 2 - p.r * 0.95) * kx, rx = bx + (D / 2 + p.r * 0.95) * kx;
-  g.drawImage(p.left, Math.round(lx - w / 2 * kx), Math.round(cy - h / 2 * ky + jl), w * kx, h * ky);
-  g.drawImage(p.right, Math.round(rx - w / 2 * kx), Math.round(cy - h / 2 * ky + jr), w * kx, h * ky);
-  // a short cleft at the scoop neckline
-  g.fillStyle = shade(color, -45);
-  g.fillRect(Math.round(bx + D / 2 * kx) - 0.5, Math.round(cy - p.r * 0.8 * ky + Math.min(jl, jr)), 1, 1);
+  g.drawImage(p.left, Math.round(lx - w / 2 * kx + j[0]), Math.round(cy - h / 2 * ky + j[1]), w * kx, h * ky);
+  g.drawImage(p.right, Math.round(rx - w / 2 * kx + j[2]), Math.round(cy - h / 2 * ky + j[3]), w * kx, h * ky);
+  // cleavage line where the two sides meet above the neckline
+  const top = Math.round(cy - p.r * 0.75 * ky + Math.min(j[1], j[3])), len = Math.max(1, Math.round((p.neck - h / 2 + p.r * 0.75) * ky));
+  g.fillStyle = shade(color, -65);
+  g.fillRect(Math.round(bx + D / 2 * kx + (j[0] + j[2]) / 2) - Math.max(1, kx) / 2, top, Math.max(1, kx), len);
 }
 // The rest of the tank top: fabric over the lower body, a hem and two straps.
 function drawTankTop(g, ox, oy, D, inside) {
@@ -499,7 +513,43 @@ function drawTankTop(g, ox, oy, D, inside) {
   for (const sx of [0.2, 0.75]) { g.fillStyle = pal[2]; g.fillRect(ox + D * sx, oy + D * 0.5, 1, top - D * 0.5 + 0.5); }
 }
 
-function buildVariantSprite(key, ind, blink = false, noChest = false) {
+// Boobity's blond hair: a different style for each of the 8 body models.
+const BLOND_STYLES = ["Long", "Ponytail", "Pigtails", "Bob", "Bun", "Wavy", "Side-swept", "Curly puff"];
+function drawBlondHair(g, ox, oy, D, inside, style) {
+  const pal = ramp("#f2cf5b"), R = (col, x, y, w, h) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
+  const top = inside.top, c = D / 2;
+  // the cap of hair over the top of the head; the line it stops at depends on the style
+  const capY = x => {
+    const t = (x - c) / c;
+    if (style === 3) return top + D * 0.3;                                  // bob: straight fringe
+    if (style === 6) return top + D * (0.18 + 0.2 * (t + 1) / 2);           // side-swept
+    if (style === 7) return top + D * 0.26;                                 // puff
+    return top + D * (0.2 + 0.08 * Math.abs(t));                            // middle parting
+  };
+  raw(g, () => {
+    for (let py = Math.floor((oy + top) * RES); py < (oy + top + D * 0.45) * RES; py++)
+      for (let px = Math.floor(ox * RES); px < (ox + D) * RES; px++) {
+        const ux = px / RES - ox, uy = py / RES - oy;
+        if (!inside(Math.floor(ox + ux), Math.floor(oy + uy)) || uy > capY(ux)) continue;
+        const edge = uy > capY(ux) - 0.6 || !inside(Math.floor(ox + ux - 0.5), Math.floor(oy + uy)) || !inside(Math.floor(ox + ux + 0.5), Math.floor(oy + uy)) || !inside(Math.floor(ox + ux), Math.floor(oy + uy - 0.5));
+        const lum = (c - ux) / c * 0.4 + (top + D * 0.2 - uy) / D * 1.5 + ((px + py) % 3 === 0 ? -0.15 : 0);
+        g.fillStyle = edge ? pal[1] : lum > 0.35 ? pal[5] : lum > 0.05 ? pal[4] : lum > -0.25 ? pal[3] : pal[2];
+        g.fillRect(px, py, 1, 1);
+      }
+  });
+  const X = ox, Y = oy;
+  const lock = (x, y, w, h) => { R(pal[0], X + x - 0.5, Y + y, w + 1, h + 0.5); R(pal[3], X + x, Y + y, w, h); R(pal[4], X + x, Y + y, Math.max(0.5, w * 0.4), h); };
+  if (style === 0) { lock(0.5, top + D * 0.2, 2, D * 0.55); lock(D - 2.5, top + D * 0.2, 2, D * 0.55); }        // long straight
+  if (style === 1) { litBlob(g, X + D + 0.5, Y + top + D * 0.25, 2.2, 3, pal); lock(D + 0.5, top + D * 0.35, 1.5, D * 0.35); }   // ponytail
+  if (style === 2) { for (const sx of [-1.2, D + 1.2]) litBlob(g, X + sx, Y + top + D * 0.35, 2, 2.6, pal); }  // pigtails
+  if (style === 3) { lock(0.3, top + D * 0.2, 1.5, D * 0.28); lock(D - 1.8, top + D * 0.2, 1.5, D * 0.28); }    // bob
+  if (style === 4) litBlob(g, X + c, Y + top - 1.5, 2.6, 2.2, pal);                                          // bun
+  if (style === 5) for (const [sx, dir] of [[0.5, 1], [D - 2.5, -1]]) for (let i = 0; i < 4; i++) lock(sx + (i % 2) * 0.5 * dir, top + D * 0.2 + i * 2.2, 2, 2.2);   // wavy
+  if (style === 6) lock(D - 2.5, top + D * 0.25, 2, D * 0.35);                                               // side-swept
+  if (style === 7) { for (const [sx, sy] of [[c - 4, top - 0.5], [c, top - 1.8], [c + 4, top - 0.5], [c - 6, top + 2.5], [c + 6, top + 2.5]]) litBlob(g, X + sx, Y + sy, 2.4, 2.2, pal); }   // curly puff
+}
+
+function buildVariantSprite(key, ind, blink = false, noChest = false, wink = false) {
   const def = VARIANTS[key];
   const D = bodySize(key, ind);
   const [c, g] = hiCanvas(D + SPR_PAD_X * 2, D + SPR_PAD_T + SPR_PAD_B);
@@ -515,7 +565,11 @@ function buildVariantSprite(key, ind, blink = false, noChest = false) {
   const faceShift = Math.round(((inside.top + inside.bottom) / 2 - D / 2) * 2) / 2;
   const fx0 = SPR_PAD_X, fy0 = SPR_PAD_T + faceShift;
   const ink = def.ink || "#2b1d00";
-  if (key === CHEST_KEY) { drawTankTop(g, SPR_PAD_X, SPR_PAD_T, D, inside); if (!noChest) drawChest(g, SPR_PAD_X, SPR_PAD_T, D, color); }
+  if (key === CHEST_KEY) {
+    drawTankTop(g, SPR_PAD_X, SPR_PAD_T, D, inside);
+    if (!noChest) drawChest(g, SPR_PAD_X, SPR_PAD_T, D, color);
+    drawBlondHair(g, SPR_PAD_X, SPR_PAD_T, D, inside, ind ? ind.model || 0 : 0);
+  }
   g.save();
   g.translate(fx0, fy0); g.scale(k, k);
   const o = { x: 0, y: 0 };
@@ -523,8 +577,8 @@ function buildVariantSprite(key, ind, blink = false, noChest = false) {
   FACES[def.face](g, o, ink, color);
   const eyes = FACE_EYES[def.face];
   if (eyes) {
-    if (blink) {
-      for (const [x, y, w, h] of eyes) {
+    if (blink || wink) {
+      for (const [x, y, w, h] of (wink ? eyes.slice(0, 1) : eyes)) {
         g.fillStyle = color; g.fillRect(o.x + x, o.y + y, w, h);
         g.fillStyle = ink; g.fillRect(o.x + x - 0.25, o.y + y + h - 0.75, w + 0.5, 0.5);
       }
@@ -539,11 +593,12 @@ function buildVariantSprite(key, ind, blink = false, noChest = false) {
 }
 
 const spriteCache = new Map();
-function spriteFor(ind, blink = false, noChest = false) {
-  if (blink && !FACE_EYES[VARIANTS[ind.k].face]) blink = false;
+function spriteFor(ind, blink = false, noChest = false, wink = false) {
+  if ((blink || wink) && !FACE_EYES[VARIANTS[ind.k].face]) blink = wink = false;
   noChest = noChest && ind.k === CHEST_KEY;
-  const key = "i" + ind.id + (blink ? "b" : "") + (noChest ? "n" : "");
-  if (!spriteCache.has(key)) spriteCache.set(key, buildVariantSprite(ind.k, ind, blink, noChest));
+  if (blink) wink = false;
+  const key = "i" + ind.id + (blink ? "b" : "") + (wink ? "w" : "") + (noChest ? "n" : "");
+  if (!spriteCache.has(key)) spriteCache.set(key, buildVariantSprite(ind.k, ind, blink, noChest, wink));
   return spriteCache.get(key);
 }
 function baseSprite(k) {
@@ -1366,4 +1421,63 @@ function pixelText(g, text, x, y, color, scale = 1) {
     for (let i = 0; i < 15; i++) if (bits[i] === "1") g.fillRect(cx + (i % 3) * scale, Math.round(y) + Math.floor(i / 3) * scale, scale, scale);
     cx += 4 * scale;
   }
+}
+
+
+// ================= The gold pile (the bank) =================
+// A 3x3-tile paved yard behind an iron fence, with the gold heap in the middle. The yard is
+// split in two so the heap can sit between the back fence and the front fence.
+const YARD = 3 * TILE;
+function ironFence(g, x, y, w, horiz) {
+  const R = (col, xx, yy, ww, hh) => { g.fillStyle = col; g.fillRect(xx, yy, ww, hh); };
+  if (horiz) {
+    R("#000", x, y + 2, w, 1.5); R("#000", x, y + 6, w, 1.5);
+    R("#5a5e6a", x, y + 2.25, w, 1); R("#5a5e6a", x, y + 6.25, w, 1);
+    for (let xx = x + 1; xx < x + w - 1; xx += 3) { R("#000", xx - 0.5, y - 1, 2, 10); R("#7a7e8a", xx, y, 1, 9); R("#ffd23f", xx, y - 1, 1, 1); }
+  } else {
+    R("#000", x - 0.5, y, 2.5, w); R("#7a7e8a", x, y, 1.5, w);
+    for (let yy = y; yy < y + w; yy += 4) { R("#000", x - 1, yy, 3.5, 1.5); R("#ffd23f", x, yy, 1.5, 0.5); }
+  }
+}
+const VAULT_BACK = (() => {
+  const [c, g] = hiCanvas(YARD, YARD);
+  const R = (col, x, y, w, h) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
+  g.fillStyle = "rgba(0,0,0,0.3)"; g.fillRect(2, 3, YARD, YARD);
+  for (let y = 0; y < YARD; y += 6) for (let x = 0; x < YARD; x += 6) { R(((x + y) / 6) % 2 ? "#a8a4b2" : "#9894a4", x, y, 6, 6); R("#b8b4c2", x, y, 6, 0.5); R("#7a7684", x + 5.5, y, 0.5, 6); }
+  litBlob(g, YARD / 2, YARD * 0.62, 17, 8, ["#3a3640", "#6a6674", "#7a7684", "#8a8694", "#9a96a4", "#aaa6b4"], { noOutline: true });
+  ironFence(g, 0, 0, YARD, true);
+  ironFence(g, 0.5, 4, YARD - 6, false); ironFence(g, YARD - 2, 4, YARD - 6, false);
+  for (const x of [0, YARD - 4]) { R("#000", x - 0.5, -2.5, 5, 6); R("#5a5e6a", x, -2, 4, 5); R("#ffd23f", x + 1, -3, 2, 1.5); }
+  return c;
+})();
+const VAULT_FRONT = (() => {
+  const [c, g] = hiCanvas(YARD, 14);
+  const R = (col, x, y, w, h) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
+  ironFence(g, 0, 3, YARD, true);
+  // locked double gate in the middle, with a plaque
+  R("#000", YARD / 2 - 7, 1.5, 14, 11); R("#3a3e4a", YARD / 2 - 6.5, 2, 13, 10);
+  for (let x = YARD / 2 - 6; x < YARD / 2 + 6; x += 2) R("#8a8e9a", x, 2, 1, 10);
+  R("#ffd23f", YARD / 2 - 1, 6, 2, 2); R("#c99a00", YARD / 2 - 0.5, 7, 1, 1);
+  for (const x of [0, YARD - 4]) { R("#000", x - 0.5, 0.5, 5, 13); R("#5a5e6a", x, 1, 4, 12); R("#ffd23f", x + 1, 0, 2, 1.5); }
+  return c;
+})();
+const HEAP_SPR = [];
+function heapSprite(step) {
+  if (HEAP_SPR[step]) return HEAP_SPR[step];
+  const f = step / 13, rx = 3 + 13.5 * Math.sqrt(f), ry = rx * 0.68;
+  const [c, g] = hiCanvas(38, 28);
+  const cx = 19, cy = 26 - ry;
+  const r = seeded(step * 17 + 3);
+  if (step > 0) {
+    litBlob(g, cx, cy, rx, ry, ramp("#ffd23f"));
+    for (let i = 0; i < rx * ry * 0.7; i++) {
+      const a = r() * Math.PI * 2, d = Math.sqrt(r());
+      const x = cx + Math.cos(a) * rx * d * 0.92, y = cy + Math.sin(a) * ry * d * 0.9;
+      g.fillStyle = r() < 0.5 ? "#c99a00" : "#fff09a"; g.fillRect(Math.round(x * 2) / 2, Math.round(y * 2) / 2, 1, 0.5);
+    }
+    for (let i = 0; i < Math.min(6, step / 2); i++) { const x = cx - rx * 0.6 + r() * rx * 1.2; g.fillStyle = "#000"; g.fillRect(x - 0.5, cy - ry - 0.5 + r() * 3, 2, 2.5); g.fillStyle = "#ffd23f"; g.fillRect(x, cy - ry + r() * 3, 1, 1.5); }
+    if (step >= 6) { g.fillStyle = "#000"; g.fillRect(cx + rx * 0.3 - 0.5, cy - ry * 0.4 - 0.5, 4, 3); g.fillStyle = "#e94f4f"; g.fillRect(cx + rx * 0.3, cy - ry * 0.4, 3, 2); g.fillStyle = "#7df9ff"; g.fillRect(cx - rx * 0.4, cy - ry * 0.2, 1.5, 1.5); }  // gems
+  } else for (const [x, y] of [[16, 24], [20, 25], [22, 23]]) { g.fillStyle = "#000"; g.fillRect(x - 0.5, y - 0.5, 2.5, 1.5); g.fillStyle = "#ffd23f"; g.fillRect(x, y, 1.5, 0.5); }
+  HEAP_SPR[step] = c;
+  return c;
 }

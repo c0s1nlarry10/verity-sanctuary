@@ -375,6 +375,7 @@ function drawSky(time) {
     ctx.globalCompositeOperation = "lighter";
     const lights = state.objects.filter(o => o.t === "lamp" || OBJECTS[o.t].kind === "stand").map(o => [o.x * TILE + 8, o.y * TILE, o.t === "lamp" ? 26 : 14]);
     lights.push([GATE.x * TILE + 8, GATE.y * TILE - 19, 16], [GATE.x * TILE + 8, GATE.y * TILE + 7, 16], [GATE.x * TILE + 8, GATE.y * TILE - 28, 22], [GATE.x * TILE - 9, GATE.y * TILE - 6, 10]);
+    for (const sec of securities) lights.push([sec.c.x + sec.c.vx * 0.6, sec.c.y - 4 + sec.c.vy * 0.6, 11]);   // guards' flashlights
     for (const c of cars) if (c.state !== "parked") lights.push([c.x + (c.dir === 1 ? 8 : c.dir === 3 ? -8 : 0), c.y + (c.dir === 2 ? 8 : c.dir === 0 ? -8 : 0), 10]);
     for (const [lx, ly, r] of lights) {
       if (lx < vx - r || lx > vx + vw + r || ly < vy - r || ly > vy + vh + r) continue;
@@ -575,8 +576,8 @@ function checkDaily() {
   const yesterday = dayKey(new Date(Date.now() - 86400000));
   state.daily.streak = state.daily.last === yesterday ? state.daily.streak + 1 : 1;
   state.daily.last = today;
-  const coins = DAILY_COINS_PER_LEVEL * state.level * Math.min(7, state.daily.streak);
-  state.money += coins;
+  let coins = DAILY_COINS_PER_LEVEL * state.level * Math.min(7, state.daily.streak);
+  coins = bankDeposit(coins);
   state.totalEarned += coins;
   state.freeEggs++;
   let extra = "";
@@ -938,4 +939,40 @@ function renderParking() {
   b.disabled = state.money < next.cost;
   b.addEventListener("click", upgradeLot);
   box.appendChild(b);
+}
+
+// ================= Gold pile card =================
+function renderBank() {
+  const box = $("bank");
+  if (!box) return;
+  box.innerHTML = "";
+  const cap = bankCap(), fill = Math.min(1, state.money / cap);
+  $("bank-level").textContent = "LV " + state.bankLevel;
+  box.appendChild(el("p", "small", `Your coins are kept in the gold pile by the entrance, guarded by Securities. It holds ${fmt(Math.floor(state.money))} of ${fmt(cap)}.`));
+  const bar = el("div", "progress"), fillEl = el("div", "progress-fill");
+  fillEl.style.width = Math.round(fill * 100) + "%";
+  if (fill >= 1) fillEl.style.background = "var(--danger)";
+  bar.appendChild(fillEl); box.appendChild(bar);
+  if (fill >= 1) box.appendChild(el("p", "small warn", "Full! New coins are lost until you upgrade the pile."));
+  const next = BANK_LEVELS[state.bankLevel];
+  const row = el("div", "tools");
+  const show = el("button", "", "Show");
+  show.addEventListener("click", () => { centerOn((VAULT.x + 1.5) * TILE, (VAULT.y + 1.5) * TILE); sfx("click"); });
+  row.appendChild(show);
+  if (!dayLocked()) {
+    const mv = el("button", tool === "movevault" ? "active" : "", tool === "movevault" ? "Moving..." : "Move");
+    mv.addEventListener("click", () => tool === "movevault" ? setTool("inspect") : startMoveVault());
+    row.appendChild(mv);
+  }
+  if (!next) box.appendChild(el("p", "small", "This is the biggest gold pile there is."));
+  else if (dayLocked()) box.appendChild(el("p", "small", `Next size holds ${fmt(next.cap)} for ${fmt(next.cost)}c. Upgrade at night while the park is closed.`));
+  else {
+    const b = el("button", "primary", `Upgrade: holds ${fmt(next.cap)} (${fmt(next.cost)}c)`);
+    b.disabled = state.money < next.cost;
+    b.addEventListener("click", upgradeBank);
+    row.appendChild(b);
+  }
+  box.appendChild(row);
+  $("money").classList.toggle("bank-full", fill >= 1);
+  $("money").title = `Bank: ${fmt(Math.floor(state.money))} / ${fmt(cap)}`;
 }

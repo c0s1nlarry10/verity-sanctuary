@@ -74,6 +74,8 @@ function defaultState() {
     day: null,
     seenVersion: "",
     tutorialDone: false,
+    bankLevel: 1,
+    vault: { x: VAULT_HOME.x, y: VAULT_HOME.y },
   };
   s.enclosures[0].variants.push(makeIndividual("verity", s, { shinyChance: 0 }));
   return s;
@@ -158,6 +160,11 @@ function sanitize(data) {
   s.day = data.day && typeof data.day === "object" ? data.day : null;
   s.seenVersion = typeof data.seenVersion === "string" ? data.seenVersion : "";
   s.tutorialDone = data.tutorialDone === true;
+  // older saves get a bank big enough for the coins they already have
+  s.bankLevel = Math.max(1, Math.min(BANK_LEVELS.length, Math.floor(Number(data.bankLevel) || 1)));
+  while (s.bankLevel < BANK_LEVELS.length && BANK_LEVELS[s.bankLevel - 1].cap < (Number(data.money) || 0)) s.bankLevel++;
+  const v = data.vault;
+  s.vault = v && Number.isInteger(v.x) && Number.isInteger(v.y) && v.x >= 0 && v.y >= 0 && v.x + 3 <= COLS && v.y + 3 <= ROWS ? { x: v.x, y: v.y } : { x: VAULT_HOME.x, y: VAULT_HOME.y };
   if (data.worldVersion !== WORLD_VERSION && Array.isArray(data.tiles) && data.tiles.length === CORE_W * CORE_H) {
     // v1.0 parks were 24x16 tiles: move everything into the middle of the bigger world
     const tiles = new Array(COLS * ROWS).fill(0);
@@ -258,9 +265,9 @@ function applyOfflineEarnings() {
     ind.xp += capped * 0.5 * openShare * xpRate(ind);
     if (isUnlocked("care")) ind.food = Math.max(Math.min(ind.food, CARE.offlineFloor), ind.food - capped * CARE.foodDecay);
   }
-  const earned = Math.floor(capped * state.incomeRate * OFFLINE_RATE * openShare);
+  let earned = Math.floor(capped * state.incomeRate * OFFLINE_RATE * openShare);
   if (earned <= 0) return;
-  state.money += earned;
+  earned = bankDeposit(earned);
   state.totalEarned += earned;
   toast(`Welcome back! You were away ${formatDuration(secondsAway)}. Visitors paid ${fmt(earned)} coins.`, 7000);
 }
@@ -525,10 +532,64 @@ function payFor(ind, e) {
   return v;
 }
 
+// ---- the bank ----
+const bankCap = () => BANK_LEVELS[Math.max(0, Math.min(BANK_LEVELS.length, state.bankLevel || 1) - 1)].cap;
+const isVault = (x, y) => x >= VAULT.x && x < VAULT.x + VAULT.w && y >= VAULT.y && y < VAULT.y + VAULT.h;
+let bankFullNoticeAt = 0;
+// Adds coins up to the bank's capacity and returns how many fit.
+function bankDeposit(amount) {
+  const add = Math.max(0, Math.min(amount, bankCap() - state.money));
+  if (add < amount && performance.now() - bankFullNoticeAt > 60000) {
+    bankFullNoticeAt = performance.now();
+    toast("Your gold pile is full! Upgrade it at night to keep more coins.", 5000, "prosperity");
+  }
+  state.money += add;
+  return add;
+}
+// Moving the gold pile: the one buildable that can be picked up and set down elsewhere.
+function canPlaceVault(x, y) {
+  for (let dy = 0; dy < VAULT.h; dy++) for (let dx = 0; dx < VAULT.w; dx++) {
+    const tx = x + dx, ty = y + dy;
+    if (!inBounds(tx, ty)) return false;
+    const z = zoneAt(tx, ty);
+    if (z !== ZONE.OUT && !(z === ZONE.PARK && isOwned(tx, ty))) return false;
+    if (state.tiles[idx(tx, ty)] || encAt(tx, ty) || objAt(tx, ty)) return false;
+    if (tx === GATE.x && ty === GATE.y) return false;
+  }
+  return true;
+}
+function startMoveVault() {
+  if (buildLocked()) return;
+  setTool("movevault");
+  hintOnce("Click where the gold pile should go. It needs a clear 3x3 spot on your land or by the entrance.");
+}
+function placeVault(x, y) {
+  if (buildLocked()) return;
+  const vx = x - 1, vy = y - 1;
+  if (!canPlaceVault(vx, vy)) return hintOnce("The gold pile needs a clear 3x3 spot on your land or by the entrance.");
+  state.vault = { x: vx, y: vy };
+  markWorldDirty();
+  sfx("build");
+  setTool("inspect");
+  toast("The Securities moved the gold pile.", 2500, "prosperity");
+  renderUI(true);
+}
+
+function upgradeBank() {
+  const next = BANK_LEVELS[state.bankLevel];
+  if (!next || buildLocked()) return;
+  if (!spend(next.cost, "Upgrades")) return hintOnce(`The next gold pile size costs ${fmt(next.cost)} coins.`);
+  state.bankLevel++;
+  sfx("levelup");
+  toast(`Gold pile upgraded! It now holds ${fmt(bankCap())} coins.`, 4000, "prosperity");
+  renderUI(true);
+}
+
 function earn(amount, px, py, color, cat = "Other") {
   if (!(amount > 0)) return;
+  amount = bankDeposit(amount);
+  if (!(amount > 0)) return;
   if (state.day) state.day.revenue[cat] = (state.day.revenue[cat] || 0) + amount;
-  state.money += amount;
   state.totalEarned += amount;
   state.runEarned += amount;
   secondEarnings += amount;
@@ -577,15 +638,15 @@ function canPlaceEnclosure(x, y, n = ENC_TYPES[encChoice.size].size) {
   for (let dy = 0; dy < n; dy++)
     for (let dx = 0; dx < n; dx++) {
       const tx = x + dx, ty = y + dy;
-      if (!inBounds(tx, ty) || !isOwned(tx, ty) || state.tiles[idx(tx, ty)] !== 0 || encAt(tx, ty) || objAt(tx, ty)) return false;
+      if (!inBounds(tx, ty) || !isOwned(tx, ty) || state.tiles[idx(tx, ty)] !== 0 || encAt(tx, ty) || objAt(tx, ty) || isVault(tx, ty)) return false;
     }
   return true;
 }
-const canPlaceObject = (x, y) => inBounds(x, y) && isOwned(x, y) && !isPath(x, y) && !encAt(x, y) && !objAt(x, y);
+const canPlaceObject = (x, y) => inBounds(x, y) && isOwned(x, y) && !isPath(x, y) && !encAt(x, y) && !objAt(x, y) && !isVault(x, y);
 const encOffset = n => Math.floor((n - 1) / 2);
 
 function placePath(x, y) {
-  if (!inBounds(x, y) || !isOwned(x, y) || encAt(x, y) || objAt(x, y) || buildLocked()) return;
+  if (!inBounds(x, y) || !isOwned(x, y) || encAt(x, y) || objAt(x, y) || isVault(x, y) || buildLocked()) return;
   const cur = state.tiles[idx(x, y)];
   if (cur === pathChoice) return;
   const cost = PATH_TYPES[pathChoice].cost;
@@ -613,7 +674,7 @@ function placeEnclosure(x, y) {
 // ---- custom-shaped pens: paint tiles into a draft, then build it ----
 let penDraft = new Set();
 let draftMode = "add";
-const canPenTile = (x, y) => inBounds(x, y) && isOwned(x, y) && state.tiles[idx(x, y)] === 0 && !encAt(x, y) && !objAt(x, y);
+const canPenTile = (x, y) => inBounds(x, y) && isOwned(x, y) && state.tiles[idx(x, y)] === 0 && !encAt(x, y) && !objAt(x, y) && !isVault(x, y);
 function paintDraft(x, y, isDrag) {
   if (buildLocked()) return;
   const k = x + "," + y;
@@ -1272,7 +1333,7 @@ function drawIndividual(g, ind, c, dt, time, scale = 1) {
   const asleep = !!c.asleep;
   const blinking = asleep || ((time * 1000 + ind.seed * 37) % 3800) < 140;
   const chest = ind.k === CHEST_KEY;
-  const spr = spriteFor(ind, blinking, chest);
+  const spr = spriteFor(ind, blinking, chest, !!c.wink);
   const D = bodySize(ind.k, ind);
   const SW = uW(spr), SH = uH(spr);
   // soft-body jiggle: a damped spring on the squash amount, kicked by hops and idle wiggles
@@ -1296,17 +1357,26 @@ function drawIndividual(g, ind, c, dt, time, scale = 1) {
   if (dt > 0) {
     for (let i = 0; i < sub; i++) { const h2 = dt / sub; c.sqv += (-130 * c.sq - 7 * c.sqv) * h2; c.sq += c.sqv * h2; }
     c.sq = Math.max(-0.24, Math.min(0.26, c.sq));
-    const targetLean = moving ? Math.max(-0.22, Math.min(0.22, c.vx / 28)) : 0;
+    const targetLean = c.tilt !== undefined ? c.tilt : moving ? Math.max(-0.22, Math.min(0.22, c.vx / 28)) : 0;
     c.lean += (targetLean - c.lean) * Math.min(1, dt * 7);
     if (chest) {
-      // two springs that follow the body's squash a beat behind, slightly out of step
-      if (!c.jg) c.jg = [0, 0, 0, 0];
-      const pull = c.sq * 9 + (asleep ? Math.sin(time * 1.3 + c.phase) * 0.6 : 0);
-      for (let i = 0; i < 2; i++) {
-        const k = i ? 95 : 80;
-        for (let n = 0; n < sub; n++) { const h2 = dt / sub; c.jg[2 + i] += (-k * (c.jg[i] - pull) - 5 * c.jg[2 + i]) * h2; c.jg[i] += c.jg[2 + i] * h2; }
-        c.jg[i] = Math.max(-2.5, Math.min(2.5, c.jg[i]));
-      }
+      // each side is a 2D spring hung off the body: kicked by squash and stretch, swung by
+      // sideways acceleration, nudged by breathing (and by a shimmy in the close-up view)
+      if (!c.jg) c.jg = { s: [[0, 0, 0, 0], [0, 0, 0, 0]], px: c.x, pvx: 0 };
+      const J = c.jg, vx = (c.x - J.px) / dt, ax = (vx - J.pvx) / dt;
+      J.px = c.x; J.pvx = vx;
+      const shim = c.shimmy || 0;
+      const fy = c.sqv * 40 + Math.sin(time * (asleep ? 1.3 : 2.4) + c.phase) * (asleep ? 22 : 14) + Math.sin(time * 14) * shim * 110;
+      const fx = Math.max(-50, Math.min(50, -ax * 0.06)) + Math.cos(time * 14) * shim * 80 - c.lean * 60;
+      J.s.forEach((sp, i) => {
+        const k = i ? 52 : 42, d = 3;
+        for (let n = 0; n < sub; n++) {
+          const h2 = dt / sub;
+          sp[2] += (-k * sp[0] - d * sp[2] + fx * (i ? 1.1 : 0.9)) * h2; sp[0] += sp[2] * h2;
+          sp[3] += (-k * sp[1] - d * sp[3] + fy * (i ? 0.9 : 1.1)) * h2; sp[1] += sp[3] * h2;
+        }
+        sp[0] = Math.max(-1.5, Math.min(1.5, sp[0])); sp[1] = Math.max(-2.5, Math.min(2.5, sp[1]));
+      });
     }
   }
   let sx = 1 + c.sq, sy = 1 - c.sq, jx = 0;
@@ -1315,6 +1385,7 @@ function drawIndividual(g, ind, c, dt, time, scale = 1) {
   if (def.move === "float" && !asleep) { hop = 4 + Math.sin(time * 2 + c.phase) * 1.5; const w2 = Math.sin(time * 3.1 + c.phase) * 0.05; sx = 1 + w2; sy = 1 - w2; }
   if (def.move === "squash" && !asleep) { const s2 = Math.sin(time * 6 + c.phase) * 0.15; sx += s2; sy -= s2; }
   if (def.move === "jitter" && !asleep) jx = Math.random() < 0.3 ? (Math.random() < 0.5 ? -0.5 : 0.5) : 0;
+  if (c.shake) jx += Math.round(Math.sin(time * 45) * c.shake);
   if (def.move === "glitch" && !asleep && Math.random() < 0.08) jx = Math.random() < 0.5 ? -2 : 2;
   const w = SW * sx * scale, h = SH * sy * scale;
   const baseY = c.y - (SPR_PAD_T + D) * scale;
@@ -1325,10 +1396,11 @@ function drawIndividual(g, ind, c, dt, time, scale = 1) {
   const drawBodyAndChest = () => {
     g.drawImage(spr, dx, dy, w, h);
     if (chest) {
-      const kx = w / SW, ky = h / SH, jg = c.jg || [0, 0];
+      const kx = w / SW, ky = h / SH, sp = c.jg ? c.jg.s : [[0, 0], [0, 0]];
       let color = tweak(VARIANTS[ind.k].color, ind.hue, ind.light);
       if (ind.shiny) color = tweak(color, 150, 6);
-      drawChest(g, dx + SPR_PAD_X * kx, dy + SPR_PAD_T * ky, D, color, kx, ky, Math.round(jg[0]) * scale, Math.round(jg[1]) * scale);
+      drawChest(g, dx + SPR_PAD_X * kx, dy + SPR_PAD_T * ky, D, color, kx, ky,
+        [Math.round(sp[0][0]) * scale, Math.round(sp[0][1]) * scale, Math.round(sp[1][0]) * scale, Math.round(sp[1][1]) * scale]);
     }
   };
   if (Math.abs(c.lean) > 0.01) {
@@ -1496,7 +1568,11 @@ function drawHover() {
     for (let ty = vy0; ty <= vy1; ty++) for (let tx = vx0; tx <= vx1; tx++) if (PLOT_MAP[ty * COLS + tx] === pi) ctx.fillRect(tx * TILE, ty * TILE, TILE, TILE);
     return;
   }
-  if (tool === "enclosure" && encChoice.shape === "custom") {
+  if (tool === "movevault") {
+    x -= 1; y -= 1; w = h = 3;
+    ok = canPlaceVault(x, y) && !isOpen();
+    ctx.globalAlpha = 0.6; blit(ctx, VAULT_BACK, x * TILE, y * TILE); blit(ctx, heapSprite(Math.round(Math.min(1, state.money / bankCap()) * 13)), x * TILE + 5, y * TILE + 12); ctx.globalAlpha = 1;
+  } else if (tool === "enclosure" && encChoice.shape === "custom") {
     ok = canPenTile(x, y) && !isOpen();
   } else if (tool === "enclosure") {
     const n = ENC_TYPES[encChoice.size].size;
@@ -1586,6 +1662,7 @@ function render(dt, time) {
     if (isLost(e)) drawLostOverlay(e, time);
     else drawCritters(e, dt, time);
   }
+  drawVault(time, dt, x0, y0, x1, y1);
   for (const o of state.objects.slice().sort((a, b) => a.y - b.y)) if (o.x * TILE >= x0 - 20 && o.x * TILE <= x1 + 4 && o.y * TILE >= y0 - 8 && o.y * TILE <= y1 + 24) drawObject(o, time);
   drawCars(x0, y0, x1, y1);
   for (const w of staffWalkers) drawWalkerSprite(w);
@@ -1632,6 +1709,63 @@ function render(dt, time) {
     ctx.fillText(f.text, f.x, y);
     ctx.globalAlpha = 1;
   }
+}
+
+// ---- the gold pile and its Securities ----
+// Two guards (Verity-style, in navy caps and shades) walk a loop around the fence.
+const securities = [0, 1].map(i => {
+  const ind = makeIndividual("verity", { nextUid: -900 - i }, { seed: 4242 + i * 97, shinyChance: 0 });
+  Object.assign(ind, { size: 0, model: i ? 3 : 0, hue: 0, light: i ? -6 : 0, mark: "none", trait: "chill" });
+  return { ind, c: { x: 0, y: 0, vx: 0, vy: 0, phase: i * 3, timer: 0 }, s: i * 0.5 };
+});
+function patrolPoint(t) {
+  const X = VAULT.x * TILE - 8, Y = VAULT.y * TILE - 2, W = YARD + 16, H = YARD + 12, L = 2 * (W + H);
+  let d = ((t % 1) + 1) % 1 * L;
+  if (d < W) return [X + d, Y, 1, 0]; d -= W;
+  if (d < H) return [X + W, Y + d, 0, 1]; d -= H;
+  if (d < W) return [X + W - d, Y + H, -1, 0]; d -= W;
+  return [X, Y + H - d, 0, -1];
+}
+function drawSecurity(g, sec, dt, time) {
+  const c = sec.c;
+  drawIndividual(g, sec.ind, c, dt, time, 1);
+  const x = Math.round(c.hx), y = Math.round(c.hy + SPR_PAD_T), w = Math.round(c.hw);   // top of the head
+  g.fillStyle = "#000"; g.fillRect(x + 1, y - 2.5, w - 2, 4);
+  g.fillStyle = "#1f2a5a"; g.fillRect(x + 1.5, y - 2, w - 3, 3);
+  g.fillStyle = "#111"; g.fillRect(x + (c.vx < 0 ? -1 : 2), y + 1, w - 1, 1);              // brim
+  g.fillStyle = "#ffd23f"; g.fillRect(x + w / 2 - 0.5, y - 1.5, 1, 1);                          // cap badge
+  g.fillStyle = "#111"; g.fillRect(x + 3, Math.round(y + w * 0.32), w - 6, 1.5);              // shades
+}
+function drawVault(time, dt, x0, y0, x1, y1) {
+  const X = VAULT.x * TILE, Y = VAULT.y * TILE;
+  // walk the patrol
+  for (const sec of securities) {
+    sec.s += dt * 0.012;
+    const [px, py, dx, dy] = patrolPoint(sec.s);
+    sec.c.x = px; sec.c.y = py; sec.c.vx = dx * 10; sec.c.vy = dy * 10;
+    sec.c.minX = sec.c.maxX = px; sec.c.minY = sec.c.maxY = py;
+  }
+  if (X > x1 + 24 || X + YARD < x0 - 24 || Y > y1 + 24 || Y + YARD < y0 - 32) return;
+  const fill = Math.max(0, Math.min(1, state.money / bankCap()));
+  const behind = securities.filter(s => s.c.y < Y + YARD / 2), front = securities.filter(s => s.c.y >= Y + YARD / 2);
+  for (const sec of behind) drawSecurity(ctx, sec, dt, time);
+  blit(ctx, VAULT_BACK, X, Y);
+  const step = Math.round(fill * 13);
+  blit(ctx, heapSprite(step), X + 5, Y + 12);
+  if (step > 0) for (let i = 0; i < 3; i++) {
+    const t = (time * 0.9 + i / 3) % 1;
+    if (t > 0.35) continue;
+    const n = Math.floor(time * 0.9 + i / 3);
+    const sx = Math.round(X + 24 + (hash2(i, n, 61) - 0.5) * (4 + step * 1.8)), sy = Math.round(Y + 36 - hash2(i, n, 62) * (2 + step * 1.2));
+    ctx.fillStyle = "#ffffff"; ctx.fillRect(sx, sy - 1, 1, 3); ctx.fillRect(sx - 1, sy, 3, 1);
+  }
+  blit(ctx, VAULT_FRONT, X, Y + YARD - 10);
+  // brass plaque with the pile's size
+  ctx.fillStyle = "#000"; ctx.fillRect(X + 15, Y + YARD + 4, 19, 7);
+  ctx.fillStyle = "#c9a227"; ctx.fillRect(X + 15.5, Y + YARD + 4.5, 18, 6);
+  pixelText(ctx, "LV" + state.bankLevel, X + 24.5, Y + YARD + 5, "#3a2a00");
+  if (fill >= 1 && Math.floor(time * 2) % 2) { ctx.fillStyle = "#000"; ctx.fillRect(X + 15, Y - 10, 19, 8); ctx.fillStyle = "#e94f4f"; ctx.fillRect(X + 15.5, Y - 9.5, 18, 7); pixelText(ctx, "FULL", X + 24.5, Y - 8, "#ffffff"); }
+  for (const sec of front) drawSecurity(ctx, sec, dt, time);
 }
 
 function drawSaleSign(k, time) {
@@ -1798,6 +1932,8 @@ const cardCritter = { x: 50, y: 74, vx: 0, vy: 0, phase: 0 };
 function openCard(uid) {
   cardUid = uid;
   cardParts = [];
+  cardEmote = null; cardEmoteWait = 0.6;
+  for (const k of ["jg", "shimmy", "shake", "tilt", "wink"]) delete cardCritter[k];
   renderCard();
   if (!cardDialog.open) cardDialog.showModal();
   sfx("click");
@@ -1821,7 +1957,7 @@ function renderCard() {
   const rows = [
     ["Personality", TRAITS[ind.trait].label],
     ["Size", SIZES[ind.size].label],
-    ["Model", BODY_MODELS[ind.model || 0].name],
+    ["Model", BODY_MODELS[ind.model || 0].name + (ind.k === CHEST_KEY ? ` · ${BLOND_STYLES[ind.model || 0]} hair` : "")],
     ["Markings", MARKINGS[ind.mark]],
     ["Per viewer", `+${fmtVal(expectedValue(ind, e))} coins`],
     ["Appeal", fmtVal(indAppeal(ind))],
@@ -1867,6 +2003,85 @@ function renderCard() {
   $("card-pet").textContent = cd ? "Happy!" : "Pet";
 }
 
+// ================= Close-up emotes =================
+// Each variant has its own little set of emotes (from its personality plus a random pick
+// seeded by the individual), played one after another while you look at it close up.
+// Boobity flirts instead: winks, blown kisses and a shimmy.
+const EMOTE_ICONS = {
+  heart: ["k.k.k", "krkrk", "krrrk", ".krk.", "..k.."].map(r => r.replace(/\./g, " ")),
+};
+const EMOTES = {
+  love:    { icon: "heart", dur: 1.6, start: c => { c.wake = 0.5; } },
+  happy:   { icon: "note", dur: 1.8, start: c => { c.sqv -= 2.5; } },
+  excited: { icon: "bang", dur: 1.2, start: c => { c.wake = 0.5; c.sqv -= 3; } },
+  curious: { icon: "what", dur: 1.6, tilt: 0.2 },
+  proud:   { icon: "spark", dur: 1.6, start: c => { c.sqv -= 3.5; } },
+  shy:     { icon: "blush", dur: 1.8, start: c => { c.sqv += 2.5; } },
+  angry:   { icon: "anger", dur: 1.4, shake: 1 },
+  laugh:   { icon: "ha", dur: 1.4, shake: 0.5, start: c => { c.sqv += 2; } },
+  sleepy:  { icon: "zzz", dur: 2, tilt: -0.12 },
+  wink:    { icon: "kiss", dur: 1.6, wink: true, start: c => { c.shimmy = 0.6; } },
+  kiss:    { icon: "kiss", dur: 2, wink: true, hearts: 6 },
+  shimmy:  { icon: "spark", dur: 1.6, shimmyHold: 1, tilt: 0.08 },
+};
+const TRAIT_EMOTES = {
+  hyper: ["excited", "happy", "laugh"], shy: ["shy", "curious"], grumpy: ["angry", "curious"], charming: ["love", "proud"],
+  showoff: ["proud", "love", "excited"], lazy: ["sleepy", "happy"], friendly: ["happy", "love", "laugh"], chill: ["happy", "curious", "sleepy"],
+};
+function emotesFor(ind) {
+  if (ind.k === CHEST_KEY) return ["wink", "kiss", "shimmy", "love"];
+  const r = seeded(ind.seed + 31), base = TRAIT_EMOTES[ind.trait] || ["happy"];
+  const all = Object.keys(EMOTES).filter(k => !["wink", "kiss", "shimmy"].includes(k));
+  const set = [...base];
+  while (set.length < 3) { const e = all[Math.floor(r() * all.length)]; if (!set.includes(e)) set.push(e); }
+  return set.slice(0, 3 + (r() < 0.5 ? 1 : 0));
+}
+let cardEmote = null, cardEmoteWait = 1;
+function updateCardEmote(ind, dt, scale) {
+  const c = cardCritter;
+  if (cardEmote) {
+    cardEmote.t += dt;
+    const E = EMOTES[cardEmote.name];
+    if (cardEmote.t >= E.dur) { cardEmote = null; cardEmoteWait = 0.8 + Math.random() * 1.6; }
+  } else if ((cardEmoteWait -= dt) <= 0) {
+    const list = emotesFor(ind);
+    let name = list[Math.floor(Math.random() * list.length)];
+    if (cardEmote && cardEmote.name === name) name = list[(list.indexOf(name) + 1) % list.length];
+    cardEmote = { name, t: 0 };
+    const E = EMOTES[name];
+    if (E.start) E.start(c);
+    if (E.hearts) for (let i = 0; i < E.hearts; i++) cardParts.push({ x: 58 + Math.random() * 8, y: 40 + Math.random() * 8, vx: 10 + Math.random() * 18, vy: -14 - Math.random() * 14, life: 1.4 + i * 0.12 });
+    sfx(name === "angry" ? "tug" : name === "kiss" || name === "wink" ? "pet" : "click");
+  }
+  const E = cardEmote && EMOTES[cardEmote.name];
+  c.wink = !!(E && E.wink && cardEmote.t < E.dur * 0.7);
+  c.tilt = E && E.tilt ? E.tilt * Math.sin(Math.min(1, cardEmote.t / E.dur) * Math.PI) : undefined;
+  c.shake = E && E.shake ? E.shake : 0;
+  c.shimmy = E && E.shimmyHold ? E.shimmyHold * (1 - cardEmote.t / E.dur) : Math.max(0, (c.shimmy || 0) - dt * 0.6);
+}
+function drawEmoteIcon(g, c, scale, time) {
+  if (!cardEmote) return;
+  const E = EMOTES[cardEmote.name], t = cardEmote.t / E.dur;
+  const s = Math.max(2, scale - 1);
+  const x = Math.round(c.hx + c.hw + s * 2), y = Math.round(c.hy - s * 4 - Math.sin(t * Math.PI) * s * 2);
+  g.globalAlpha = t > 0.8 ? (1 - t) / 0.2 : 1;
+  const P = (col, px, py, w = 1, h = 1) => { g.fillStyle = col; g.fillRect(x + px * s, y + py * s, w * s, h * s); };
+  const heart = (hx, hy, col = "#ff5c7a") => { for (const [px, py] of [[1, 0], [3, 0], [0, 1], [1, 1], [2, 1], [3, 1], [4, 1], [1, 2], [2, 2], [3, 2], [2, 3]]) P(col, hx + px, hy + py); P("#fff", hx + 1, hy + 1); };
+  switch (E.icon) {
+    case "heart": heart(0, 0); break;
+    case "kiss": heart(0, 0, "#ff3c7a"); P("#e0204a", -4, 4, 2, 1); P("#e0204a", -5, 5, 1, 1); P("#e0204a", -2, 5, 1, 1); break;
+    case "note": P("#2b1d00", 2, 0, 1, 4); P("#2b1d00", 3, 0, 2, 1); P("#2b1d00", 0, 3, 3, 2); P("#7df9ff", 1, 3); break;
+    case "bang": P("#ff5c7a", 1, 0, 1, 3); P("#ff5c7a", 1, 4); P("#ff5c7a", 3, 0, 1, 3); P("#ff5c7a", 3, 4); break;
+    case "what": pixelText(g, "?", x + 2 * s, y, "#7df9ff", s); break;
+    case "spark": for (const [px, py] of [[2, 0], [2, 4], [0, 2], [4, 2], [2, 2]]) P("#ffd23f", px, py); P("#fff", 6, 0); P("#fff", -2, 5); break;
+    case "blush": P("#ff8fb8", -c.hw / s - 3, c.hh / s * 0.75, 3, 1); P("#ff8fb8", -2, c.hh / s * 0.75, 3, 1); break;
+    case "anger": P("#e0204a", 0, 0, 2, 1); P("#e0204a", 3, 0, 2, 1); P("#e0204a", 0, 3, 2, 1); P("#e0204a", 3, 3, 2, 1); P("#e0204a", 0, 1, 1, 1); P("#e0204a", 4, 1, 1, 1); P("#e0204a", 0, 2, 1, 1); P("#e0204a", 4, 2, 1, 1); break;
+    case "ha": pixelText(g, "HA", x + 3 * s, y, "#ffd23f", s); break;
+    case "zzz": g.drawImage(Z_SPR[2], x, y, Z_SPR[2].width * s, Z_SPR[2].height * s); break;
+  }
+  g.globalAlpha = 1;
+}
+
 function drawCard(dt, time) {
   if (!cardDialog.open) return;
   const f = findInd(cardUid);
@@ -1880,8 +2095,10 @@ function drawCard(dt, time) {
   const scale = Math.max(2, Math.min(5, Math.floor(84 / uH(spr))));
   cardCritter.phase = 0;
   cardCritter.y = Math.round(52 + (uH(spr) - SPR_PAD_B - SPR_PAD_T / 2) * scale / 2);
-  cardCritter.vx = Math.sin(time * 0.7) > 0.6 ? 1 : 0;
+  cardCritter.vx = cardEmote ? 0 : Math.sin(time * 0.7) > 0.6 ? 1 : 0;
+  updateCardEmote(f.ind, dt, scale);
   drawIndividual(g, f.ind, cardCritter, dt, time, scale);
+  drawEmoteIcon(g, cardCritter, scale, time);
   for (const p of cardParts) {
     p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt;
     g.globalAlpha = Math.max(0, Math.min(1, p.life));
@@ -1955,6 +2172,7 @@ function el(tag, cls, text) {
 
 const TOOL_HINTS = {
   inspect: "Click a variant for a close-up, or an enclosure to manage it.",
+  movevault: "Click where the gold pile should go (a clear 3x3 spot on your land or by the entrance).",
   path: "Click or drag to lay paths. Visitors only walk on paths.",
   enclosure: "Click grass to build the selected enclosure. Put it next to a path!",
   bulldoze: "Click or drag to remove paths, enclosures and objects.",
@@ -2345,6 +2563,7 @@ function renderStars() {
 let lastStars = 0;
 function renderUI(full) {
   $("money").textContent = fmt(state.money);
+  $("money").classList.toggle("bank-full", state.money >= bankCap());
   $("rate").textContent = fmtVal(state.incomeRate) + "/s";
   $("visitors").textContent = visitors.filter(v => !v.leaving).length;
   $("appeal").textContent = fmtVal(parkAppeal());
@@ -2369,7 +2588,7 @@ function renderUI(full) {
   }
   if (activeTab === "goals" && !full) renderGoals();
   if (!full) return;
-  if (activeTab === "park") { renderShop(); renderInventory(); renderInspect(); renderBuildOptions(); renderEggs(); renderRequest(); renderStaff(); renderLand(); renderParking(); }
+  if (activeTab === "park") { renderShop(); renderInventory(); renderInspect(); renderBuildOptions(); renderEggs(); renderRequest(); renderStaff(); renderLand(); renderParking(); renderBank(); }
   if (activeTab === "save") renderNotes($("notes-card"), PATCH_NOTES.length, false);
   if (activeTab === "lab") renderLab();
   if (activeTab === "index") renderIndex();
@@ -2505,6 +2724,8 @@ function handleTileAction(x, y, isDrag) {
   if (tool === "path") placePath(x, y);
   else if (tool === "bulldoze") bulldoze(x, y);
   else if (tool === "enclosure" && encChoice.shape === "custom") paintDraft(x, y, isDrag);
+  else if (isDrag) return;
+  else if (tool === "movevault") placeVault(x, y);
   else if (isDrag) return;
   else if (tool === "enclosure") placeEnclosure(x, y);
   else if (tool === "place") placeVariant(x, y);

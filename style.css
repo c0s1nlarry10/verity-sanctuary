@@ -842,3 +842,6 @@ details.note-version li { margin-bottom: 2px; }
 
 /* ---------- Day mode: building and editing controls disappear while the park is open ---------- */
 body.park-open .build-only { display: none !important; }
+
+#money.bank-full { color: #ff8a3c; }
+#bank .progress { margin: 6px 0; }

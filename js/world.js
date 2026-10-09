@@ -222,12 +222,12 @@ function pickWeighted(list, r) { let t = 0; for (const [k, w] of list) { t += w;
 function buildTrees() {
   treeInstances = [];
   const maxLot = LOT_LEVELS[LOT_LEVELS.length - 1].rect;
-  const built = (x, y) => { for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (isPath(x + dx, y + dy) || encAt(x + dx, y + dy) || objAt(x + dx, y + dy)) return true; return false; };
+  const built = (x, y) => { for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (isPath(x + dx, y + dy) || encAt(x + dx, y + dy) || objAt(x + dx, y + dy) || isVault(x + dx, y + dy)) return true; return false; };
   for (let y = 0; y < ROWS; y++)
     for (let x = 0; x < COLS; x++) {
       const z = zoneAt(x, y);
       if (z !== ZONE.PARK && z !== ZONE.OUT) continue;
-      if (z === ZONE.OUT && (x <= 4 || Math.abs(y - GATE.y) <= 1 || inRect(x, y, [maxLot[0] - 1, maxLot[1] - 1, maxLot[2] + 1, maxLot[3] + 1]))) continue;
+      if (z === ZONE.OUT && (x <= 4 || Math.abs(y - GATE.y) <= 1 || inRect(x, y, [maxLot[0] - 1, maxLot[1] - 1, maxLot[2] + 1, maxLot[3] + 1]) || inRect(x, y, [VAULT.x - 2, VAULT.y - 2, VAULT.x + VAULT.w + 1, VAULT.y + VAULT.h]))) continue;
       const ux = x * TILE + 8 + (hash2(x, y, 80) - 0.5) * 6, uy = y * TILE + 13 + (hash2(x, y, 81) - 0.5) * 4;
       const [wtx, wty] = warpedTile(ux, uy);
       const src = blendSource(wtx, wty) || blendSource(x, y) || "meadow";

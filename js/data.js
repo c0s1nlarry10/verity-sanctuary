@@ -22,6 +22,7 @@ const PATCH_NOTES = [
         "Locked items stay visible with the level that unlocks them.",
       ] },
       { title: "Variants", notes: [
+        "Your coins live in a gold pile by the entrance that grows with your wealth, fenced in and patrolled by Securities. Upgrade it now and then to hold more, and move it at night if you like.",
         "Every variant ends in -ity: meet Liminality, Blockity and Piratity.",
         "8 rounded body models (Round, Tall, Wide, Egg, Bulb, Squish, Lean, Tilt), so no two look alike. Accessories are retired.",
         "Boobity ditched the censor bar for a tank top (with plenty of jiggle).",
@@ -544,6 +545,28 @@ const NIGHT_SECS = 180;
 const CYCLE_SECS = DAY_SECS + NIGHT_SECS;
 
 // ================= Road & parking =================
+// The gold pile is the bank: every coin you own sits in a fenced pile by the entrance,
+// guarded by patrolling Securities. It only holds so much; upgrade it now and then
+// (each size holds 5x more) to keep more coins.
+const BANK_LEVELS = [
+  { cap: 30000,     cost: 0 },
+  { cap: 150000,    cost: 18000 },
+  { cap: 750000,    cost: 90000 },
+  { cap: 3750000,   cost: 450000 },
+  { cap: 18750000,  cost: 2250000 },
+  { cap: 94000000,  cost: 11000000 },
+  { cap: 470000000, cost: 56000000 },
+  { cap: 2.35e9,    cost: 280000000 },
+  { cap: 1.2e10,    cost: 1.4e9 },
+  { cap: 6e10,      cost: 7e9 },
+];
+// The fenced yard starts just north-west of the entrance; it's the one thing players can move.
+const VAULT_HOME = { x: 8, y: GATE.y - 8 };
+const VAULT = {
+  w: 3, h: 3,
+  get x() { return typeof state !== "undefined" && state.vault ? state.vault.x : VAULT_HOME.x; },
+  get y() { return typeof state !== "undefined" && state.vault ? state.vault.y : VAULT_HOME.y; },
+};
 const ROAD_X = [1, 2];          // two-lane road along the west edge
 const LOT_LEVELS = [
   { spaces: 6,  cost: 0,     rect: [10, GATE.y - 1, 13, GATE.y + 1] },
