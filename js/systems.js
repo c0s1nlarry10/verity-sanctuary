@@ -447,8 +447,8 @@ function leaveVisitor(v) {
 function criticReview(v) {
   const stars = Math.max(1, Math.min(5, Math.round(0.5 + v.pensSeen * 0.6 + v.mood / 40 + starRating() * 0.3)));
   const reward = Math.round(stars * stars * 8 * starRating() * globalMult());
-  earn(reward, v.tx * TILE + 8, v.ty * TILE - 10, "#c77dff", "Reviews");
-  if (stars >= 5) { state.stats.reviews5++; toast(`A food critic gave your park ★★★★★! +${fmt(reward)} coins`, 4000, "celebrity"); }
+  const kept = earn(reward, v.tx * TILE + 8, v.ty * TILE - 10, "#c77dff", "Reviews");
+  if (stars >= 5) { state.stats.reviews5++; toast(`A food critic gave your park ★★★★★! ${keptText(kept, reward)}`, 4000, "celebrity"); }
   floaters.push({ x: v.tx * TILE + 8, y: v.ty * TILE - 16, text: "★".repeat(stars), t: 0, color: "#c77dff" });
 }
 
@@ -492,11 +492,11 @@ function tickRequests() {
   }
   if (requestProgress() >= r.n) {
     state.request = null;
-    earn(r.reward);
+    const kept = earn(r.reward, undefined, undefined, undefined, "Requests");
     gainParkXp(r.xp);
     state.stats.requests++;
     sfx("achievement");
-    toast(`Request complete! +${fmt(r.reward)} coins, +${r.xp} XP`, 4000, r.k);
+    toast(`Request complete! ${keptText(kept, r.reward)}, +${r.xp} XP`, 4000, r.k);
     renderRequest();
   } else if (Date.now() > r.until) {
     state.request = null;
@@ -512,7 +512,7 @@ function tickEscapes() {
   for (const { ind, e } of placedList()) {
     const chance = ESCAPERS[ind.k];
     if (!chance || escapes.has(ind.id) || isLost(e) || (activeEvent && activeEvent.ind === ind)) continue;
-    if (Math.random() >= (chance / 60) * (e.s >= 5 ? 0.5 : 1)) continue;
+    if (Math.random() >= (chance / 60) * (encTiles(e) >= 25 ? 0.5 : 1)) continue;   // big pens are harder to escape
     const c = critterPos.get(ind.id);
     escapes.set(ind.id, { ind, e, x: c ? c.x : (e.x + encW(e) / 2) * TILE, y: (e.y + encH(e)) * TILE + 6, vx: 0, vy: 0, t: 90, timer: 0 });
     sfx("event");
@@ -623,8 +623,9 @@ async function doPrestige() {
   staffWalkers = []; cars = []; walkers = [];
   markWorldDirty();
   activeEvent = null; fx = null;
-  fuseSel = [0, 0]; inspectedId = 0; selectedUid = 0;
+  fuseSel = [0, 0]; inspectedId = 0; selectedUid = 0; penDraft = new Set(); plotFlash = null;
   rebuildGrids();
+  ensureVaultSpot();
   applyLocks();
   saveGame();
   sfx("fanfare", 5);

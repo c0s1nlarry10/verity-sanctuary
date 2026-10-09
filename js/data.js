@@ -609,7 +609,7 @@ const ESCAPERS = { calamity: 0.08, ferocity: 0.08, insanity: 0.04, velocity: 0.0
 
 // ================= Prestige & daily =================
 const SHARD_BONUS = 0.1;            // +10% income per Truth Shard
-const SHARD_DIVISOR = 20000;        // shards = floor(sqrt(coins earned this run / divisor))
+const SHARD_DIVISOR = 200000;       // shards = floor(sqrt(coins earned this run / divisor))
 const DAILY_COINS_PER_LEVEL = 60;
 
 ACHIEVEMENTS.push(

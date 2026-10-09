@@ -296,6 +296,7 @@ function importSave(code) {
   markWorldDirty();
   syncStaff();
   rebuildGrids();
+  ensureVaultSpot();
   saveGame();
   applyLocks();
   renderUI(true);
@@ -574,6 +575,14 @@ function findVaultSpot(n, avoid) {
   }
   return best;
 }
+// If the gold pile's spot is taken (e.g. an older save built there), move it somewhere free.
+function ensureVaultSpot() {
+  const n = VAULT.w;
+  for (let dy = 0; dy < n; dy++) for (let dx = 0; dx < n; dx++) {
+    const x = VAULT.x + dx, y = VAULT.y + dy;
+    if (state.tiles[idx(x, y)] || encAt(x, y) || objAt(x, y)) { const s = findVaultSpot(n); if (s) state.vault = s; return; }
+  }
+}
 function startMoveVault() {
   if (buildLocked()) return;
   setTool("movevault");
@@ -614,16 +623,20 @@ function upgradeBank() {
   renderUI(true);
 }
 
+// Adds coins (up to the gold pile's limit) and returns how many were actually kept.
 function earn(amount, px, py, color, cat = "Other") {
-  if (!(amount > 0)) return;
+  if (!(amount > 0)) return 0;
   amount = bankDeposit(amount);
-  if (!(amount > 0)) return;
+  if (!(amount > 0)) return 0;
   if (state.day) state.day.revenue[cat] = (state.day.revenue[cat] || 0) + amount;
   state.totalEarned += amount;
   state.runEarned += amount;
   secondEarnings += amount;
   if (px !== undefined && amount >= 0.5) floaters.push({ x: px, y: py, text: "+" + fmt(Math.round(amount)), t: 0, color });
+  return amount;
 }
+// Reward text that admits when the gold pile was too full to keep it all.
+const keptText = (got, want) => got >= want - 0.5 ? `+${fmt(want)} coins` : `+${fmt(got)} coins (gold pile full, upgrade it!)`;
 
 function spend(amount, cat = "Purchases") {
   if (state.money < amount) return false;
@@ -1103,11 +1116,11 @@ function endEvent(win) {
   const e = ev.e;
   if (win) {
     const reward = Math.max(50, Math.round(state.incomeRate * 30));
-    earn(reward, e.x * TILE + 24, e.y * TILE - 6, undefined, "Events");
+    const kept = earn(reward, e.x * TILE + 24, e.y * TILE - 6, undefined, "Events");
     state.stats.tugWins++;
     gainParkXp(XP.tugWin);
     sfx("fanfare", 2);
-    toast(`${ev.ind.name} stays! +${fmt(reward)} coins`, 4000, ev.ind.k);
+    toast(`${ev.ind.name} stays! ${keptText(kept, reward)}`, 4000, ev.ind.k);
   } else {
     e.lostUntil = state.worldClock + 60;
     sfx("fail");
@@ -1164,10 +1177,10 @@ function checkProgress() {
     const [cur, max] = g.prog();
     if (cur < max) break;
     state.goal++;
-    earn(g.reward, undefined, undefined, undefined, "Goals");
+    const kept = earn(g.reward, undefined, undefined, undefined, "Goals");
     gainParkXp(XP.goal(state.goal - 1));
     sfx("achievement");
-    toast(`Goal complete: ${g.text}! +${fmt(g.reward)} coins`, 4500, "lovity");
+    toast(`Goal complete: ${g.text}! ${keptText(kept, g.reward)}`, 4500, "lovity");
   }
   let changed = false;
   for (const a of ACHIEVEMENTS) {

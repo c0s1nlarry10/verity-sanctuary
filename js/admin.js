@@ -75,7 +75,12 @@ function renderAdmin() {
 
   r = section("LAND & PARKING");
   btn(r, "Own all land", () => { for (const k of PLOT_KEYS) state.plots[k] = true; adminDone("All land is yours"); });
-  btn(r, "Max parking lot", () => { state.lotLevel = LOT_LEVELS.length; adminDone(); });
+  btn(r, "Max parking lot", () => {
+    state.lotLevel = LOT_LEVELS.length;
+    const lr = lotRect(), n = VAULT.w;   // the bigger lot may cover the gold pile: move it out of the way
+    if (VAULT.x <= lr[2] && VAULT.x + n - 1 >= lr[0] && VAULT.y <= lr[3] && VAULT.y + n - 1 >= lr[1]) { const spot = findVaultSpot(n, lr); if (spot) state.vault = spot; }
+    adminDone();
+  });
 
   r = section("EVENTS & WEATHER");
   for (const t of ["viral", "song", "tug", "parade"]) btn(r, t[0].toUpperCase() + t.slice(1), () => { if (activeEvent) return toast("An event is already running.", 2000); if (!startEvent(t)) toast("Needs variants on display (and a Verity for the song).", 2600); adminDone(); });

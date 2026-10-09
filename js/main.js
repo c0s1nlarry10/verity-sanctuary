@@ -4,6 +4,7 @@
 applyIcons();
 const loaded = loadGame();
 rebuildGrids();
+ensureVaultSpot();
 syncStaff();
 if (loaded) applyOfflineEarnings();
 if (isOpen() && !state.day) openDay(true);
