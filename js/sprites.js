@@ -1010,24 +1010,54 @@ function rotateCanvas(src, quarter) {
 const CAR_SPRITES = CAR_COLORS.map(col => { const up = makeCarUp(col); return [up, rotateCanvas(up, 1), rotateCanvas(up, 2), rotateCanvas(up, 3)]; });
 
 // ================= Gate =================
-const GATE_SPR = (() => {
-  const [c, g] = hiCanvas(28, 34);
+// The park entrance, seen from above: stone pillars stand north and south of the
+// east-west path, a timber beam spans it, and a sign board sits on top. Built on first
+// use (it uses the pixel font defined at the end of this file).
+// Sprite origin is 16 units left of and 34 units above the gate tile's top-left corner.
+let GATE_SPR = null;
+function gateSprite() {
+  if (GATE_SPR) return GATE_SPR;
+  const [c, g] = hiCanvas(48, 64);
   const R = (col, x, y, w, h) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
-  for (const px of [1, 21]) {
-    g.fillStyle = "rgba(0,0,0,0.25)"; g.fillRect(px + 1, 31, 7, 2.5);
-    R("#000", px, 6, 6, 26);
-    for (let y = 6; y < 32; y += 3) { R("#9a9aae", px + 0.5, y + 0.5, 5, 2.5); R("#c4c4d2", px + 0.5, y + 0.5, 5, 0.5); R("#6f6f84", px + 0.5, y + 2.5, 5, 0.5); }
-    R("#000", px - 0.5, 29.5, 7, 2.5); R("#c4c4d2", px, 30, 6, 1.5);
-    const lx = px === 1 ? px - 1.5 : px + 5.5;
-    R("#000", lx, 12, 2, 3.5); R("#ffe98a", lx + 0.5, 12.5, 1, 2.5); R("#fff", lx + 0.5, 12.5, 0.5, 0.5);
-  }
-  R("#000", 2, 2, 24, 7); R("#7a4a22", 2.5, 2.5, 23, 6); R("#a8703c", 2.5, 2.5, 23, 1); R("#4e2c10", 2.5, 7.5, 23, 1);
-  R("#000", 8, 0, 12, 10); R("#ffd23f", 8.5, 0.5, 11, 9); R("#fff09a", 8.5, 0.5, 11, 1); R("#c99a00", 8.5, 8.5, 11, 1);
-  const face = [[4, 3], [4, 4], [7, 3], [7, 4], [3, 6], [4, 7], [5, 7], [6, 7], [7, 7], [8, 6]];
-  g.fillStyle = "#2b1d00"; for (const [x, y] of face) g.fillRect(8.5 + x, y - 1.5, 1, 1);
-  g.fillStyle = "#fff"; g.fillRect(12.5, 1.5, 0.5, 0.5); g.fillRect(15.5, 1.5, 0.5, 0.5);
+  const stone = (x, y, w, h) => {
+    R("#000", x - 0.5, y - 0.5, w + 1, h + 1);
+    R("#8a8494", x, y, w, h);
+    for (let yy = y; yy < y + h; yy += 3) {
+      R("#6a6474", x, yy + 2.5, w, 0.5);
+      for (let xx = x + ((yy - y) % 6 ? 0 : 2.5); xx < x + w; xx += 5) R("#6a6474", xx, yy, 0.5, 2.5);
+      R("#a8a2b4", x, yy, w, 0.5);
+    }
+    R("#5a5464", x + w - 1.5, y, 1.5, h);   // shaded east side
+    R("#b4aec0", x, y, 1, h);               // lit west side
+  };
+  const pillar = (baseY) => {
+    g.fillStyle = "rgba(0,0,0,0.3)"; g.fillRect(21, baseY - 1, 12, 3);
+    stone(19, baseY - 14, 10, 14);
+    R("#000", 17.5, baseY - 17.5, 13, 4); R("#c4bed0", 18, baseY - 17, 12, 3); R("#e0dcea", 18, baseY - 17, 12, 1); R("#8a8494", 18, baseY - 14.5, 12, 0.5);
+    // lantern on the cap
+    R("#000", 22, baseY - 22, 4, 5); R("#ffe98a", 22.5, baseY - 21.5, 3, 3.5); R("#fff8d0", 22.5, baseY - 21.5, 1, 1); R("#2a2a2a", 21.5, baseY - 22.5, 5, 1);
+  };
+  // ticket booth by the car park
+  g.fillStyle = "rgba(0,0,0,0.3)"; g.fillRect(3, 33, 12, 2);
+  R("#000", 1.5, 21.5, 12, 13); R("#f0e4c8", 2, 22, 11, 12); R("#d8c8a4", 12, 22, 1, 12);
+  R("#000", 4, 24.5, 7, 5); R("#3a5a7a", 4.5, 25, 6, 4); R("#9ac8e8", 4.5, 25, 2, 1); R("#ffd9a0", 6, 27, 2, 2);
+  R("#7a4a22", 3.5, 30, 8, 1.5); R("#a8703c", 3.5, 30, 8, 0.5);
+  R("#000", 0.5, 17.5, 14, 5);
+  for (let x = 1; x < 14; x += 2) R(Math.floor(x / 2) % 2 ? "#ffffff" : "#e94f4f", x, 18, 2, 4);
+  R("#a3203a", 1, 21.5, 13, 0.5);
+  pillar(34);
+  pillar(60);
+  // timber beam resting on the two pillar caps
+  R("#000", 20.5, 16.5, 7, 30); R("#8a5a32", 21, 17, 6, 29); R("#b07a44", 21, 17, 2, 29); R("#5a3a1e", 26, 17, 1, 29);
+  for (let y = 20; y < 45; y += 6) R("#5a3a1e", 21, y, 6, 0.5);
+  // sign board raised on posts above the north end of the beam, facing the visitors
+  R("#000", 20.5, 11, 2, 7); R("#5a3a1e", 21, 11, 1, 7); R("#000", 25.5, 11, 2, 7); R("#5a3a1e", 26, 11, 1, 7);
+  R("#000", 1, -1, 46, 15); R("#7a4a22", 2, 0, 44, 13); R("#ffd23f", 3, 0, 42, 13); R("#fff09a", 3, 0, 42, 1); R("#c99a00", 3, 12, 42, 1);
+  pixelText(g, "VERITY", 24, 1, "#2b1d00");
+  pixelText(g, "SANCTUARY", 24, 7, "#7a4a22");
+  GATE_SPR = c;
   return c;
-})();
+}
 
 // ================= Shops & decor sprites (16x20, bottom-anchored) =================
 function makeObjSprite(type) {

@@ -817,3 +817,25 @@ button.is-locked:hover:not(:disabled) { background: var(--panel-2); }
 .remodel { margin: 8px 0; padding: 6px 8px; background: var(--panel-lo); border: 2px solid #000; }
 .remodel summary { cursor: pointer; font-family: "Press Start 2P", monospace; font-size: 8px; color: var(--yellow); padding: 2px 0; }
 .remodel h4 { margin: 8px 0 4px; }
+
+/* ---------- Patch notes: one collapsible section per version ---------- */
+details.note-version { margin: 0 0 8px; background: var(--panel-lo); border: 2px solid #000; }
+details.note-version summary { display: flex; align-items: baseline; gap: 8px; padding: 8px 10px; cursor: pointer; list-style: none; }
+details.note-version summary::-webkit-details-marker { display: none; }
+details.note-version summary::before { content: "+"; font-family: "Press Start 2P", monospace; font-size: 9px; color: var(--yellow); width: 10px; }
+details.note-version[open] summary::before { content: "-"; }
+details.note-version summary b { font-family: "Press Start 2P", monospace; font-size: 9px; font-weight: normal; color: var(--yellow); }
+details.note-version summary span { font-size: 18px; color: var(--text); }
+details.note-version summary small { margin-left: auto; font-size: 15px; color: var(--muted); }
+details.note-version h5 { margin: 6px 12px 2px; font-family: "Press Start 2P", monospace; font-size: 7px; font-weight: normal; color: #7df9ff; letter-spacing: 1px; text-transform: uppercase; }
+details.note-version ul { margin: 0 0 6px; padding: 0 14px 0 30px; font-size: 17px; line-height: 1.15; }
+details.note-version li { margin-bottom: 2px; }
+
+/* ---------- Admin panel ---------- */
+.admin-dialog { width: min(560px, calc(100vw - 24px)); max-height: calc(100vh - 40px); overflow: auto; }
+.admin-sec { margin: 0 0 10px; padding: 8px; background: var(--panel-lo); border: 2px solid #000; }
+.admin-sec h4 { margin: 0 0 6px; font-family: "Press Start 2P", monospace; font-size: 8px; font-weight: normal; color: var(--yellow); }
+.admin-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.admin-row button { font-size: 8px; padding: 6px 8px; }
+.admin-row select { font-family: "VT323", monospace; font-size: 17px; background: #121124; color: var(--text); border: 2px solid #000; padding: 3px 4px; }
+.admin-row .check { font-size: 17px; }

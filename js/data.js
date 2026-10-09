@@ -5,35 +5,47 @@ const GAME_VERSION = "1.1";
 const PATCH_NOTES = [
   {
     version: "1.1", title: "Bigger, Brighter, Busier",
-    notes: [
-      "The world is over 20x bigger, with 39 new plots of wild land to buy. Move around with the arrow keys or WASD, drag to pan, and zoom with the scroll wheel or - and + keys. Zoom all the way out to see the whole map.",
-      "A city now surrounds the sanctuary, with traffic, detailed buildings (shopfronts, glass towers, rooftop gardens, helipads) and windows that light up at night.",
-      "New minimap. Click it to jump anywhere.",
-      "Real opening hours: the park is open 8 AM to 10 PM (8 minutes) and closed at night (3 minutes).",
-      "Building, bulldozing and moving variants now happen at night while the park is closed.",
-      "End-of-day report at 10 PM with revenue, expenses, profit and everything that levelled up.",
-      "Guests now arrive by car. Upgrade the parking lot to fit more of them.",
-      "Wild land comes in 11 biomes that blend seamlessly into each other and into your own land: oak, pine, birch, autumn, mushroom, rocky, flower, swamp, jungle, and the new snowy forest and cherry blossom groves.",
-      "Variants jiggle like jelly: they squash when they land, stretch when they jump, lean as they move and wiggle when idle.",
-      "Variants now sleep through the night (with drifting Zs) and wake up with a stretch when the park opens.",
-      "Patch notes button in the top bar, and a link to the creator's Instagram (@jamesrobbizz).",
-      "Everything you haven't unlocked yet is now visible, greyed out, with the park level that unlocks it.",
-      "Custom-shaped pens: paint any connected shape of tiles and build it. Price, capacity and appeal grow with the number of tiles.",
-      "Seven fence styles (wood, white picket, hedge, metal, stone, gold or the theme's own), and you can remodel a pen's theme and fence at night.",
-      "New retro look: the whole world now shares one pixel grid (16x16 pixel tiles), so variants, people, buildings, trees, shadows and lighting all match. Variants got inked outlines.",
-      "Every variant now ends in -ity: say hello to Liminality (formerly Backrooms Verity), Blockity (Steve) and Piratity (Pirate Clark).",
-      "New tutorial for first-time players. Skip it any time, or replay it from the Save tab.",
-      "A more detailed loading screen with a night-time sanctuary scene, a variant parade and tips.",
-      "More animation: blinking variants, walking guests, swaying trees, waving flags, water shimmer, butterflies and fireflies.",
-      "The mute button now silences everything, music included.",
-      "Version number on the loading screen, plus these patch notes.",
+    sections: [
+      { title: "World", notes: [
+        "Over 20x bigger, with 39 plots of wild land to buy.",
+        "11 biomes that blend seamlessly, including new snowy forests and cherry blossom groves.",
+        "A city surrounds the sanctuary, with traffic and windows that light up at night.",
+        "Minimap and a whole-map zoom. Move with arrow keys/WASD, zoom with scroll or +/-.",
+        "A redesigned front gate with a ticket booth.",
+      ] },
+      { title: "Park & building", notes: [
+        "Opening hours: open 8 AM to 10 PM, build at night while closed.",
+        "End-of-day report with profit and everything that levelled up.",
+        "Guests arrive by car. Upgrade the parking lot to fit more.",
+        "Custom-shaped pens, priced by size.",
+        "Seven fence styles, and pens can be remodelled.",
+        "Locked items stay visible with the level that unlocks them.",
+      ] },
+      { title: "Variants", notes: [
+        "Every variant ends in -ity: meet Liminality, Blockity and Piratity.",
+        "Jelly-like jiggle: they squash, stretch, lean and wiggle.",
+        "They sleep through the night and wake up at 8 AM.",
+      ] },
+      { title: "Look & sound", notes: [
+        "Retro pixel art on one shared 16x16 grid.",
+        "More animation: walking guests, swaying trees, water and fireflies.",
+        "A new animated loading screen.",
+        "Mute now silences music too.",
+      ] },
+      { title: "Interface", notes: [
+        "A skippable tutorial for new players (replay it from the Save tab).",
+        "Patch notes button and Instagram link in the top bar.",
+        "Show on a plot of land highlights it in yellow.",
+      ] },
     ],
   },
   {
     version: "1.0", title: "Grand Opening",
-    notes: [
-      "27 Verity variants, fusion recipes, the Variant Index and individual variants.",
-      "Park levels, enclosure sizes and themes, land, staff, care, events, goals, achievements and prestige.",
+    sections: [
+      { title: "Launch", notes: [
+        "27 Verity variants, fusion recipes, the Variant Index and unique individuals.",
+        "Park levels, enclosure sizes and themes, land, staff, care, events, goals, achievements and prestige.",
+      ] },
     ],
   },
 ];

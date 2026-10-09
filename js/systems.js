@@ -228,7 +228,7 @@ function secondsUntilChange() { const p = cyclePos(); return p < DAY_SECS ? DAY_
 
 function tickWorld(dt) {
   const wasOpen = isOpen();
-  if (!tutorialActive()) state.worldClock += dt;
+  if (!tutorialActive() && !admin.freeze) state.worldClock += dt;
   const nowOpen = isOpen();
   if (wasOpen && !nowOpen) closeDay();
   else if (!wasOpen && nowOpen) openDay();
@@ -374,7 +374,7 @@ function drawSky(time) {
   if (glow > 0.05) {
     ctx.globalCompositeOperation = "lighter";
     const lights = state.objects.filter(o => o.t === "lamp" || OBJECTS[o.t].kind === "stand").map(o => [o.x * TILE + 8, o.y * TILE, o.t === "lamp" ? 26 : 14]);
-    lights.push([GATE.x * TILE - 4, GATE.y * TILE - 4, 14], [GATE.x * TILE + 20, GATE.y * TILE - 4, 14]);
+    lights.push([GATE.x * TILE + 8, GATE.y * TILE - 19, 16], [GATE.x * TILE + 8, GATE.y * TILE + 7, 16], [GATE.x * TILE + 8, GATE.y * TILE - 28, 22], [GATE.x * TILE - 9, GATE.y * TILE - 6, 10]);
     for (const c of cars) if (c.state !== "parked") lights.push([c.x + (c.dir === 1 ? 8 : c.dir === 3 ? -8 : 0), c.y + (c.dir === 2 ? 8 : c.dir === 0 ? -8 : 0), 10]);
     for (const [lx, ly, r] of lights) {
       if (lx < vx - r || lx > vx + vw + r || ly < vy - r || ly > vy + vh + r) continue;
@@ -848,7 +848,7 @@ function renderLand() {
     const b = el("button", "primary", `Buy ${fmt(p.cost)}c`);
     b.disabled = state.money < p.cost || isOpen();
     const go = el("button", "", "Show");
-    go.addEventListener("click", () => centerOn(p.sign[0] * TILE + 8, p.sign[1] * TILE + 8));
+    go.addEventListener("click", () => showPlot(k));
     row.appendChild(go);
     b.addEventListener("click", () => buyPlot(k));
     row.appendChild(b);
@@ -862,13 +862,38 @@ function renderLand() {
     g.appendChild(document.createTextNode(`${p.tiles} tiles of ${BIOME_LABELS[p.biome]} · ${fmt(p.cost)}c`));
     row.appendChild(g);
     const go = el("button", "", "Show");
-    go.addEventListener("click", () => centerOn(p.sign[0] * TILE + 8, p.sign[1] * TILE + 8));
+    go.addEventListener("click", () => showPlot(k));
     row.appendChild(go);
     const b = el("button", "", `LV ${p.level}`);
     b.addEventListener("click", () => lockedClick("plot:" + k, p.label));
     row.appendChild(b);
     box.appendChild(row);
   }
+}
+
+// "Show" on a plot: fly the camera there and flash the whole plot in yellow for a few seconds.
+let plotFlash = null;
+function showPlot(k) {
+  const tiles = [];
+  const pi = PLOT_KEYS.indexOf(k);
+  for (let i = 0; i < PLOT_MAP.length; i++) if (PLOT_MAP[i] === pi) tiles.push([i % COLS, Math.floor(i / COLS)]);
+  const xs = tiles.map(t => t[0]), ys = tiles.map(t => t[1]);
+  const fit = Math.min(view.cssW / ((Math.max(...xs) - Math.min(...xs) + 6) * TILE), view.cssH / ((Math.max(...ys) - Math.min(...ys) + 6) * TILE));
+  if (fit < view.zoom) setZoom(fit);
+  centerOn((Math.min(...xs) + Math.max(...xs) + 1) / 2 * TILE, (Math.min(...ys) + Math.max(...ys) + 1) / 2 * TILE);
+  plotFlash = { tiles, until: performance.now() + 5000 };
+  sfx("click");
+}
+function drawPlotFlash(time) {
+  if (!plotFlash) return;
+  const left = plotFlash.until - performance.now();
+  if (left <= 0) { plotFlash = null; return; }
+  const a = Math.min(1, left / 800) * (0.32 + 0.14 * Math.sin(time * 6));
+  ctx.fillStyle = `rgba(255,210,63,${a})`;
+  for (const [x, y] of plotFlash.tiles) ctx.fillRect(x * TILE, y * TILE, TILE, TILE);
+  ctx.globalAlpha = Math.min(1, left / 800);
+  outlineCells(plotFlash.tiles, "#ffd23f");
+  ctx.globalAlpha = 1;
 }
 
 function renderPrestige() {

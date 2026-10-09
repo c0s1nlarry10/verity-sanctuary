@@ -17,6 +17,10 @@ Open `index.html` in a browser. There's nothing to install or build.
 
 Every major version stays playable in [`versions/`](versions/index.html), each with its own save. Only pushed versions go there. After pushing a new one, archive it with `versions/archive.sh 1.2 "Title"`.
 
+### Dev log
+
+[`dev-log/`](dev-log/README.md) has one entry per pushed version describing how its final build was made.
+
 ## Features
 
 Version 1.1. See the in-game patch notes for what changed.

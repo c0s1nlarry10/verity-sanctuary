@@ -335,6 +335,12 @@ function drawCityLights(glow, x0, y0, x1, y1) {
   if (!viewLeavesWorld(x0, y0, x1, y1)) return;
   const tx0 = Math.floor(x0 / TILE) - 1, ty0 = Math.floor(y0 / TILE) - 1, tx1 = Math.ceil(x1 / TILE) + 1, ty1 = Math.ceil(y1 / TILE) + 1;
   const bx0 = Math.floor((tx0 - 3) / CITY_P), bx1 = Math.floor((tx1 - 3) / CITY_P), by0 = Math.floor(ty0 / CITY_P), by1 = Math.floor(ty1 / CITY_P);
+  // only light the parts of blocks that are actually visible (not hidden under the sanctuary)
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x0 - TILE, y0 - TILE, x1 - x0 + TILE * 2, y1 - y0 + TILE * 2);
+  ctx.rect(0, 0, WORLD_W, WORLD_H);
+  ctx.clip("evenodd");
   ctx.globalAlpha = Math.min(1, glow * 2.2);
   for (let by = by0; by <= by1; by++) for (let bx = bx0; bx <= bx1; bx++) {
     const X = bx * CITY_P + 3, Y = by * CITY_P;
@@ -352,4 +358,5 @@ function drawCityLights(glow, x0, y0, x1, y1) {
     ctx.fillRect(hx, hy, c.v ? 4 : 2, c.v ? 2 : 4);
   }
   ctx.globalAlpha = 1;
+  ctx.restore();
 }

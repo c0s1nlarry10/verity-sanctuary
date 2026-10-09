@@ -562,7 +562,7 @@ function worldFromEvent(e) {
 
 // Building, bulldozing and moving variants only happen while the park is closed.
 function buildLocked() {
-  if (!isOpen()) return false;
+  if (!isOpen() || (typeof admin !== "undefined" && admin.freeBuild)) return false;
   hintOnce("The park is open! Building and moving variants unlock at 10 PM. You can also close early.");
   sfx("fail");
   return true;
@@ -1171,15 +1171,16 @@ const clouds = Array.from({ length: 14 }, (_, i) => ({ x: hash2(i, 1, 9) * WORLD
 
 function drawGate(time) {
   const x = GATE.x * TILE, y = GATE.y * TILE;
-  blit(ctx, GATE_SPR, x - 6, y - 18);
-  // waving pennants on the pillars
-  for (const [px, col] of [[x - 2, "#ff5c7a"], [x + 18, "#5fb4ff"]]) {
-    ctx.fillStyle = "#2a2a2a"; ctx.fillRect(px, y - 24, 0.5, 6);
+  blit(ctx, gateSprite(), x - 16, y - 34);
+  // pennants waving above the lanterns
+  for (const [px, col] of [[x - 13, "#ff5c7a"], [x + 28, "#5fb4ff"]]) {
+    const py = y - 33;
+    ctx.fillStyle = "#2a2a2a"; ctx.fillRect(px, py - 7, 0.5, 6);
     ctx.fillStyle = col;
     for (let i = 0; i < 6; i++) {
       const wave = Math.sin(time * 6 - i * 0.8) * 0.8;
       const hgt = 3 - i * 0.45;
-      ctx.fillRect(px + 0.5 + i * 0.75, y - 24 + wave * (i / 6) + (3 - hgt) / 2, 0.75, Math.max(0.5, hgt));
+      ctx.fillRect(px + 0.5 + i * 0.75, py - 7 + wave * (i / 6) + (3 - hgt) / 2, 0.75, Math.max(0.5, hgt));
     }
   }
 }
@@ -1576,6 +1577,7 @@ function render(dt, time) {
   drawSky(time);
   drawAmbient(time);
 
+  drawPlotFlash(time);
   drawPenDraft();
   drawHover();
 
@@ -1865,9 +1867,10 @@ let hintTimer = 0;
 
 // In-game replacement for confirm()/prompt(), which embedded viewers block.
 // Resolves true/false, or the entered text/null when `input` is given.
-function ask({ title, text, ok = "OK", input = null }) {
+function ask({ title, text, ok = "OK", input = null, password = false }) {
   return new Promise(resolve => {
     const d = $("ask-dialog"), inp = $("ask-input");
+    inp.type = password ? "password" : "text";
     $("ask-title").textContent = title;
     $("ask-text").textContent = text;
     $("ask-ok").textContent = ok;
@@ -2332,7 +2335,7 @@ function renderUI(full) {
   if (activeTab === "goals" && !full) renderGoals();
   if (!full) return;
   if (activeTab === "park") { renderShop(); renderInventory(); renderInspect(); renderBuildOptions(); renderEggs(); renderRequest(); renderStaff(); renderLand(); renderParking(); }
-  if (activeTab === "save") renderNotes($("notes-card"), 1);
+  if (activeTab === "save") renderNotes($("notes-card"), PATCH_NOTES.length, false);
   if (activeTab === "lab") renderLab();
   if (activeTab === "index") renderIndex();
   if (activeTab === "goals") { renderGoals(); renderAchievements(); renderLevelInfo(); renderPrestige(); }
@@ -2397,18 +2400,32 @@ function renderHours() {
   document.querySelectorAll(".shop-item").forEach(b => b.classList.toggle("locked", open));
 }
 
-function renderNotes(box, limit = PATCH_NOTES.length) {
+// Each version is a collapsible section; the newest starts open in the dialog.
+const notesOpen = new Map();   // remembers which versions are expanded, per box, across re-renders
+function renderNotes(box, limit = PATCH_NOTES.length, openFirst = true) {
   box.innerHTML = "";
-  for (const n of PATCH_NOTES.slice(0, limit)) {
-    const d = el("div", "note-version");
-    d.appendChild(el("h4", "", `v${n.version} · ${n.title}`));
-    const ul = el("ul");
-    for (const line of n.notes) ul.appendChild(el("li", "", line));
-    d.appendChild(ul);
+  if (!notesOpen.has(box.id)) notesOpen.set(box.id, new Set(openFirst ? [PATCH_NOTES[0].version] : []));
+  const open = notesOpen.get(box.id);
+  PATCH_NOTES.slice(0, limit).forEach(n => {
+    const d = el("details", "note-version");
+    d.open = open.has(n.version);
+    d.addEventListener("toggle", () => { if (d.open) open.add(n.version); else open.delete(n.version); });
+    const count = n.sections.reduce((t, sec) => t + sec.notes.length, 0);
+    const sum = el("summary", "");
+    sum.appendChild(el("b", "", `v${n.version}`));
+    sum.appendChild(el("span", "", n.title));
+    sum.appendChild(el("small", "", `${count} change${count > 1 ? "s" : ""}`));
+    d.appendChild(sum);
+    for (const sec of n.sections) {
+      d.appendChild(el("h5", "", sec.title));
+      const ul = el("ul");
+      for (const line of sec.notes) ul.appendChild(el("li", "", line));
+      d.appendChild(ul);
+    }
     box.appendChild(d);
-  }
+  });
   if (limit < PATCH_NOTES.length) {
-    const b = el("button", "wide", "Read all patch notes");
+    const b = el("button", "wide", "All patch notes");
     b.addEventListener("click", showPatchNotes);
     box.appendChild(b);
   }
