@@ -859,3 +859,10 @@ a.feedback-wide:hover { background: #a8fbff; }
 .feedback-toast { border-color: #7df9ff; }
 .feedback-toast a { color: #7df9ff; pointer-events: auto; }
 .toasts .toast.feedback-toast { pointer-events: auto; }
+
+.feedback-toast { position: relative; padding-right: 28px; }
+.feedback-close {
+  position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; padding: 0; line-height: 1;
+  font-family: "VT323", monospace; font-size: 18px; box-shadow: 2px 2px 0 #000; border-width: 2px;
+}
+.feedback-toast .feedback-never { font-size: inherit; color: var(--muted); }

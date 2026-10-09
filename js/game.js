@@ -2199,6 +2199,7 @@ const FEEDBACK_URL = "https://forms.gle/N3EzvmrXTgRiWqSZ6";
 const FEEDBACK_EVERY_MS = 10 * 60 * 1000, FEEDBACK_SHOW_MS = 10 * 1000;
 let feedbackTimer = null;
 function showFeedbackReminder() {
+  if (state.settings.noFeedbackReminder) return;
   // wait for a quiet moment: not during the tutorial, a hatch animation or an open dialog
   if (tutorialActive() || fx || document.querySelector("dialog[open]")) { feedbackTimer = setTimeout(showFeedbackReminder, 20000); return; }
   const el = document.createElement("div");
@@ -2208,10 +2209,19 @@ function showFeedbackReminder() {
   txt.appendChild(document.createTextNode("Enjoying the sanctuary? Feedback is appreciated and helps improve the game! "));
   const a = txt.appendChild(document.createElement("a"));
   a.href = FEEDBACK_URL; a.target = "_blank"; a.rel = "noopener"; a.textContent = "Send feedback";
+  txt.appendChild(document.createTextNode(" · "));
+  const never = txt.appendChild(document.createElement("button"));
+  never.className = "linkish feedback-never"; never.type = "button"; never.textContent = "Don't remind me";
+  const close = el.appendChild(document.createElement("button"));
+  close.className = "feedback-close"; close.type = "button"; close.title = "Close"; close.textContent = "×";
+  const hide = () => { el.classList.add("out"); setTimeout(() => el.remove(), 300); };
+  close.addEventListener("click", hide);
+  a.addEventListener("click", hide);
+  never.addEventListener("click", () => { state.settings.noFeedbackReminder = true; clearTimeout(feedbackTimer); saveGame(); hide(); toast("Got it, no more reminders. The Feedback button stays in the top bar.", 3500); });
   const box = $("toasts");
   box.appendChild(el);
   while (box.children.length > 3) box.firstElementChild.remove();
-  setTimeout(() => { el.classList.add("out"); setTimeout(() => el.remove(), 300); }, FEEDBACK_SHOW_MS);
+  setTimeout(hide, FEEDBACK_SHOW_MS);
   feedbackTimer = setTimeout(showFeedbackReminder, FEEDBACK_EVERY_MS);
 }
 function startFeedbackReminders() {
@@ -2765,6 +2775,7 @@ function renderSettings() {
   $("set-musicvol").value = state.settings.musicVol;
   $("set-effects").checked = state.settings.effects;
   $("set-shake").checked = state.settings.shake;
+  $("set-feedback").checked = !state.settings.noFeedbackReminder;
   const btn = $("sound-toggle");
   btn.classList.toggle("muted", !!state.settings.muted);
   btn.title = state.settings.muted ? "Unmute" : "Mute everything";
@@ -2947,6 +2958,7 @@ $("set-sfxvol").addEventListener("input", e => { state.settings.sfxVol = +e.targ
 $("set-musicvol").addEventListener("input", e => { state.settings.musicVol = +e.target.value; applyVolumes(); });
 $("set-effects").addEventListener("change", e => { state.settings.effects = e.target.checked; });
 $("set-shake").addEventListener("change", e => { state.settings.shake = e.target.checked; });
+$("set-feedback").addEventListener("change", e => { state.settings.noFeedbackReminder = !e.target.checked; if (e.target.checked) startFeedbackReminders(); else clearTimeout(feedbackTimer); });
 $("snapshot").addEventListener("click", () => downloadSnapshot());
 $("snapshot2").addEventListener("click", () => downloadSnapshot());
 $("card-feed").addEventListener("click", () => {
