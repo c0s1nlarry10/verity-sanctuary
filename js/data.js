@@ -13,11 +13,13 @@ const PATCH_NOTES = [
       "Building, bulldozing and moving variants now happen at night while the park is closed.",
       "End-of-day report at 10 PM with revenue, expenses, profit and everything that levelled up.",
       "Guests now arrive by car. Upgrade the parking lot to fit more of them.",
-      "Wild land comes in 11 biomes that blend into each other: oak, pine, birch, autumn, mushroom, rocky, flower, swamp, jungle, and the new snowy forest and cherry blossom groves.",
+      "Wild land comes in 11 biomes that blend seamlessly into each other and into your own land: oak, pine, birch, autumn, mushroom, rocky, flower, swamp, jungle, and the new snowy forest and cherry blossom groves.",
       "Variants jiggle like jelly: they squash when they land, stretch when they jump, lean as they move and wiggle when idle.",
       "Variants now sleep through the night (with drifting Zs) and wake up with a stretch when the park opens.",
       "Patch notes button in the top bar, and a link to the creator's Instagram (@jamesrobbizz).",
       "Everything you haven't unlocked yet is now visible, greyed out, with the park level that unlocks it.",
+      "Custom-shaped pens: paint any connected shape of tiles and build it. Price, capacity and appeal grow with the number of tiles.",
+      "Seven fence styles (wood, white picket, hedge, metal, stone, gold or the theme's own), and you can remodel a pen's theme and fence at night.",
       "New retro look: the whole world now shares one pixel grid (16x16 pixel tiles), so variants, people, buildings, trees, shadows and lighting all match. Variants got inked outlines.",
       "Every variant now ends in -ity: say hello to Liminality (formerly Backrooms Verity), Blockity (Steve) and Piratity (Pirate Clark).",
       "New tutorial for first-time players. Skip it any time, or replay it from the Save tab.",
@@ -314,6 +316,13 @@ const UNLOCKS = [
   { level: 10, id: "egg:cursed",   name: "Cursed eggs" },
   { level: 12, id: "theme:backrooms", name: "Backrooms enclosures" },
   { level: 15, id: "prestige",     name: "New Sanctuary (prestige)" },
+  { level: 2,  id: "size:custom",  name: "Custom-shaped pens" },
+  { level: 3,  id: "fence:picket", name: "White picket fences" },
+  { level: 5,  id: "fence:hedge",  name: "Hedge fences" },
+  { level: 6,  id: "fence:metal",  name: "Metal fences" },
+  { level: 8,  id: "fence:stone",  name: "Stone walls" },
+  { level: 12, id: "fence:wall",   name: "Gold fences" },
+  { level: 4,  id: "remodel",      name: "Remodel pens (change theme and fence)" },
 ];
 UNLOCKS.sort((a, b) => a.level - b.level);
 const UNLOCK_LEVEL = {};
@@ -327,6 +336,22 @@ const ENC_TYPES = {
   large:  { label: "Large",  size: 5, cap: 9, cost: 1600, appeal: 4 },
 };
 const SIZE_KEY = { 3: "small", 4: "medium", 5: "large" };
+// Fences: "theme" uses the theme's own fence. costMult applies to the whole pen.
+const FENCE_TYPES = {
+  theme:  { label: "Theme",        costMult: 1 },
+  wood:   { label: "Wood",         costMult: 1 },
+  picket: { label: "White picket", costMult: 1.1 },
+  hedge:  { label: "Hedge",        costMult: 1.15 },
+  metal:  { label: "Metal",        costMult: 1.2 },
+  stone:  { label: "Stone",        costMult: 1.3 },
+  wall:   { label: "Gold",         costMult: 1.6 },
+};
+// Custom pens: paint any connected shape. Price and capacity grow with the tile count
+// (a 3x3 costs about the same as a Small pen, 16 tiles about a Medium, 25 about a Large).
+const CUSTOM_PEN = { min: 4, maxTiles: { small: 12, medium: 20, large: 30 } };
+const customPenBase = n => Math.round(100 * Math.pow(n / 9, 2.6) / 10) * 10;
+const capForTiles = n => Math.max(2, Math.floor(n * 0.36 + 0.9));
+const appealForTiles = n => Math.max(0, Math.round((n - 9) * 0.17 * 10) / 10);
 const THEMES = {
   meadow:    { label: "Meadow",    costMult: 1,   likes: [], desc: "Plain grass. Nobody minds it." },
   pool:      { label: "Pool",      costMult: 1.5, likes: ["humidity", "lovity", "sanity", "gravity", "elasticity"], desc: "A splash pool for water lovers." },
@@ -531,7 +556,7 @@ const DAILY_COINS_PER_LEVEL = 60;
 
 ACHIEVEMENTS.push(
   { id: "land",     name: "Land Baron",       desc: "Own every plot of land.",          test: () => PLOT_KEYS.every(k => state.plots[k]) },
-  { id: "bigpen",   name: "Go Big",           desc: "Build a Large enclosure.",         test: () => state.enclosures.some(e => e.s === 5) },
+  { id: "bigpen",   name: "Go Big",           desc: "Build a Large enclosure.",         test: () => state.enclosures.some(e => e.s === 5 || (e.mask && e.mask.length >= 25)) },
   { id: "themes",   name: "Interior Designer", desc: "Build every enclosure theme.",    test: () => Object.keys(THEMES).every(t => state.enclosures.some(e => e.theme === t)) },
   { id: "brick",    name: "Follow the Road",  desc: "Lay 10 yellow brick paths.",       test: () => state.tiles.filter(t => t === 3).length >= 10 },
   { id: "staff",    name: "Full Staff",       desc: "Hire one of every staff type.",    test: () => Object.keys(STAFF).every(t => (state.staff[t] || 0) > 0) },

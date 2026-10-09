@@ -546,13 +546,17 @@ const pathTile = pathTiles[1];
 
 // ================= Enclosure grounds =================
 const FENCES = {
-  wood:  { dark: "#4e2c10", hi: "#a8703c", mid: "#7a4a22", post: "#2a1a0c" },
-  metal: { dark: "#3a3f4c", hi: "#c4cad6", mid: "#7a8292", post: "#1e2129" },
-  wall:  { dark: "#6b5a1e", hi: "#efe08a", mid: "#c9b458", post: "#4a3d10" },
+  wood:   { dark: "#4e2c10", hi: "#a8703c", mid: "#7a4a22", post: "#2a1a0c" },
+  metal:  { dark: "#3a3f4c", hi: "#c4cad6", mid: "#7a8292", post: "#1e2129" },
+  wall:   { dark: "#6b5a1e", hi: "#efe08a", mid: "#c9b458", post: "#4a3d10" },
+  picket: { dark: "#8a8a96", hi: "#ffffff", mid: "#e4e4ee", post: "#6a6a76" },
+  hedge:  { dark: "#1f5a24", hi: "#6ec05a", mid: "#3f8a36", post: "#174a1c" },
+  stone:  { dark: "#55555f", hi: "#c4c4ce", mid: "#8e8e98", post: "#3e3e48" },
 };
+const THEME_FENCE = { meadow: "wood", pool: "wood", lab: "metal", stage: "wood", backrooms: "wall" };
 const encGroundCache = {};
-function makeEncGround(size, theme = "meadow") {
-  const key = size + ":" + theme;
+function makeEncGround(size, theme = "meadow", fenceKey = null) {
+  const key = size + ":" + theme + ":" + (fenceKey || "");
   if (encGroundCache[key]) return encGroundCache[key];
   const W = size * TILE;
   const [c, g] = hiCanvas(W, W);
@@ -606,6 +610,7 @@ function makeEncGround(size, theme = "meadow") {
     R("#ff8fb8", W - 7, 6, 1, 1); R("#fff3a1", W - 10, 7, 0.5, 0.5);
   }
   R("#000", 5, W - 10, 8, 5); R("#c94a4a", 6, W - 9, 6, 3); R("#e8c15a", 7, W - 9, 4, 1); R("#ffe9a0", 7, W - 9, 2, 0.5); R("#ff8080", 6, W - 9, 6, 0.5);
+  if (fenceKey && FENCES[fenceKey]) fence = FENCES[fenceKey];
   R(fence.dark, 0, 0, W, 3); R(fence.dark, 0, W - 3, W, 3); R(fence.dark, 0, 0, 3, W); R(fence.dark, W - 3, 0, 3, W);
   R(fence.hi, 0, 0, W, 1); R(fence.hi, 0, W - 3, W, 1); R(fence.hi, 0, 0, 1, W); R(fence.hi, W - 3, 0, 1, W);
   R(fence.mid, 1, 1, W - 2, 1); R(fence.mid, 1, W - 2, W - 2, 1); R(fence.mid, 1, 1, 1, W - 2); R(fence.mid, W - 2, 1, 1, W - 2);
@@ -620,6 +625,92 @@ function makeEncGround(size, theme = "meadow") {
   return (encGroundCache[key] = c);
 }
 const encGround = makeEncGround(3, "meadow");
+
+// A pen of any shape: w x h tiles, with only the tiles in `cells` (a Set of "dx,dy") fenced in.
+// Each tile gets the theme's floor, water and decor flow across neighbouring tiles, and the
+// fence runs along every outside edge.
+const penSpriteCache = new Map();
+function makePenSprite(w, h, cells, theme = "meadow", fenceKey = null) {
+  const key = [w, h, [...cells].sort().join(";"), theme, fenceKey || ""].join("|");
+  if (penSpriteCache.has(key)) return penSpriteCache.get(key);
+  const [c, g] = hiCanvas(w * TILE, h * TILE);
+  const r = seeded(w * 31 + h * 17 + cells.size * 7 + theme.length);
+  const R = (col, x, y, ww, hh) => { g.fillStyle = col; g.fillRect(x, y, ww, hh); };
+  const has = (x, y) => cells.has(x + "," + y);
+  const list = [...cells].map(k => k.split(",").map(Number)).sort((a, b) => a[1] - b[1] || a[0] - b[0]);
+  const fence = FENCES[fenceKey || THEME_FENCE[theme]] || FENCES.wood;
+  // floors
+  for (const [cx, cy] of list) {
+    const X = cx * TILE, Y = cy * TILE;
+    if (theme === "lab") {
+      for (let y = 0; y < TILE; y += 4) for (let x = 0; x < TILE; x += 4) { R(((x + y) / 4) % 2 ? "#cfd6e0" : "#b8c2d0", X + x, Y + y, 4, 4); R("rgba(255,255,255,0.35)", X + x, Y + y, 4, 0.5); }
+    } else if (theme === "stage") {
+      for (let y = 0; y < TILE; y += 3) { R(y % 6 ? "#b07a44" : "#9a6838", X, Y + y, TILE, 3); R("#6b4220", X, Y + y + 2.5, TILE, 0.5); R("#6b4220", X + ((y * 7 + cx * 5) % 11), Y + y, 0.5, 2.5); }
+    } else if (theme === "backrooms") {
+      R("#b8a35a", X, Y, TILE, TILE);
+      for (let i = 0; i < 40; i++) R(r() < 0.5 ? "#a8934a" : "#c4b066", X + Math.floor(r() * 32) / 2, Y + Math.floor(r() * 32) / 2, 0.5, 0.5);
+    } else {
+      R("#6cbf55", X, Y, TILE, TILE);
+      for (let i = 0; i < 26; i++) R(r() < 0.5 ? "#5aad47" : "#83d06a", X + Math.floor(r() * 32) / 2, Y + Math.floor(r() * 32) / 2, 0.5, 0.5);
+      for (let i = 0; i < 4; i++) { const x = X + Math.floor(r() * 28) / 2 + 1, y = Y + Math.floor(r() * 28) / 2 + 1; R("#3f8f3a", x, y, 0.5, 1.5); R("#9ade7c", x, y - 0.5, 0.5, 0.5); }
+    }
+  }
+  // pool water flows across neighbouring tiles; a deck rim lines the outside edge
+  if (theme === "pool") {
+    for (const [cx, cy] of list) {
+      const X = cx * TILE, Y = cy * TILE;
+      const l = has(cx - 1, cy) ? 0 : 6, rr = has(cx + 1, cy) ? 0 : 6, t = has(cx, cy - 1) ? 0 : 7, b = has(cx, cy + 1) ? 0 : 6;
+      R("#e8e0c8", X + l - 2, Y + t - 2, TILE - l - rr + 4, TILE - t - b + 4);
+    }
+    for (const [cx, cy] of list) {
+      const X = cx * TILE, Y = cy * TILE;
+      const l = has(cx - 1, cy) ? 0 : 6, rr = has(cx + 1, cy) ? 0 : 6, t = has(cx, cy - 1) ? 0 : 7, b = has(cx, cy + 1) ? 0 : 6;
+      R("#2f7fd0", X + l, Y + t, TILE - l - rr, TILE - t - b);
+      R("#3d8fe0", X + l + (l ? 1 : 0), Y + t + (t ? 1 : 0), TILE - l - rr - (l ? 1 : 0) - (rr ? 1 : 0), TILE - t - b - (t ? 1 : 0) - (b ? 1 : 0));
+      for (let i = 0; i < 3; i++) R(r() < 0.5 ? "#9fd4ff" : "#6fb4f0", X + l + r() * (TILE - l - rr - 3), Y + t + r() * (TILE - t - b - 1), 1 + r() * 2, 0.5);
+    }
+  }
+  // decor: theme features along the top edge and a food bowl near the bottom
+  const tops = list.filter(([x, y]) => !has(x, y - 1));
+  if (theme === "stage") for (const [cx, cy] of tops) { const X = cx * TILE, Y = cy * TILE; R("#7a1020", X, Y + 3, TILE, 7); for (let x = 0; x < TILE; x += 3) { R("#a3203a", X + x, Y + 3, 2, 7); R("#c43a52", X + x, Y + 3, 0.5, 7); } R("#ffd23f", X, Y + 10, TILE, 1); }
+  if (theme === "backrooms") for (const [cx, cy] of tops) { const X = cx * TILE, Y = cy * TILE; for (let x = 0; x < TILE; x += 3) { R(x % 6 ? "#e0cf7a" : "#cdbb63", X + x, Y + 3, 3, 7); R("#f2e49a", X + x, Y + 3, 0.5, 7); } }
+  if (theme === "lab" && tops.length) { const [cx, cy] = tops[Math.floor(tops.length / 2)]; const X = cx * TILE, Y = cy * TILE; R("#000", X + 2, Y + 5, 12, 6); R("#5a6070", X + 3, Y + 6, 10, 4); R("#6ee07a", X + 4, Y + 4, 2, 3); R("#ff7eb6", X + 8, Y + 3, 2, 4); }
+  if (theme === "meadow" && list.length > 3) { const [cx, cy] = list[Math.floor(list.length / 2)]; litBlob(g, cx * TILE + 8, cy * TILE + 7, 4, 3.4, ramp("#3f8f3a")); R("#ff8fb8", cx * TILE + 9, cy * TILE + 6, 1, 1); }
+  const bottom = list[list.length - 1];
+  { const X = bottom[0] * TILE, Y = bottom[1] * TILE; R("#000", X + 4, Y + 6, 8, 5); R("#c94a4a", X + 5, Y + 7, 6, 3); R("#e8c15a", X + 6, Y + 7, 4, 1); R("#ff8080", X + 5, Y + 7, 6, 0.5); }
+  // fences along every outside edge, with posts at the corners and every 8 units
+  for (const [cx, cy] of list) {
+    const X = cx * TILE, Y = cy * TILE;
+    const rail = (x, y, ww, hh, horiz) => {
+      R(fence.dark, x, y, ww, hh);
+      if (horiz) { R(fence.hi, x, y, ww, 1); R(fence.mid, x, y + 1, ww, 1); } else { R(fence.hi, x, y, 1, hh); R(fence.mid, x + 1, y, 1, hh); }
+    };
+    if (!has(cx, cy - 1)) rail(X, Y, TILE, 3, true);
+    if (!has(cx, cy + 1)) rail(X, Y + TILE - 3, TILE, 3, true);
+    if (!has(cx - 1, cy)) rail(X, Y, 3, TILE, false);
+    if (!has(cx + 1, cy)) rail(X + TILE - 3, Y, 3, TILE, false);
+  }
+  const post = (x, y) => { R(fence.post, x, y, 4, 4); R(fence.hi, x + 0.5, y + 0.5, 3, 0.5); R(fence.hi, x + 0.5, y + 0.5, 0.5, 3); R(fence.mid, x + 1.5, y + 1.5, 1, 1); };
+  for (const [cx, cy] of list) {
+    const X = cx * TILE, Y = cy * TILE;
+    const up = !has(cx, cy - 1), dn = !has(cx, cy + 1), lf = !has(cx - 1, cy), rt = !has(cx + 1, cy);
+    if (up) { post(X, Y); post(X + 8, Y); }
+    if (dn) { post(X, Y + TILE - 4); post(X + 8, Y + TILE - 4); }
+    if (lf) { post(X, Y); post(X, Y + 8); }
+    if (rt) { post(X + TILE - 4, Y); post(X + TILE - 4, Y + 8); }
+    if (up || rt) post(X + TILE - 4, Y);
+    if (dn || rt) post(X + TILE - 4, Y + TILE - 4);
+    if (dn || lf) post(X, Y + TILE - 4);
+    // inside corners where the fence turns
+    if (!up && !lf && !has(cx - 1, cy - 1)) post(X, Y);
+    if (!up && !rt && !has(cx + 1, cy - 1)) post(X + TILE - 4, Y);
+    if (!dn && !lf && !has(cx - 1, cy + 1)) post(X, Y + TILE - 4);
+    if (!dn && !rt && !has(cx + 1, cy + 1)) post(X + TILE - 4, Y + TILE - 4);
+  }
+  if (penSpriteCache.size > 120) penSpriteCache.delete(penSpriteCache.keys().next().value);
+  penSpriteCache.set(key, c);
+  return c;
+}
 
 // ================= Trees & wild plants (hi-res, anchored at bottom centre) =================
 function treeBase(w, h) { const [c, g] = hiCanvas(w, h); c.ax = w / 2; c.ay = h - 2; return [c, g]; }
@@ -1127,3 +1218,29 @@ Object.assign(ICONS, {
   goldegg: ["...kkkk...", "..kYYYYk..", ".kYwYYYYk.", ".kwYYyYYk.", "kYYYyyYYYk", "kYYYYYyYok", "kYyYYYYYok", "kYYYYYYook", ".kYYYoook.", "..kkkkkk.."],
   cursedegg: ["...kkkk...", "..kRRRRk..", ".kRrRRRRk.", ".krRRgRRk.", "kRRRggRRRk", "kRRRRRgRNk", "kRgRRRRRNk", "kRRRRRRNNk", ".kRRRNNNk.", "..kkkkkk.."],
 });
+
+
+// ================= Tiny pixel font (3x5) for text drawn in the world =================
+const PIXEL_FONT = {
+  A: "010101111101101", B: "110101110101110", C: "011100100100011", D: "110101101101110", E: "111100110100111",
+  F: "111100110100100", G: "011100101101011", H: "101101111101101", I: "111010010010111", J: "001001001101010",
+  K: "101101110101101", L: "100100100100111", M: "101111111101101", N: "110101101101101", O: "010101101101010",
+  P: "110101110100100", Q: "010101101110011", R: "110101110101101", S: "011100010001110", T: "111010010010010",
+  U: "101101101101111", V: "101101101101010", W: "101101111111101", X: "101101010101101", Y: "101101010010010",
+  Z: "111001010100111", 0: "111101101101111", 1: "010110010010111", 2: "110001010100111", 3: "110001010001110",
+  4: "101101111001001", 5: "111100110001110", 6: "011100111101111", 7: "111001010010010", 8: "111101111101111",
+  9: "111101111001110", "?": "110001010000010", "!": "010010010000010", "-": "000000111000000", ".": "000000000000010",
+  "+": "000010111010000", "%": "101001010100101", ":": "000010000010000", " ": "000000000000000",
+};
+// Draws text centred on x with its top at y, 1 world unit per font pixel (times `scale`).
+function pixelText(g, text, x, y, color, scale = 1) {
+  text = String(text).toUpperCase();
+  const w = text.length * 4 * scale - scale;
+  let cx = Math.round(x - w / 2);
+  g.fillStyle = color;
+  for (const ch of text) {
+    const bits = PIXEL_FONT[ch] || PIXEL_FONT["?"];
+    for (let i = 0; i < 15; i++) if (bits[i] === "1") g.fillRect(cx + (i % 3) * scale, Math.round(y) + Math.floor(i / 3) * scale, scale, scale);
+    cx += 4 * scale;
+  }
+}

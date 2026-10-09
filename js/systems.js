@@ -498,7 +498,7 @@ function tickEscapes() {
     if (!chance || escapes.has(ind.id) || isLost(e) || (activeEvent && activeEvent.ind === ind)) continue;
     if (Math.random() >= (chance / 60) * (e.s >= 5 ? 0.5 : 1)) continue;
     const c = critterPos.get(ind.id);
-    escapes.set(ind.id, { ind, e, x: c ? c.x : (e.x + e.s / 2) * TILE, y: (e.y + e.s) * TILE + 6, vx: 0, vy: 0, t: 90, timer: 0 });
+    escapes.set(ind.id, { ind, e, x: c ? c.x : (e.x + encW(e) / 2) * TILE, y: (e.y + encH(e)) * TILE + 6, vx: 0, vy: 0, t: 90, timer: 0 });
     sfx("event");
     toast(`${ind.name} the ${VARIANTS[ind.k].name} broke out! Click it to catch it.`, 4500, ind.k);
   }
@@ -685,6 +685,13 @@ function chip(label, sub, active, onClick, art, lockId) {
   b.addEventListener("click", () => { if (locked) return lockedClick(lockId, label); sfx("click"); onClick(); });
   return b;
 }
+// A close-up of a pen's top-left corner, so fence styles are easy to tell apart.
+function fenceThumb(fenceKey, theme = "meadow") {
+  const src = makeEncGround(3, theme, fenceKey), c = makeCanvas(24, 24), g = c.getContext("2d");
+  g.imageSmoothingEnabled = false;
+  g.drawImage(src, 0, 0, src.width * 12 / uW(src), src.height * 12 / uH(src), 0, 0, 24, 24);
+  return c;
+}
 function thumb(src, w, h) {
   const c = makeCanvas(w, h);
   c.getContext("2d").drawImage(src, 0, 0, w, h);
@@ -702,21 +709,40 @@ function renderBuildOptions() {
     box.appendChild(chips);
     box.hidden = false;
   } else if (tool === "enclosure") {
-    const sizes = Object.keys(ENC_TYPES);
-    const themes = Object.keys(THEMES);
-    {
-      box.appendChild(el("h4", "", "SIZE"));
-      const chips = el("div", "chips");
-      for (const k of sizes) chips.appendChild(chip(`${ENC_TYPES[k].label} ${ENC_TYPES[k].size}x${ENC_TYPES[k].size}`, `holds ${ENC_TYPES[k].cap} · ${fmt(enclosureCost(k, encChoice.theme))}c`, encChoice.size === k, () => { encChoice.size = k; renderUI(true); }, null, "size:" + k));
-      box.appendChild(chips);
+    const custom = encChoice.shape === "custom";
+    box.appendChild(el("h4", "", "SHAPE"));
+    const shapes = el("div", "chips");
+    for (const k of Object.keys(ENC_TYPES)) shapes.appendChild(chip(`${ENC_TYPES[k].label} ${ENC_TYPES[k].size}x${ENC_TYPES[k].size}`, `holds ${ENC_TYPES[k].cap} · ${fmt(enclosureCost(k))}c`, !custom && encChoice.size === k, () => { encChoice.shape = "square"; encChoice.size = k; renderUI(true); }, null, "size:" + k));
+    shapes.appendChild(chip("Custom shape", `paint up to ${customMaxTiles()} tiles`, custom, () => { encChoice.shape = "custom"; renderUI(true); }, null, "size:custom"));
+    box.appendChild(shapes);
+    if (custom) {
+      const n = penDraft.size, problem = draftProblem();
+      const panel = el("div", "pen-draft");
+      panel.appendChild(el("p", "opt-desc", n ? `${n} tile${n > 1 ? "s" : ""} · holds ${capForTiles(n)} · appeal +${appealForTiles(n)} · ${fmt(customPenCost(n))}c` : "Click and drag on your grass to paint a pen. Click a painted tile to erase."));
+      if (n && problem) panel.appendChild(el("p", "opt-desc warn", problem));
+      const row = el("div", "tools");
+      const buildBtn = el("button", "primary", n ? `Build pen (${fmt(customPenCost(n))}c)` : "Build pen");
+      buildBtn.disabled = !n || !!problem || state.money < customPenCost(n) || buildLocked();
+      buildBtn.addEventListener("click", buildCustomPen);
+      const clear = el("button", "", "Clear");
+      clear.disabled = !n;
+      clear.addEventListener("click", () => { penDraft = new Set(); renderBuildOptions(); });
+      row.appendChild(buildBtn); row.appendChild(clear);
+      panel.appendChild(row);
+      box.appendChild(panel);
     }
-    {
-      box.appendChild(el("h4", "", "THEME"));
-      const chips = el("div", "chips");
-      for (const k of themes) chips.appendChild(chip(THEMES[k].label, `x${THEMES[k].costMult} cost`, encChoice.theme === k, () => { encChoice.theme = k; renderUI(true); }, thumb(makeEncGround(3, k), 24, 24), "theme:" + k));
-      box.appendChild(chips);
-      box.appendChild(el("p", "opt-desc", THEMES[encChoice.theme].desc));
+    box.appendChild(el("h4", "", "THEME"));
+    const themes = el("div", "chips");
+    for (const k of Object.keys(THEMES)) themes.appendChild(chip(THEMES[k].label, `x${THEMES[k].costMult} cost`, encChoice.theme === k, () => { encChoice.theme = k; renderUI(true); }, thumb(makeEncGround(3, k), 24, 24), "theme:" + k));
+    box.appendChild(themes);
+    box.appendChild(el("p", "opt-desc", THEMES[encChoice.theme].desc));
+    box.appendChild(el("h4", "", "FENCE"));
+    const fences = el("div", "chips");
+    for (const k of Object.keys(FENCE_TYPES)) {
+      const art = fenceThumb(k === "theme" ? THEME_FENCE[encChoice.theme] : k, encChoice.theme);
+      fences.appendChild(chip(FENCE_TYPES[k].label, FENCE_TYPES[k].costMult === 1 ? "no extra" : `x${FENCE_TYPES[k].costMult} cost`, encChoice.fence === k, () => { encChoice.fence = k; renderUI(true); }, art, k === "theme" || k === "wood" ? null : "fence:" + k));
     }
+    box.appendChild(fences);
     box.hidden = false;
   } else box.hidden = true;
 }

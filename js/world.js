@@ -39,13 +39,16 @@ function blendSource(x, y) {
   if (z !== ZONE.PARK) return null;
   return isOwned(x, y) ? "meadow" : biomeAt(x, y);
 }
-function wildBiomeAt(ux, uy) {
-  const tx = Math.floor(ux / TILE), ty = Math.floor(uy / TILE);
-  const own = blendSource(tx, ty) || biomeAt(tx, ty);
+function warpedTile(ux, uy) {
   const px = ux * RES, py = uy * RES;
   const wx = ux + (valueNoise(px, py, 90, 31) - 0.5) * BIOME_WARP + (hash2(ux | 0, uy | 0, 33) - 0.5) * TILE * 0.6;
   const wy = uy + (valueNoise(px, py, 90, 37) - 0.5) * BIOME_WARP + (hash2(ux | 0, uy | 0, 34) - 0.5) * TILE * 0.6;
-  return blendSource(Math.floor(wx / TILE), Math.floor(wy / TILE)) || own;
+  return [Math.floor(wx / TILE), Math.floor(wy / TILE)];
+}
+function wildBiomeAt(ux, uy) {
+  const tx = Math.floor(ux / TILE), ty = Math.floor(uy / TILE);
+  const [wtx, wty] = warpedTile(ux, uy);
+  return blendSource(wtx, wty) || blendSource(tx, ty) || biomeAt(tx, ty);
 }
 
 
@@ -105,10 +108,6 @@ function buildTerrain() {
           col = n < 0.38 ? pal[1] : n > 0.66 ? pal[2] : pal[0];
           if (biome === "swamp" && sample(n2, Math.min(W - 1, px * 1.7) % W, Math.min(H - 1, py * 1.7) % H) > 0.7) col = [44, 84, 88];
         }
-        // land you don't own yet is a little darker, with a soft dithered edge
-        const otx = ((px + jx * TPX * 0.7) / TPX) | 0, oty = ((py + jy * TPX * 0.7) / TPX) | 0;
-        const oi = Math.max(0, Math.min(ROWS - 1, oty)) * COLS + Math.max(0, Math.min(COLS - 1, otx));
-        if (zoneCache[oi] === ZONE.PARK && !ownCache[oi]) col = [col[0] * 0.84, col[1] * 0.85, col[2] * 0.86];
       } else if (z === ZONE.ROAD || z === ZONE.DRIVE || z === ZONE.LOT) {
         const v = 60 + ((n * 26) | 0);
         col = z === ZONE.LOT ? [v + 6, v + 6, v + 14] : [v, v, v + 8];
@@ -199,22 +198,31 @@ function drawTerrainDetails(g) {
 // ================= Wild trees (drawn per frame so they can sway) =================
 let treeInstances = [], treesDirty = true;
 function pickWeighted(list, r) { let t = 0; for (const [k, w] of list) { t += w; if (r <= t) return k; } return list[list.length - 1][0]; }
+// Trees follow the same blended map as the ground, so forests fade out raggedly instead of
+// stopping at a straight line. Near the edge of your land a few trees can stand on owned
+// tiles; they're scenery and vanish when you build on or next to that tile.
 function buildTrees() {
   treeInstances = [];
   const maxLot = LOT_LEVELS[LOT_LEVELS.length - 1].rect;
+  const built = (x, y) => { for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (isPath(x + dx, y + dy) || encAt(x + dx, y + dy) || objAt(x + dx, y + dy)) return true; return false; };
   for (let y = 0; y < ROWS; y++)
     for (let x = 0; x < COLS; x++) {
       const z = zoneAt(x, y);
-      let biome = null, density = 0;
+      if (z !== ZONE.PARK && z !== ZONE.OUT) continue;
+      if (z === ZONE.OUT && (x <= 4 || Math.abs(y - GATE.y) <= 1 || inRect(x, y, [maxLot[0] - 1, maxLot[1] - 1, maxLot[2] + 1, maxLot[3] + 1]))) continue;
       const ux = x * TILE + 8 + (hash2(x, y, 80) - 0.5) * 6, uy = y * TILE + 13 + (hash2(x, y, 81) - 0.5) * 4;
-      if (z === ZONE.PARK && !isOwned(x, y)) { biome = wildBiomeAt(ux, uy); density = BIOMES[biome].density; }
-      else if (z === ZONE.OUT) {
-        if (x <= 4 || Math.abs(y - GATE.y) <= 1 || inRect(x, y, [maxLot[0] - 1, maxLot[1] - 1, maxLot[2] + 1, maxLot[3] + 1])) continue;
-        biome = wildBiomeAt(ux, uy); density = biome === "meadow" ? 0.42 : BIOMES[biome].density * 0.8;
-      } else continue;
-      if (z === ZONE.PARK && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => isOwned(x + dx, y + dy))) density *= 0.55;
+      const [wtx, wty] = warpedTile(ux, uy);
+      const src = blendSource(wtx, wty) || blendSource(x, y) || "meadow";
+      const wildThere = (zoneAt(wtx, wty) === ZONE.PARK && !isOwned(wtx, wty)) || zoneAt(wtx, wty) === ZONE.OUT;
+      let density;
+      if (z === ZONE.PARK && isOwned(x, y)) {
+        // your own land stays clear, except for stragglers where the wild blends in
+        if (!wildThere || zoneAt(wtx, wty) === ZONE.OUT || built(x, y) || (x === GATE.x && y === GATE.y)) continue;
+        density = BIOMES[src].density * 0.5;
+      } else if (z === ZONE.OUT) density = src === "meadow" ? 0.42 : BIOMES[src].density * 0.8;
+      else density = wildThere ? BIOMES[src].density : BIOMES[src].density * 0.35;
       if (hash2(x, y, 77) > density) continue;
-      const kind = pickWeighted(BIOMES[biome].trees, hash2(x, y, 78));
+      const kind = pickWeighted(BIOMES[src].trees, hash2(x, y, 78));
       const spr = TREE_SPRITES[kind][Math.floor(hash2(x, y, 79) * 4)];
       treeInstances.push({
         x: ux, y: uy,
@@ -443,7 +451,7 @@ function drawMinimap() {
   g.drawImage(minimapBase, 0, 0);
   g.fillStyle = "#e6c793";
   for (let y = 0; y < ROWS; y++) for (let x = OX; x < COLS; x++) if (state.tiles[idx(x, y)]) g.fillRect(x * MM, y * MM, MM, MM);
-  for (const e of state.enclosures) { g.fillStyle = "#a8703c"; g.fillRect(e.x * MM, e.y * MM, encSize(e) * MM, encSize(e) * MM); g.fillStyle = "#6cbf55"; g.fillRect(e.x * MM + 1, e.y * MM + 1, encSize(e) * MM - 2, encSize(e) * MM - 2); }
+  for (const e of state.enclosures) for (const [x, y] of encCells(e)) { g.fillStyle = "#a8703c"; g.fillRect(x * MM, y * MM, MM, MM); }
   g.fillStyle = "#ffd23f";
   for (const k of PLOT_KEYS) if (plotForSale(k)) g.fillRect(PLOTS[k].sign[0] * MM - 1, PLOTS[k].sign[1] * MM - 1, 3, 3);
   g.fillStyle = "#ff5c7a"; g.fillRect(GATE.x * MM - 1, GATE.y * MM - 1, 3, 3);

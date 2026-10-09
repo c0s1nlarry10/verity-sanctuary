@@ -186,12 +186,16 @@ function sanitize(data) {
   s.inventory = (Array.isArray(s.inventory) ? s.inventory : []).map(x => sanitizeInd(x, s)).filter(Boolean);
   s.enclosures = (Array.isArray(s.enclosures) ? s.enclosures : [])
     .filter(e => e && Number.isInteger(e.x) && Number.isInteger(e.y))
-    .map(e => ({
-      id: e.id, x: e.x, y: e.y, lostUntil: Number(e.lostUntil) || 0,
-      s: SIZE_KEY[e.s] ? e.s : 3,
-      theme: THEMES[e.theme] ? e.theme : "meadow",
-      variants: (Array.isArray(e.variants) ? e.variants : []).map(x => sanitizeInd(x, s)).filter(Boolean).slice(0, ENC_TYPES[SIZE_KEY[SIZE_KEY[e.s] ? e.s : 3]].cap),
-    }));
+    .map(e => {
+      const out = { id: e.id, x: e.x, y: e.y, lostUntil: Number(e.lostUntil) || 0, theme: THEMES[e.theme] ? e.theme : "meadow",
+        fence: FENCE_TYPES[e.fence] ? e.fence : "theme", paid: Math.max(0, Number(e.paid) || 0) };
+      const okBox = Number.isInteger(e.w) && Number.isInteger(e.h) && e.w > 0 && e.h > 0 && e.w <= 16 && e.h <= 16;
+      const mask = okBox && Array.isArray(e.mask) ? [...new Set(e.mask.filter(i => Number.isInteger(i) && i >= 0 && i < e.w * e.h))] : [];
+      if (mask.length) Object.assign(out, { w: e.w, h: e.h, mask });
+      else out.s = SIZE_KEY[e.s] ? e.s : 3;
+      out.variants = (Array.isArray(e.variants) ? e.variants : []).map(x => sanitizeInd(x, s)).filter(Boolean).slice(0, capOf(out));
+      return out;
+    });
   s.objects = (Array.isArray(s.objects) ? s.objects : []).filter(o => o && OBJECTS[o.t] && Number.isInteger(o.x) && Number.isInteger(o.y));
   // make sure every individual has a unique id
   const seen = new Set();
@@ -290,8 +294,35 @@ const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const idx = (x, y) => y * COLS + x;
 const inBounds = (x, y) => x >= 0 && y >= 0 && x < COLS && y < ROWS;
 const isPath = (x, y) => inBounds(x, y) && state.tiles[idx(x, y)] > 0;
-const encSize = e => e.s || 3;
-const capOf = e => ENC_TYPES[SIZE_KEY[encSize(e)]].cap;
+// Enclosures are either square presets (e.s = 3/4/5) or custom shapes: a w x h bounding
+// box with a mask listing which tiles (dy * w + dx) are part of the pen.
+const encW = e => e.w || e.s || 3;
+const encH = e => e.h || e.s || 3;
+const encSize = e => Math.max(encW(e), encH(e));
+const maskSets = new WeakMap();
+function encMaskSet(e) {
+  if (!e.mask) return null;
+  let m = maskSets.get(e);
+  if (!m || m.src !== e.mask) { m = new Set(e.mask.map(i => (i % encW(e)) + "," + Math.floor(i / encW(e)))); m.src = e.mask; maskSets.set(e, m); }
+  return m;
+}
+function encHas(e, x, y) {
+  const dx = x - e.x, dy = y - e.y;
+  if (dx < 0 || dy < 0 || dx >= encW(e) || dy >= encH(e)) return false;
+  const m = encMaskSet(e);
+  return !m || m.has(dx + "," + dy);
+}
+function encCells(e) {
+  const out = [];
+  for (let dy = 0; dy < encH(e); dy++) for (let dx = 0; dx < encW(e); dx++) if (encHas(e, e.x + dx, e.y + dy)) out.push([e.x + dx, e.y + dy]);
+  return out;
+}
+const encTiles = e => e.mask ? e.mask.length : encW(e) * encH(e);
+const capOf = e => e.mask ? capForTiles(e.mask.length) : ENC_TYPES[SIZE_KEY[encSize(e)]].cap;
+const encAppeal = e => e.mask ? appealForTiles(e.mask.length) : ENC_TYPES[SIZE_KEY[encSize(e)]].appeal;
+const fenceKeyOf = e => e.fence && e.fence !== "theme" ? e.fence : null;
+const encSprite = e => e.mask ? makePenSprite(encW(e), encH(e), encMaskSet(e), e.theme, fenceKeyOf(e)) : makeEncGround(encSize(e), e.theme, fenceKeyOf(e));
+const encLabel = e => e.mask ? `Custom (${e.mask.length} tiles)` : `${ENC_TYPES[SIZE_KEY[encSize(e)]].label} ${encSize(e)}x${encSize(e)}`;
 const encAt = (x, y) => inBounds(x, y) ? encGrid[idx(x, y)] : 0;
 const objAt = (x, y) => inBounds(x, y) ? objGrid[idx(x, y)] : 0;
 const getEnc = id => state.enclosures.find(e => e.id === id);
@@ -339,20 +370,19 @@ function rebuildGrids() {
   encGrid.fill(0);
   objGrid.fill(0);
   for (const e of state.enclosures)
-    for (let dy = 0; dy < encSize(e); dy++)
-      for (let dx = 0; dx < encSize(e); dx++)
-        if (inBounds(e.x + dx, e.y + dy)) encGrid[idx(e.x + dx, e.y + dy)] = e.id;
+    for (const [x, y] of encCells(e)) if (inBounds(x, y)) encGrid[idx(x, y)] = e.id;
   for (const o of state.objects) if (inBounds(o.x, o.y)) objGrid[idx(o.x, o.y)] = o.id;
   nearPens = new Map();
   for (const a of state.enclosures) {
     nearPens.set(a.id, state.enclosures.filter(b => {
       if (a === b) return false;
-      const gx = Math.max(b.x - (a.x + encSize(a)), a.x - (b.x + encSize(b)), 0);
-      const gy = Math.max(b.y - (a.y + encSize(a)), a.y - (b.y + encSize(b)), 0);
+      const gx = Math.max(b.x - (a.x + encW(a)), a.x - (b.x + encW(b)), 0);
+      const gy = Math.max(b.y - (a.y + encH(a)), a.y - (b.y + encH(b)), 0);
       return gx <= 2 && gy <= 2;
     }));
   }
   hasElectricity = placedList().some(p => p.ind.k === "electricity");
+  try { treesDirty = true; } catch (e) { /* world.js not loaded yet */ }
 }
 
 function touchesPath(x, y, w, h) {
@@ -398,10 +428,24 @@ function gainParkXp(amount) {
   }
 }
 
-let encChoice = { size: "small", theme: "meadow" };
+let encChoice = { size: "small", theme: "meadow", fence: "theme", shape: "square" };
 let pathChoice = 1;
-function enclosureCost(size = encChoice.size, theme = encChoice.theme) {
-  return Math.round(ENC_TYPES[size].cost * THEMES[theme].costMult * Math.pow(1.3, Math.max(0, state.enclosures.length - 1)));
+const penGrowth = () => Math.pow(1.3, Math.max(0, state.enclosures.length - 1));
+const fenceMult = f => (FENCE_TYPES[f] || FENCE_TYPES.theme).costMult;
+function enclosureCost(size = encChoice.size, theme = encChoice.theme, fence = encChoice.fence) {
+  return Math.round(ENC_TYPES[size].cost * THEMES[theme].costMult * fenceMult(fence) * penGrowth());
+}
+function customPenCost(n, theme = encChoice.theme, fence = encChoice.fence) {
+  return Math.round(customPenBase(n) * THEMES[theme].costMult * fenceMult(fence) * penGrowth());
+}
+// What a pen is worth before the "more pens cost more" growth: used for refunds and remodels.
+function penBaseValue(e, theme = e.theme, fence = e.fence || "theme") {
+  const base = e.mask ? customPenBase(e.mask.length) : ENC_TYPES[SIZE_KEY[encSize(e)]].cost;
+  return Math.round(base * THEMES[theme].costMult * fenceMult(fence));
+}
+function customMaxTiles() {
+  const best = ["large", "medium", "small"].find(k => isUnlocked("size:" + k)) || "small";
+  return CUSTOM_PEN.maxTiles[best];
 }
 function eggCost() { return eggCostOf("regular"); }
 function objectCost(t) { return Math.round(OBJECTS[t].cost * Math.pow(1.15, state.objects.filter(o => o.t === t).length)); }
@@ -413,7 +457,7 @@ function parkAppeal() {
   let a = 0;
   for (const e of state.enclosures) if (!isLost(e)) for (const ind of e.variants) a += indAppeal(ind);
   for (const o of state.objects) a += OBJECTS[o.t].appeal;
-  for (const e of state.enclosures) a += ENC_TYPES[SIZE_KEY[encSize(e)]].appeal;
+  for (const e of state.enclosures) a += encAppeal(e);
   for (const t of state.tiles) if (t > 1) a += PATH_TYPES[t].appeal;
   a += staffCount("mascot") * STAFF.mascot.appeal;
   a -= state.trash.length * 0.5;
@@ -543,6 +587,7 @@ function placePath(x, y) {
   const cost = PATH_TYPES[pathChoice].cost;
   if (!spend(cost)) return hintOnce(`${PATH_TYPES[pathChoice].label} paths cost ${cost} coins.`);
   state.tiles[idx(x, y)] = pathChoice;
+  treesDirty = true;
   sfx("click");
 }
 
@@ -554,10 +599,66 @@ function placeEnclosure(x, y) {
   if (!canPlaceEnclosure(ex, ey)) return hintOnce(`This enclosure needs a clear ${n}x${n} patch of your own grass.`);
   const cost = enclosureCost();
   if (!spend(cost)) return hintOnce(`Enclosures cost ${fmt(cost)} coins.`);
-  state.enclosures.push({ id: state.nextId++, x: ex, y: ey, s: n, theme: encChoice.theme, variants: [], lostUntil: 0 });
+  state.enclosures.push({ id: state.nextId++, x: ex, y: ey, s: n, theme: encChoice.theme, fence: encChoice.fence || "theme", paid: cost, variants: [], lostUntil: 0 });
   rebuildGrids();
   sfx("build");
   gainParkXp(XP.enclosure);
+  renderUI(true);
+}
+
+// ---- custom-shaped pens: paint tiles into a draft, then build it ----
+let penDraft = new Set();
+let draftMode = "add";
+const canPenTile = (x, y) => inBounds(x, y) && isOwned(x, y) && state.tiles[idx(x, y)] === 0 && !encAt(x, y) && !objAt(x, y);
+function paintDraft(x, y, isDrag) {
+  if (buildLocked()) return;
+  const k = x + "," + y;
+  if (!isDrag) draftMode = penDraft.has(k) ? "erase" : "add";
+  if (draftMode === "erase") { if (penDraft.delete(k)) sfx("click"); }
+  else if (!penDraft.has(k)) {
+    if (!canPenTile(x, y)) { if (!isDrag) hintOnce("Pens go on empty grass you own."); return; }
+    if (penDraft.size >= customMaxTiles()) return hintOnce(`Custom pens can be up to ${customMaxTiles()} tiles. Unlock bigger enclosure sizes for more.`);
+    penDraft.add(k); sfx("click");
+  }
+  renderBuildOptions();
+}
+function draftCells() { return [...penDraft].map(k => k.split(",").map(Number)); }
+function draftProblem() {
+  const cells = draftCells();
+  if (cells.length < CUSTOM_PEN.min) return `Paint at least ${CUSTOM_PEN.min} tiles.`;
+  if (cells.some(([x, y]) => !canPenTile(x, y))) return "Some tiles are blocked.";
+  const xs = cells.map(c => c[0]), ys = cells.map(c => c[1]);
+  if (Math.max(...xs) - Math.min(...xs) >= 16 || Math.max(...ys) - Math.min(...ys) >= 16) return "Too spread out (16 tiles across at most).";
+  const seen = new Set([cells[0].join(",")]), queue = [cells[0]];
+  while (queue.length) { const [x, y] = queue.pop(); for (const [dx, dy] of DIRS) { const k = (x + dx) + "," + (y + dy); if (penDraft.has(k) && !seen.has(k)) { seen.add(k); queue.push([x + dx, y + dy]); } } }
+  if (seen.size !== cells.length) return "All tiles must join up into one pen.";
+  return "";
+}
+function buildCustomPen() {
+  if (buildLocked()) return;
+  const problem = draftProblem();
+  if (problem) return hintOnce(problem);
+  if (state.enclosures.length >= maxEnclosures()) return hintOnce(`Enclosure limit reached (${maxEnclosures()}). Level up your park for more slots.`);
+  const cells = draftCells(), cost = customPenCost(cells.length);
+  if (!spend(cost)) return hintOnce(`This pen costs ${fmt(cost)} coins.`);
+  const x0 = Math.min(...cells.map(c => c[0])), y0 = Math.min(...cells.map(c => c[1]));
+  const w = Math.max(...cells.map(c => c[0])) - x0 + 1, h = Math.max(...cells.map(c => c[1])) - y0 + 1;
+  const mask = cells.map(([x, y]) => (y - y0) * w + (x - x0)).sort((a, b) => a - b);
+  state.enclosures.push({ id: state.nextId++, x: x0, y: y0, w, h, mask, theme: encChoice.theme, fence: encChoice.fence || "theme", paid: cost, variants: [], lostUntil: 0 });
+  penDraft = new Set();
+  rebuildGrids();
+  sfx("build");
+  gainParkXp(XP.enclosure);
+  renderUI(true);
+}
+function remodelCost(e, theme, fence) { return Math.max(0, Math.round((penBaseValue(e, theme, fence) - penBaseValue(e) * 0.5) * 0.5)); }
+function remodelPen(e, theme, fence) {
+  if (buildLocked() || !isUnlocked("remodel")) return;
+  if (theme === e.theme && fence === (e.fence || "theme")) return;
+  const cost = remodelCost(e, theme, fence);
+  if (!spend(cost)) return hintOnce(`Remodelling costs ${fmt(cost)} coins.`);
+  e.theme = theme; e.fence = fence; e.paid = (e.paid || 0) + cost;
+  sfx("build");
   renderUI(true);
 }
 
@@ -583,7 +684,7 @@ function bulldoze(x, y) {
     state.inventory.push(...e.variants);
     for (const i of e.variants) escapes.delete(i.id);
     state.enclosures = state.enclosures.filter(en => en.id !== eid);
-    earn(Math.round(ENC_TYPES[SIZE_KEY[encSize(e)]].cost * THEMES[e.theme].costMult / 2), undefined, undefined, undefined, "Refunds");
+    earn(Math.round((e.paid || penBaseValue(e)) / 2), undefined, undefined, undefined, "Refunds");
     if (inspectedId === eid) inspectedId = 0;
     rebuildGrids();
     sfx("bulldoze");
@@ -925,13 +1026,13 @@ function tugActors() {
   const e = activeEvent.e;
   return [
     { spr: STEVE_SPR, x: e.x * TILE - 11, y: e.y * TILE + 18 },
-    { spr: PIRATE_SPR, x: (e.x + encSize(e)) * TILE + 3, y: e.y * TILE + 18 },
+    { spr: PIRATE_SPR, x: (e.x + encW(e)) * TILE + 3, y: e.y * TILE + 18 },
   ];
 }
 
 function tugHit(p) {
   const e = activeEvent.e;
-  const inPen = p.gx >= e.x * TILE && p.gx < (e.x + encSize(e)) * TILE && p.gy >= e.y * TILE && p.gy < (e.y + encSize(e)) * TILE;
+  const inPen = encHas(e, p.x, p.y);
   return inPen || tugActors().some(a => p.gx >= a.x - 5 && p.gx <= a.x + 13 && p.gy >= a.y - 5 && p.gy <= a.y + 19);
 }
 
@@ -1084,11 +1185,12 @@ function drawGate(time) {
 }
 
 function drawEnclosure(e, time) {
-  const px = e.x * TILE, py = e.y * TILE, W = encSize(e) * TILE;
+  const px = e.x * TILE, py = e.y * TILE, W = encW(e) * TILE;
   ctx.fillStyle = "rgba(0,0,0,0.22)";
-  ctx.fillRect(px + 2, py + 3, W, W);
-  blit(ctx, makeEncGround(encSize(e), e.theme), px, py);
-  if (e.theme === "pool" && state.settings.effects) {
+  if (e.mask) for (const [x, y] of encCells(e)) ctx.fillRect(x * TILE + 2, y * TILE + 3, TILE, TILE);
+  else ctx.fillRect(px + 2, py + 3, W, encH(e) * TILE);
+  blit(ctx, encSprite(e), px, py);
+  if (e.theme === "pool" && !e.mask && state.settings.effects) {
     ctx.fillStyle = "rgba(220,240,255,0.55)";
     for (let i = 0; i < encSize(e) * 3; i++) {
       const t = (time * 0.25 + hash2(e.id, i, 4)) % 1;
@@ -1098,7 +1200,9 @@ function drawEnclosure(e, time) {
     }
   }
   const cap = capOf(e), sw = cap * 3 + 4;
-  const sx = Math.round(px + W / 2 - sw / 2), sy = py - 5;
+  const top = e.mask ? encCells(e).filter(([, y]) => y === e.y) : null;
+  const signX = top ? (top[0][0] + top[top.length - 1][0] + 1) / 2 * TILE : px + W / 2;
+  const sx = Math.round(signX - sw / 2), sy = py - 5;
   ctx.fillStyle = "#000"; ctx.fillRect(sx, sy, sw, 7);
   ctx.fillStyle = "#c48a4a"; ctx.fillRect(sx + 1, sy + 1, sw - 2, 5);
   ctx.fillStyle = "#e0a868"; ctx.fillRect(sx + 1, sy + 1, sw - 2, 0.5);
@@ -1108,34 +1212,50 @@ function drawEnclosure(e, time) {
     ctx.fillRect(sx + 2 + i * 3, sy + 2, 2, 3);
     if (ind) { ctx.fillStyle = "rgba(255,255,255,0.6)"; ctx.fillRect(sx + 2 + i * 3, sy + 2, 0.5, 0.5); }
   }
-  if (e.id === inspectedId) {
-    ctx.strokeStyle = "#ffd23f";
-    ctx.lineWidth = 1;
-    ctx.strokeRect(px - 0.5, py - 0.5, W + 1, W + 1);
+  if (e.id === inspectedId) outlineCells(encCells(e), "#ffd23f");
+}
+
+// Outlines the outside edge of a set of tiles.
+function outlineCells(cells, color) {
+  const set = new Set(cells.map(c => c.join(",")));
+  ctx.fillStyle = color;
+  for (const [x, y] of cells) {
+    const X = x * TILE, Y = y * TILE;
+    if (!set.has(x + "," + (y - 1))) ctx.fillRect(X - 1, Y - 1, TILE + 2, 1);
+    if (!set.has(x + "," + (y + 1))) ctx.fillRect(X - 1, Y + TILE, TILE + 2, 1);
+    if (!set.has((x - 1) + "," + y)) ctx.fillRect(X - 1, Y - 1, 1, TILE + 2);
+    if (!set.has((x + 1) + "," + y)) ctx.fillRect(X + TILE, Y - 1, 1, TILE + 2);
   }
 }
 
 function drawLostOverlay(e, time) {
-  const px = e.x * TILE, py = e.y * TILE, W = encSize(e) * TILE;
-  ctx.fillStyle = "rgba(201,180,88,0.55)";
-  ctx.fillRect(px + 3, py + 3, W - 6, W - 6);
-  ctx.fillStyle = "rgba(90,70,20,0.35)";
-  for (let x = px + 5; x < px + W - 3; x += 4) ctx.fillRect(x, py + 3, 1, W - 6);
-  ctx.font = "16px 'VT323', monospace";
-  ctx.textAlign = "center";
-  ctx.fillStyle = "#3a2a00";
-  ctx.fillText("?", px + W / 2, py + W / 2 + 4 + Math.sin(time * 3) * 2);
-  ctx.font = "7px 'VT323', monospace";
-  ctx.fillText(Math.ceil((e.lostUntil - Date.now()) / 1000) + "s", px + W / 2, py + W - 6);
+  const px = e.x * TILE, py = e.y * TILE, W = encW(e) * TILE, H = encH(e) * TILE;
+  for (const [x, y] of encCells(e)) {
+    ctx.fillStyle = "rgba(201,180,88,0.55)";
+    ctx.fillRect(x * TILE + 2, y * TILE + 2, TILE - 4, TILE - 4);
+    ctx.fillStyle = "rgba(90,70,20,0.35)";
+    for (let i = 3; i < TILE - 2; i += 4) ctx.fillRect(x * TILE + i, y * TILE + 2, 1, TILE - 4);
+  }
+  pixelText(ctx, "?", px + W / 2, py + H / 2 - 4 + Math.round(Math.sin(time * 3) * 2), "#3a2a00", 2);
+  pixelText(ctx, Math.ceil((e.lostUntil - Date.now()) / 1000) + "S", px + W / 2, py + H - 9, "#3a2a00");
+}
+
+// In a custom pen a variant's body must stay over tiles that belong to the pen.
+function penRoomAt(e, x, y, D) {
+  const m = 3;
+  for (const [px, py] of [[x - D / 2 - m, y - m], [x + D / 2 + m, y - m], [x - D / 2 - m, y - D - m], [x + D / 2 + m, y - D - m]])
+    if (!encHas(e, Math.floor(px / TILE), Math.floor(py / TILE))) return false;
+  return true;
 }
 
 function critterState(e, ind) {
   const D = bodySize(ind.k, ind);
-  const minX = e.x * TILE + 4 + D / 2, maxX = (e.x + encSize(e)) * TILE - 4 - D / 2;
-  const minY = e.y * TILE + 4 + D, maxY = (e.y + encSize(e)) * TILE - 4;
+  const minX = e.x * TILE + 4 + D / 2, maxX = (e.x + encW(e)) * TILE - 4 - D / 2;
+  const minY = e.y * TILE + 4 + D, maxY = (e.y + encH(e)) * TILE - 4;
   let c = critterPos.get(ind.id);
   if (!c || c.e !== e.id) {
     c = { e: e.id, x: minX + Math.random() * (maxX - minX), y: minY + Math.random() * (maxY - minY), vx: 0, vy: 0, phase: Math.random() * 6, timer: 0 };
+    if (e.mask) { const cells = encCells(e), [tx, ty] = cells[Math.floor(Math.random() * cells.length)]; c.x = tx * TILE + 8; c.y = ty * TILE + 12; }
     critterPos.set(ind.id, c);
   }
   Object.assign(c, { minX, maxX, minY, maxY, D });
@@ -1250,8 +1370,9 @@ function drawCritters(e, dt, time) {
       c.vx = moving ? (Math.random() - 0.5) * speed : 0;
       c.vy = moving ? (Math.random() - 0.5) * speed : 0;
     }
-    c.x = Math.max(c.minX, Math.min(c.maxX, c.x + c.vx * dt));
-    c.y = Math.max(c.minY, Math.min(c.maxY, c.y + c.vy * dt));
+    const nx = Math.max(c.minX, Math.min(c.maxX, c.x + c.vx * dt)), ny = Math.max(c.minY, Math.min(c.maxY, c.y + c.vy * dt));
+    if (!e.mask || penRoomAt(e, nx, ny, c.D)) { c.x = nx; c.y = ny; }
+    else { c.vx = -c.vx; c.vy = -c.vy; c.timer = Math.min(c.timer, 0.4); }
     drawIndividual(ctx, ind, c, dt, time);
     if (c.bubble) { c.bubble.t -= dt; if (c.bubble.t <= 0) c.bubble = null; }
     let icon = c.bubble ? c.bubble.icon : careActive() && ind.food < 30 && Math.floor(time / 2 + c.phase) % 3 === 0 ? "food" : null;
@@ -1287,7 +1408,7 @@ function drawObject(o, time) {
 function drawTug(time) {
   const ev = activeEvent;
   const e = ev.e;
-  const cx = e.x * TILE + encSize(e) * TILE / 2, cy = e.y * TILE + encSize(e) * TILE * 0.7;
+  const cx = e.x * TILE + encW(e) * TILE / 2, cy = e.y * TILE + encH(e) * TILE * 0.7;
   const pull = Math.round(Math.sin(time * 7) * 4);
   const actors = tugActors();
   ctx.strokeStyle = "#e0c080";
@@ -1303,10 +1424,30 @@ function drawTug(time) {
     ctx.fillStyle = "rgba(0,0,0,0.25)"; ctx.fillRect(a.x, a.y + 13, 8, 2);
     blit(ctx, a.spr, a.x + lean, a.y);
   });
-  const bw = encSize(e) * TILE;
+  const bw = encW(e) * TILE;
   ctx.fillStyle = "#000"; ctx.fillRect(e.x * TILE, e.y * TILE - 12, bw, 5);
   ctx.fillStyle = "#ff5c7a"; ctx.fillRect(e.x * TILE + 1, e.y * TILE - 11, Math.round((bw - 2) * (1 - ev.t / ev.dur)), 1);
   ctx.fillStyle = "#6ee07a"; ctx.fillRect(e.x * TILE + 1, e.y * TILE - 10, Math.round((bw - 2) * ev.clicks / ev.need), 2);
+}
+
+function highlightCells(cells, ok) {
+  ctx.fillStyle = ok ? "rgba(255,255,255,0.18)" : "rgba(255,60,90,0.35)";
+  for (const [x, y] of cells) ctx.fillRect(x * TILE, y * TILE, TILE, TILE);
+  outlineCells(cells, ok ? "#ffd23f" : "#ff3c5a");
+}
+// The custom pen being painted: a live preview of the finished pen.
+function drawPenDraft() {
+  if (tool !== "enclosure" || encChoice.shape !== "custom" || !penDraft.size) return;
+  const cells = draftCells();
+  const x0 = Math.min(...cells.map(c => c[0])), y0 = Math.min(...cells.map(c => c[1]));
+  const w = Math.max(...cells.map(c => c[0])) - x0 + 1, h = Math.max(...cells.map(c => c[1])) - y0 + 1;
+  ctx.globalAlpha = 0.75;
+  blit(ctx, makePenSprite(w, h, new Set(cells.map(([x, y]) => (x - x0) + "," + (y - y0))), encChoice.theme, encChoice.fence === "theme" ? null : encChoice.fence), x0 * TILE, y0 * TILE);
+  ctx.globalAlpha = 1;
+  const bad = cells.filter(([x, y]) => !canPenTile(x, y));
+  ctx.fillStyle = "rgba(255,60,90,0.45)";
+  for (const [x, y] of bad) ctx.fillRect(x * TILE, y * TILE, TILE, TILE);
+  outlineCells(cells, draftProblem() ? "#ff8a3c" : "#6ee07a");
 }
 
 function drawHover() {
@@ -1323,11 +1464,13 @@ function drawHover() {
     for (let ty = vy0; ty <= vy1; ty++) for (let tx = vx0; tx <= vx1; tx++) if (PLOT_MAP[ty * COLS + tx] === pi) ctx.fillRect(tx * TILE, ty * TILE, TILE, TILE);
     return;
   }
-  if (tool === "enclosure") {
+  if (tool === "enclosure" && encChoice.shape === "custom") {
+    ok = canPenTile(x, y) && !isOpen();
+  } else if (tool === "enclosure") {
     const n = ENC_TYPES[encChoice.size].size;
     x -= encOffset(n); y -= encOffset(n); w = h = n;
     ok = canPlaceEnclosure(x, y) && state.money >= enclosureCost() && state.enclosures.length < maxEnclosures() && !isOpen();
-    ctx.globalAlpha = 0.55; blit(ctx, makeEncGround(n, encChoice.theme), x * TILE, y * TILE); ctx.globalAlpha = 1;
+    ctx.globalAlpha = 0.55; blit(ctx, makeEncGround(n, encChoice.theme, encChoice.fence === "theme" ? null : encChoice.fence), x * TILE, y * TILE); ctx.globalAlpha = 1;
   } else if (objType) {
     ok = canPlaceObject(x, y) && state.money >= objectCost(objType) && !isOpen();
     ctx.globalAlpha = 0.6; blit(ctx, OBJ_SPRITES[objType], x * TILE, y * TILE - 4); ctx.globalAlpha = 1;
@@ -1336,14 +1479,14 @@ function drawHover() {
     if (ok) { ctx.globalAlpha = 0.6; blit(ctx, pathTiles[pathChoice], x * TILE, y * TILE); ctx.globalAlpha = 1; }
   } else if (tool === "bulldoze") {
     const id = encAt(x, y);
-    if (id) { const e = getEnc(id); x = e.x; y = e.y; w = h = encSize(e); }
+    if (id) { const e = getEnc(id); highlightCells(encCells(e), !isOpen()); return; }
     ok = (!!id || !!objAt(x, y) || (isPath(x, y) && !(x === GATE.x && y === GATE.y))) && !isOpen();
   } else if (tool === "place" || tool === "inspect") {
     const id = encAt(x, y);
     if (!id) return;
     const e = getEnc(id);
-    x = e.x; y = e.y; w = h = encSize(e);
-    ok = tool === "inspect" || (e.variants.length < capOf(e) && !isOpen());
+    highlightCells(encCells(e), tool === "inspect" || (e.variants.length < capOf(e) && !isOpen()));
+    return;
   }
   ctx.fillStyle = ok ? "rgba(255,255,255,0.18)" : "rgba(255,60,90,0.35)";
   ctx.fillRect(x * TILE, y * TILE, w * TILE, h * TILE);
@@ -1433,6 +1576,7 @@ function render(dt, time) {
   drawSky(time);
   drawAmbient(time);
 
+  drawPenDraft();
   drawHover();
 
   for (const p of particles) { ctx.fillStyle = p.col; ctx.fillRect(Math.round(p.x), Math.round(p.y), 1, 1); }
@@ -1458,13 +1602,15 @@ function render(dt, time) {
 
 function drawSaleSign(k, time) {
   const [tx, ty] = PLOTS[k].sign;
-  const x = tx * TILE + 4, y = ty * TILE - 2 + Math.sin(time * 2 + tx) * 0.5;
-  ctx.fillStyle = "#2a1a0c"; ctx.fillRect(x + 7, y + 8, 1.5, 9);
-  ctx.fillStyle = "#000"; ctx.fillRect(x - 6, y, 28, 10);
-  ctx.fillStyle = "#ffd23f"; ctx.fillRect(x - 5.5, y + 0.5, 27, 9);
-  ctx.fillStyle = "#fff09a"; ctx.fillRect(x - 5.5, y + 0.5, 27, 0.5);
-  ctx.fillStyle = "#2b1d00"; ctx.font = "7px 'VT323', monospace"; ctx.textAlign = "center";
-  ctx.fillText("FOR SALE", x + 8, y + 7, 25);
+  const cx = tx * TILE + 8, y = ty * TILE - 2 + Math.round(Math.sin(time * 2 + tx) * 0.5);
+  ctx.fillStyle = "rgba(0,0,0,0.25)"; ctx.fillRect(cx - 3, y + 17, 7, 1.5);
+  ctx.fillStyle = "#2a1a0c"; ctx.fillRect(cx - 1, y + 9, 2, 9);
+  ctx.fillStyle = "#7a4a22"; ctx.fillRect(cx - 0.5, y + 9, 1, 8);
+  ctx.fillStyle = "#000"; ctx.fillRect(cx - 18, y, 36, 10);
+  ctx.fillStyle = "#c99a00"; ctx.fillRect(cx - 17, y + 1, 34, 8);
+  ctx.fillStyle = "#ffd23f"; ctx.fillRect(cx - 17, y + 1, 34, 7);
+  ctx.fillStyle = "#fff09a"; ctx.fillRect(cx - 17, y + 1, 34, 1);
+  pixelText(ctx, "FOR SALE", cx, y + 3, "#2b1d00");
 }
 
 // ================= Hatch / fusion animation =================
@@ -1881,6 +2027,7 @@ function renderShopState() {
   }
 }
 
+let remodelOpen = false;
 function renderInspect() {
   const card = $("inspect-card");
   const e = getEnc(inspectedId);
@@ -1890,11 +2037,11 @@ function renderInspect() {
   box.innerHTML = "";
   const income = e.variants.reduce((s, ind) => s + expectedValue(ind, e), 0);
   const appeal = e.variants.reduce((s, ind) => s + indAppeal(ind), 0);
-  const connected = touchesPath(e.x, e.y, encSize(e), encSize(e));
+  const connected = encCells(e).some(([x, y]) => DIRS.some(([dx, dy]) => isPath(x + dx, y + dy)));
   $("inspect-title").textContent = `ENCLOSURE #${encNumber(e)}`;
   const stats = el("div", "enc-stats");
   const cells = [["Occupants", `${e.variants.length}/${capOf(e)}`], ["Per viewer", `+${fmtVal(income)}c`], ["Appeal", fmtVal(appeal)], ["Path", connected ? "Linked" : "None"],
-    ["Size", `${ENC_TYPES[SIZE_KEY[encSize(e)]].label} ${encSize(e)}x${encSize(e)}`], ["Theme", THEMES[e.theme].label]];
+    ["Size", encLabel(e)], ["Theme", THEMES[e.theme].label], ["Fence", FENCE_TYPES[e.fence || "theme"].label], ["Capacity", `${capOf(e)} variants`]];
   for (const [label, val] of cells) {
     const d = el("div", "enc-stat", label);
     const b = el("b", "", val);
@@ -1904,6 +2051,28 @@ function renderInspect() {
   }
   box.appendChild(stats);
   if (THEMES[e.theme].likes.length) box.appendChild(el("p", "small", `Loved by: ${THEMES[e.theme].likes.filter(k => state.discovered[k]).map(k => VARIANTS[k].name).join(", ") || "???"} (+50% value)`));
+  // remodel: swap the theme or fence of a pen you've already built (at night)
+  const rm = el("details", "remodel");
+  rm.appendChild(el("summary", "", isUnlocked("remodel") ? "Remodel this pen" : `Remodel this pen · LV ${lvlNeeded("remodel")}`));
+  if (!isUnlocked("remodel")) { rm.classList.add("is-locked"); rm.appendChild(el("p", "small", `Change a pen's theme and fence. Unlocks at park level ${lvlNeeded("remodel")}.`)); }
+  else {
+    if (buildLocked()) rm.appendChild(el("p", "small warn", "Remodelling happens at night while the park is closed."));
+    const tchips = el("div", "chips");
+    for (const k of Object.keys(THEMES)) {
+      const cost = remodelCost(e, k, e.fence || "theme");
+      tchips.appendChild(chip(THEMES[k].label, k === e.theme ? "current" : `${fmt(cost)}c`, k === e.theme, () => remodelPen(e, k, e.fence || "theme"), thumb(makeEncGround(3, k), 20, 20), "theme:" + k));
+    }
+    rm.appendChild(el("h4", "", "THEME")); rm.appendChild(tchips);
+    const fchips = el("div", "chips");
+    for (const k of Object.keys(FENCE_TYPES)) {
+      const cost = remodelCost(e, e.theme, k);
+      fchips.appendChild(chip(FENCE_TYPES[k].label, k === (e.fence || "theme") ? "current" : `${fmt(cost)}c`, k === (e.fence || "theme"), () => remodelPen(e, e.theme, k), fenceThumb(k === "theme" ? THEME_FENCE[e.theme] : k, e.theme), k === "theme" || k === "wood" ? null : "fence:" + k));
+    }
+    rm.appendChild(el("h4", "", "FENCE")); rm.appendChild(fchips);
+  }
+  rm.open = remodelOpen;
+  rm.addEventListener("toggle", () => { remodelOpen = rm.open; });
+  box.appendChild(rm);
   if (careActive() && e.variants.length) {
     const hungry = hungryIn(e).length;
     const fb = el("button", "wide", hungry ? `Feed pen (${fmt(feedCost(e))}c)` : "Everyone is full");
@@ -2281,6 +2450,7 @@ function handleTileAction(x, y, isDrag) {
   if (!inBounds(x, y)) return;
   if (tool === "path") placePath(x, y);
   else if (tool === "bulldoze") bulldoze(x, y);
+  else if (tool === "enclosure" && encChoice.shape === "custom") paintDraft(x, y, isDrag);
   else if (isDrag) return;
   else if (tool === "enclosure") placeEnclosure(x, y);
   else if (tool === "place") placeVariant(x, y);
@@ -2335,7 +2505,7 @@ canvas.addEventListener("pointerdown", e => {
   }
   const p = worldFromEvent(e);
   if (e.button === 1 || e.button === 2) { drag = { mode: "pan", sx: e.clientX, sy: e.clientY, vx: view.x, vy: view.y }; return; }
-  if (PAINT_TOOLS.includes(tool) && isOwned(p.x, p.y)) {
+  if ((PAINT_TOOLS.includes(tool) || (tool === "enclosure" && encChoice.shape === "custom")) && isOwned(p.x, p.y)) {
     drag = { mode: "paint" };
     painting = true;
     clickAction(p);

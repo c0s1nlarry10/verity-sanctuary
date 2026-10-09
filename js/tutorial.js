@@ -24,7 +24,7 @@ const TUT_STEPS = [
     enter: s => {
       s.placed = tutPlacedCount();
       const e = state.enclosures[0];
-      if (e) centerOn((e.x + encSize(e) / 2) * TILE, (e.y + encSize(e) / 2) * TILE);
+      if (e) centerOn((e.x + encW(e) / 2) * TILE, (e.y + encH(e) / 2) * TILE);
       if (state.inventory.length && !buildLocked()) { setTool("place"); selectedUid = state.inventory[0].id; renderUI(true); }
     },
     done: s => tutPlacedCount() > s.placed },

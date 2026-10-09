@@ -809,3 +809,11 @@ button.is-locked:hover:not(:disabled) { background: var(--panel-2); }
 .lock-tag { color: var(--muted) !important; letter-spacing: 1px; }
 .card-locked > :not(h2) { opacity: 0.55; filter: grayscale(0.9); }
 #land { max-height: 440px; overflow-y: auto; padding-right: 4px; }
+
+/* ---------- Custom pens and remodelling ---------- */
+.pen-draft { margin: 6px 0 10px; padding: 8px; background: var(--panel-lo); border: 2px solid #000; }
+.pen-draft .tools { margin-top: 6px; }
+.opt-desc.warn, .small.warn { color: #ff8a3c; }
+.remodel { margin: 8px 0; padding: 6px 8px; background: var(--panel-lo); border: 2px solid #000; }
+.remodel summary { cursor: pointer; font-family: "Press Start 2P", monospace; font-size: 8px; color: var(--yellow); padding: 2px 0; }
+.remodel h4 { margin: 8px 0 4px; }
