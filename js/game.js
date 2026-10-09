@@ -1307,7 +1307,7 @@ function drawVisitor(v) {
 
 function render(dt, time) {
   const k = view.zoom * view.dpr;
-  const s = Math.max(1, Math.round(k / ART)), b = k / s;   // screen px per art px, buffer px per unit
+  const s = Math.max(1, Math.floor(k / ART + 0.001)), b = k / s;   // screen px per art px, buffer px per unit
   const bw = Math.ceil(canvas.width / s), bh = Math.ceil(canvas.height / s);
   if (pixBuf.width !== bw || pixBuf.height !== bh) { pixBuf.width = bw; pixBuf.height = bh; }
   const ox = Math.round(view.x * b), oy = Math.round(view.y * b);

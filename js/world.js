@@ -284,50 +284,55 @@ function drawCars(x0, y0, x1, y1) {
 }
 
 // ================= Camera =================
-const view = { x: 0, y: 0, zoom: 2, cssW: 800, cssH: 500, dpr: 1 };
+const view = { x: 0, y: 0, zoom: 2, cssW: 800, cssH: 500, dpr: 1, fit: 0 };
 const ZOOMS = [1, 2, 3, 4];
 const VIEW_PAD = 40;
 const viewW = () => view.cssW / view.zoom;
 const viewH = () => view.cssH / view.zoom;
 function clampView() {
   const vw = viewW(), vh = viewH();
-  view.x = vw >= WORLD_W + VIEW_PAD * 2 ? (WORLD_W - vw) / 2 : Math.max(-VIEW_PAD, Math.min(WORLD_W + VIEW_PAD - vw, view.x));
-  view.y = vh >= WORLD_H + VIEW_PAD * 2 ? (WORLD_H - vh) / 2 : Math.max(-VIEW_PAD, Math.min(WORLD_H + VIEW_PAD - vh, view.y));
+  view.x = vw >= WORLD_W - 0.5 ? (WORLD_W - vw) / 2 : Math.max(-VIEW_PAD, Math.min(WORLD_W + VIEW_PAD - vw, view.x));
+  view.y = vh >= WORLD_H - 0.5 ? (WORLD_H - vh) / 2 : Math.max(-VIEW_PAD, Math.min(WORLD_H + VIEW_PAD - vh, view.y));
 }
 function resizeView() {
   const r = canvas.getBoundingClientRect();
   if (!r.width || !r.height) return;
   const cx = view.x + viewW() / 2, cy = view.y + viewH() / 2;
+  const wasFit = view.zoom === view.fit;
   view.dpr = Math.min(2, window.devicePixelRatio || 1);
   view.cssW = r.width; view.cssH = r.height;
   canvas.width = Math.max(1, Math.round(r.width * view.dpr));
   canvas.height = Math.max(1, Math.round(r.height * view.dpr));
   view.x = cx - viewW() / 2; view.y = cy - viewH() / 2;
-  clampView();
-  if (view.zoom < minZoom()) setZoom(minZoom());
+  view.fit = fitZoom();
+  if (wasFit || view.zoom < view.fit) setZoom(view.fit);
+  else clampView();
 }
 function centerOn(wx, wy) { view.x = wx - viewW() / 2; view.y = wy - viewH() / 2; clampView(); }
-// The smallest zoom where the world still fills the whole map view (no empty borders).
-function minZoom() {
-  const need = Math.max(view.cssW / WORLD_W, view.cssH / WORLD_H);
-  return ZOOMS.find(z => z >= need - 0.001) ?? ZOOMS[ZOOMS.length - 1];
+// The zoom that shows the whole world at once.
+function fitZoom() { return Math.min(view.cssW / WORLD_W, view.cssH / WORLD_H); }
+// Zoom steps: "whole map", then whole numbers (so art pixels stay even) above it.
+function zoomLevels() {
+  const fit = fitZoom();
+  return [fit, ...ZOOMS.filter(z => z > fit + 0.05)];
 }
 function setZoom(z, ax = view.cssW / 2, ay = view.cssH / 2) {
-  // whole-number zooms only, so every art pixel covers the same number of screen pixels
-  const zooms = ZOOMS.filter(v => v >= minZoom());
-  z = zooms.reduce((best, v) => Math.abs(v - z) < Math.abs(best - z) ? v : best, zooms[0]);
+  const levels = zoomLevels();
+  z = levels.reduce((best, v) => Math.abs(v - z) < Math.abs(best - z) ? v : best, levels[0]);
+  view.fit = levels[0];
   const wx = view.x + ax / view.zoom, wy = view.y + ay / view.zoom;
   view.zoom = z;
   view.x = wx - ax / z; view.y = wy - ay / z;
   clampView();
   const label = $("zoom-label");
-  if (label) label.textContent = Math.round(z * 50) + "%";
+  if (label) label.textContent = z === view.fit ? "MAP" : Math.round(z * 50) + "%";
 }
 function zoomStep(dir, ax, ay) {
+  const levels = zoomLevels();
   let i = 0;
-  for (let k = 0; k < ZOOMS.length; k++) if (Math.abs(ZOOMS[k] - view.zoom) < Math.abs(ZOOMS[i] - view.zoom)) i = k;
-  if (ZOOMS[i] !== view.zoom && Math.sign(ZOOMS[i] - view.zoom) === dir) setZoom(ZOOMS[i], ax, ay);
-  else setZoom(ZOOMS[Math.max(0, Math.min(ZOOMS.length - 1, i + dir))], ax, ay);
+  for (let k = 0; k < levels.length; k++) if (Math.abs(levels[k] - view.zoom) < Math.abs(levels[i] - view.zoom)) i = k;
+  if (Math.abs(levels[i] - view.zoom) > 0.001 && Math.sign(levels[i] - view.zoom) === dir) setZoom(levels[i], ax, ay);
+  else setZoom(levels[Math.max(0, Math.min(levels.length - 1, i + dir))], ax, ay);
 }
 function homeView() { centerOn(GATE.x * TILE + Math.max(TILE, Math.min(8 * TILE, viewW() / 2 - TILE)), GATE.y * TILE); }
 
