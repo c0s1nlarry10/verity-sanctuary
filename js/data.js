@@ -23,6 +23,7 @@ const PATCH_NOTES = [
       ] },
       { title: "Variants", notes: [
         "Every variant ends in -ity: meet Liminality, Blockity and Piratity.",
+        "8 body models (Round, Bean, Mochi, Gumdrop, Pear, Marshmallow, Onion, Blobby), so no two look alike. Accessories are retired.",
         "Jelly-like jiggle: they squash, stretch, lean and wiggle.",
         "They sleep through the night and wake up at 8 AM.",
       ] },

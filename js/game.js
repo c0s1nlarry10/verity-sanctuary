@@ -6,11 +6,10 @@ function makeIndividual(k, s, opts = {}) {
   const r = seeded(seed);
   const pickFrom = arr => arr[Math.floor(r() * arr.length)];
   const sizeRoll = r();
-  let acc = "none";
-  if (r() < 0.4) {
-    const options = Object.keys(ACCESSORIES).filter(a => a !== "none" && !(NO_HEADWEAR.includes(k) && HEADWEAR.includes(a)));
-    acc = pickFrom(options);
-  }
+  // accessories were retired in v1.1 (body models give the variety now); the rolls stay so
+  // seeded individuals keep the same names, colours and traits
+  const acc = "none";
+  if (r() < 0.4) r();
   const marks = Object.keys(MARKINGS).filter(m => m !== "none");
   const mark = r() < 0.5 ? "none" : pickFrom(marks);
   return {
@@ -22,6 +21,7 @@ function makeIndividual(k, s, opts = {}) {
     light: Math.round((r() - 0.5) * 16),
     mark, acc,
     trait: pickFrom(TRAIT_KEYS),
+    model: Math.floor(r() * BODY_MODELS.length),
     shiny: Math.random() < (opts.shinyChance ?? SHINY_CHANCE),
     xp: 0,
     food: 100,
@@ -128,8 +128,10 @@ function sanitizeInd(x, s) {
   ind.joy = Math.max(0, Math.min(100, Number(ind.joy) || 0));
   if (!SIZES[ind.size]) ind.size = 0;
   if (!MARKINGS[ind.mark]) ind.mark = "none";
-  if (!ACCESSORIES[ind.acc]) ind.acc = "none";
+  ind.acc = "none";
   if (!TRAITS[ind.trait]) ind.trait = "chill";
+  if (!(ind.model >= 0 && ind.model < BODY_MODELS.length)) ind.model = (ind.seed >>> 4) % BODY_MODELS.length;
+  ind.model = Math.floor(ind.model);
   ind.name = String(ind.name).slice(0, 16);
   ind.xp = Number(ind.xp) || 0;
   ind.hue = Number(ind.hue) || 0;
@@ -1791,8 +1793,8 @@ function renderCard() {
   const rows = [
     ["Personality", TRAITS[ind.trait].label],
     ["Size", SIZES[ind.size].label],
+    ["Model", BODY_MODELS[ind.model || 0].name],
     ["Markings", MARKINGS[ind.mark]],
-    ["Accessory", ACCESSORIES[ind.acc]],
     ["Per viewer", `+${fmtVal(expectedValue(ind, e))} coins`],
     ["Appeal", fmtVal(indAppeal(ind))],
     ["Home", e ? `Enclosure #${encNumber(e)}` : "Unplaced"],

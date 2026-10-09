@@ -344,14 +344,32 @@ function litBlob(g, cx, cy, rx, ry, pal, opts = {}) {
   });
 }
 
-function drawBody(g, ox, oy, D, color, shape, pattern) {
+// Eight body models. Each returns f(nx, ny): about 0 at the body's middle and 1 at its
+// edge (nx, ny run -1..1 across the D x D body box). Shading treats f as a height field,
+// so every shape gets the same lit, rounded 3D look.
+const BODY_MODELS = [
+  { name: "Round",       f: (x, y) => x * x + y * y },
+  { name: "Bean",        f: (x, y) => { const w = 0.74 + 0.12 * y; return (x / w) ** 2 + y * y; } },
+  { name: "Mochi",       f: (x, y) => { const yy = (y - 0.12) / 0.8; return y > 0.9 ? 2 : (x / 1.0) ** 2 + yy * yy * (yy < 0 ? 1 : 0.45); } },
+  { name: "Gumdrop",     f: (x, y) => y < 0 ? x * x / 0.86 + y * y : (Math.abs(x) / 0.93) ** 4 + y ** 4 },
+  { name: "Pear",        f: (x, y) => { const w = 0.62 + 0.34 * (y + 1) / 2; return (x / w) ** 2 + y * y; } },
+  { name: "Marshmallow", f: (x, y) => (Math.abs(x) / 0.94) ** 4 + (Math.abs(y) / 0.94) ** 4 },
+  { name: "Onion",       f: (x, y) => { const body = (x / 0.92) ** 2 + ((y - 0.14) / 0.86) ** 2; const tip = y < -0.5 ? (Math.abs(x) / Math.max(0.01, (y + 1.02) * 0.62)) ** 2 : 9; return Math.min(body, tip > 1 ? 9 : body > 1 && y > -1 ? 0.97 : body); } },
+  { name: "Blobby",      f: (x, y) => { const body = (x / 0.92) ** 2 + ((y - 0.1) / 0.9) ** 2; const ear = (cx) => ((x - cx) ** 2 + (y + 0.7) ** 2) / 0.08; return Math.min(body, ear(-0.5), ear(0.5)); } },
+];
+
+function drawBody(g, ox, oy, D, color, shape, pattern, model = 0) {
   const c = D / 2, R = D / 2;
-  const metric = (dx, dy) => {
-    if (shape === "tall") return Math.hypot(dx * 1.25, dy);
-    if (shape === "jaw" && dy > 0) return Math.max(Math.abs(dx) * 1.04, Math.abs(dy) * 1.04, Math.hypot(dx, dy) * 0.9);
-    return Math.hypot(dx, dy);
+  const M = (BODY_MODELS[model] || BODY_MODELS[0]).f;
+  // the variant's own shape trait (tall Elasticity, square-jawed Moggity) still applies on top
+  const field = (dx, dy) => {
+    let x = dx / R, y = dy / R;
+    if (shape === "tall") x *= 1.25;
+    let f = M(x, y);
+    if (shape === "jaw" && y > 0) f = Math.min(f, Math.max(Math.abs(x) * 1.04, Math.abs(y) * 1.04) ** 2);
+    return f;
   };
-  const inU = (ux, uy) => ux >= 0 && uy >= 0 && ux < D && uy < D && metric(ux - c, uy - c) <= R - 0.05;
+  const inU = (ux, uy) => ux >= 0 && uy >= 0 && ux < D && uy < D && field(ux - c, uy - c) <= 0.97;
   const pal = ramp(color);
   const s = 1 / RES;
   raw(g, () => {
@@ -364,7 +382,14 @@ function drawBody(g, ox, oy, D, color, shape, pattern) {
         let col;
         if (edge) col = pal[0];
         else {
-          const nx = (ux - c) / R, ny = (uy - c) / R, nz = Math.sqrt(Math.max(0, 1 - nx * nx - ny * ny));
+          // surface normal from the height field h = sqrt(1 - f)
+          const h = (dx, dy) => Math.sqrt(Math.max(0, 1 - field(dx, dy)));
+          const e = 0.35, hc = h(ux - c, uy - c);
+          // the height field's slope gives a sphere-like normal: (nx, ny) point outwards
+          const gx = (h(ux - c + e, uy - c) - h(ux - c - e, uy - c)) / (2 * e) * R;
+          const gy = (h(ux - c, uy - c + e) - h(ux - c, uy - c - e)) / (2 * e) * R;
+          const len = Math.hypot(gx, gy, 1);
+          const nx = -gx / len, ny = -gy / len, nz = Math.max(hc, 1 / len) * 0.6 + hc * 0.4;
           const lum = -0.5 * nx - 0.6 * ny + 0.62 * nz + (BAYER[py & 1][px & 1] - 0.4) * 0.16;
           col = lum > 0.98 ? pal[5] : lum > 0.6 ? pal[4] : lum > 0.1 ? pal[3] : lum > -0.32 ? pal[2] : pal[1];
           if (pattern === "stripes" && Math.floor(ux) % 3 === 0) col = shade(col, -22);
@@ -380,13 +405,20 @@ function drawBody(g, ox, oy, D, color, shape, pattern) {
         const ux = (px + 0.5) / RES, uy = (py + 0.5) / RES;
         if (inU(ux, uy) && inU(ux + s, uy + s) && !inU(ux + 2 * s, uy + 2 * s) && ux > c && uy > c) g.fillRect(ox * RES + px, oy * RES + py, 1, 1);
       }
+    // specular highlight near the upper left of the body
+    const top = bodyTop(inU, D), gx = Math.round((ox + c - R * 0.42) * RES), gy = Math.round((oy + top + R * 0.35) * RES);
     g.fillStyle = "rgba(255,255,255,0.9)";
-    const gx = Math.round((ox + c - R * 0.45) * RES), gy = Math.round((oy + c - R * 0.55) * RES);
     g.fillRect(gx, gy, 2, 1);
     g.fillRect(gx, gy + 1, 1, 1);
   });
-  return (x, y) => inU(x - ox + 0.5, y - oy + 0.5);
+  const inside = (x, y) => inU(x - ox + 0.5, y - oy + 0.5);
+  inside.top = bodyTop(inU, D);
+  inside.bottom = bodyBottom(inU, D);
+  return inside;
 }
+// Highest / lowest body row down the middle column, in units from the top of the body box.
+function bodyTop(inU, D) { for (let y = 0; y < D; y += 0.5) if (inU(D / 2, y + 0.25) || inU(D / 2 - 1, y + 0.25) || inU(D / 2 + 1, y + 0.25)) return y; return 0; }
+function bodyBottom(inU, D) { for (let y = D; y > 0; y -= 0.5) if (inU(D / 2, y - 0.25)) return y; return D; }
 
 const SPR_PAD_X = 3, SPR_PAD_T = 6, SPR_PAD_B = 3;
 
@@ -424,9 +456,11 @@ function buildVariantSprite(key, ind, blink = false) {
     color = tweak(color, ind.hue, ind.light);
     if (ind.shiny) color = tweak(color, 150, 6);
   }
-  const inside = drawBody(g, SPR_PAD_X, SPR_PAD_T, D, color, def.shape, def.pattern);
+  const inside = drawBody(g, SPR_PAD_X, SPR_PAD_T, D, color, def.shape, def.pattern, ind ? ind.model || 0 : 0);
   const off = (D - 12) / 2;
-  const o = { x: SPR_PAD_X + off, y: SPR_PAD_T + off };
+  // centre the face between the body's top and bottom, so squat and tall models look right
+  const faceShift = Math.round(((inside.top + inside.bottom) / 2 - D / 2) * 2) / 2;
+  const o = { x: SPR_PAD_X + off, y: SPR_PAD_T + off + faceShift };
   if (ind) drawMarking(g, o, ind, color, inside);
   const ink = def.ink || "#2b1d00";
   FACES[def.face](g, o, ink, color);
@@ -442,7 +476,6 @@ function buildVariantSprite(key, ind, blink = false) {
       for (const [x, y] of eyes) g.fillRect(o.x + x, o.y + y, 0.5, 0.5);
     }
   }
-  if (ind) { drawAccessory(g, o, ind.acc); accessoryShine(g, o, ind.acc); }
   c.outline = true;
   return c;
 }
