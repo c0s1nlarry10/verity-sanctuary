@@ -823,9 +823,11 @@ const encGround = makeEncGround(3, "meadow");
 // Each tile gets the theme's floor, water and decor flow across neighbouring tiles, and the
 // fence runs along every outside edge.
 const penSpriteCache = new Map();
-function makePenSprite(w, h, cells, theme = "meadow", fenceKey = null) {
+// cache: where to keep the result. The live preview of a pen being painted passes its own
+// one-slot cache, so big drafts don't pile up in memory.
+function makePenSprite(w, h, cells, theme = "meadow", fenceKey = null, cache = penSpriteCache, maxCached = 120) {
   const key = [w, h, [...cells].sort().join(";"), theme, fenceKey || ""].join("|");
-  if (penSpriteCache.has(key)) return penSpriteCache.get(key);
+  if (cache.has(key)) return cache.get(key);
   const [c, g] = hiCanvas(w * TILE, h * TILE);
   const r = seeded(w * 31 + h * 17 + cells.size * 7 + theme.length);
   const R = (col, x, y, ww, hh) => { g.fillStyle = col; g.fillRect(x, y, ww, hh); };
@@ -900,8 +902,8 @@ function makePenSprite(w, h, cells, theme = "meadow", fenceKey = null) {
     if (!dn && !lf && !has(cx - 1, cy + 1)) post(X, Y + TILE - 4);
     if (!dn && !rt && !has(cx + 1, cy + 1)) post(X + TILE - 4, Y + TILE - 4);
   }
-  if (penSpriteCache.size > 120) penSpriteCache.delete(penSpriteCache.keys().next().value);
-  penSpriteCache.set(key, c);
+  while (cache.size >= maxCached) cache.delete(cache.keys().next().value);
+  cache.set(key, c);
   return c;
 }
 
@@ -1167,8 +1169,7 @@ const STAFF_FRAMES = {};
 for (const t of ["janitor", "keeper", "mascot"]) STAFF_FRAMES[t] = [0, 1, 2].map(f => enlarge(staffFrame(t, f), PERSON_K));
 const STAFF_SPR = { janitor: STAFF_FRAMES.janitor[0], keeper: STAFF_FRAMES.keeper[0], mascot: STAFF_FRAMES.mascot[0] };
 
-// Original blocky-guy and pirate characters for the tug-of-war event
-const STEVE_SPR = pixelArt(["kkkkkkkk", "kNNNNNNk", "kNppppNk", "kpwDDwpk", "kppNNppk", "kkkkkkkk", "kcccccck", "pccccccp", "pccccccp", "kcccccck", "kDDDDDDk", "kDDkkDDk", "kDDkkDDk", "kkk..kkk"], PAL);
+// Pirate Clark, who drags variants off to the Backrooms
 const PIRATE_SPR = pixelArt(["..kkkk..", ".kkwkkk.", "kkkkkkkk", "kppppppk", "kpkppkpk", "kmmmmmmk", ".kmmmmk.", "kddwwddk", "pddwwddp", "pddwwddp", "kddddddk", "kNNkkNNk", "kNNkkNNk", "kkk..kkk"], PAL);
 
 // ================= Cars =================
@@ -1370,11 +1371,21 @@ function applyIcons(root = document) {
 
 
 // ================= Trash, bubbles, crown, eggs =================
+// Litter, drawn at one pixel per world unit so the colours stay crisp: a soda can, a crisp
+// packet, a water bottle, a paper cup and a crumpled napkin. Each has a darker shade of its
+// own colour instead of a black outline, so it reads as rubbish rather than a speck of dirt.
+const TRASH_PAL = {
+  s: "#e4e6ee", S: "#8d90a0", r: "#ec3b45", R: "#9c1f2a", w: "#ffffff",
+  y: "#ffd23f", Y: "#fff09a", o: "#b8860b", b: "#7cc8ff", B: "#3a86d6", c: "#ffffff", C: "#c9ccd6",
+  e: "#fbf7ec", E: "#cfc6ae", g: "#4fbf5f",
+};
 const TRASH_SPR = [
-  pixelArt(["kk.", "rrk", "wrk"], PAL),
-  pixelArt(["kkk", "yyk"], PAL),
-  pixelArt([".k.", "kbk", "kbk"], PAL),
-].map(c => enlarge(c, PERSON_K));
+  pixelArt(["srwrr", "SRRRR"], TRASH_PAL),            // soda can on its side
+  pixelArt(["Yyyy", "yrgy", "oooo"], TRASH_PAL),      // crisp packet
+  pixelArt(["cbbbb", "CBBBB"], TRASH_PAL),            // water bottle
+  pixelArt(["eee", "rrr", "EEE"], TRASH_PAL),         // paper cup
+  pixelArt(["ee.", "eEe", ".E."], TRASH_PAL),         // crumpled napkin
+];
 
 const BUBBLE_ICONS = {
   food:    ["..o..", ".ooo.", "GGGGG", "NNNNN", ".ooo."],

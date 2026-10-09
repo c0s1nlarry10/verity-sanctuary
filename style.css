@@ -153,6 +153,22 @@ h1, h2, h3, button, .stat, .park-title {
   box-shadow: inset 2px 2px 0 var(--panel-2), 4px 4px 0 rgba(0, 0, 0, 0.5);
 }
 .hint { color: var(--text); margin: 0; min-height: 1.2em; }
+.hint-bar { cursor: pointer; }
+.tip-tag {
+  display: inline-block; margin-right: 8px; padding: 2px 4px; vertical-align: 2px;
+  font-family: "Press Start 2P", monospace; font-size: 7px; font-weight: normal; color: #000; background: #7df9ff; border: 2px solid #000;
+}
+.hint.tip-in { animation: tip-in 0.4s ease-out; }
+@keyframes tip-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .hint.tip-in { animation: none; } }
+/* hover explanations */
+.tooltip {
+  position: fixed; z-index: 1000; max-width: 280px; padding: 6px 9px; pointer-events: none;
+  font-size: 17px; line-height: 1.1; color: var(--text); background: var(--panel-lo);
+  border: 3px solid #000; box-shadow: inset 2px 2px 0 var(--panel-2), 4px 4px 0 rgba(0, 0, 0, 0.5);
+}
+.tooltip b { display: block; margin-bottom: 3px; font-family: "Press Start 2P", monospace; font-size: 8px; font-weight: normal; color: var(--yellow); }
+.tooltip span { display: block; }
 
 /* ---------- Side panel ---------- */
 .panel {
@@ -190,6 +206,15 @@ h1, h2, h3, button, .stat, .park-title {
   box-shadow: inset 3px 3px 0 var(--yellow-hi), inset -3px -3px 0 var(--yellow-lo);
 }
 .card h2 small { margin-left: auto; color: #3a2a00; font-size: 9px; }
+/* collapsible cards: click the header to fold one away */
+.page > .card > h2 { cursor: pointer; user-select: none; }
+.page > .card > h2::after { content: "\25BE"; margin-left: 8px; font-family: "VT323", monospace; font-size: 22px; line-height: 0; color: #3a2a00; }
+.page > .card > h2:not(:has(small))::after { margin-left: auto; }
+.page > .card.collapsed > h2::after { content: "\25B8"; }
+.page > .card > h2:focus-visible { outline: 3px solid #7df9ff; outline-offset: -3px; }
+.page > .card.collapsed { padding-bottom: 0; }
+.page > .card.collapsed > h2 { margin-bottom: 0; border-bottom: none; }
+.page > .card.collapsed > :not(h2) { display: none !important; }
 .card h3 { font-size: 8px; margin: 14px 0 8px; color: var(--muted); display: flex; justify-content: space-between; }
 .small { font-size: 18px; color: var(--muted); margin: 0 0 8px; }
 
@@ -639,6 +664,18 @@ label.range input { flex: 1; max-width: 160px; accent-color: var(--yellow); }
   text-shadow: 3px 0 0 #000, -3px 0 0 #000, 0 3px 0 #000, 0 -3px 0 #000, 6px 6px 0 var(--yellow-lo);
 }
 .loader-tag { margin: 0 0 22px; color: var(--muted); font-size: 20px; }
+/* a tilted update notice, like a sticker slapped on the corner of the sign */
+.loader-splash {
+  position: absolute; top: 46px; right: 22px; z-index: 1; margin: 0; padding: 7px 9px;
+  font-family: "Press Start 2P", monospace; font-size: 9px; line-height: 1.5; color: #000;
+  background: #7df9ff; border: 3px solid #000; box-shadow: 4px 4px 0 #000;
+  transform: rotate(12deg); animation: splash 1.1s ease-in-out infinite;
+}
+@keyframes splash { 0%, 100% { transform: rotate(12deg) scale(1); } 50% { transform: rotate(12deg) scale(1.07); } }
+@media (max-width: 480px) {
+  .loader-splash { position: static; display: inline-block; margin: 2px 0 10px; font-size: 8px; }
+}
+@media (prefers-reduced-motion: reduce) { .loader-splash { animation: none; } }
 .loader-bar { margin: 0 auto 18px; }
 .loader-track {
   position: relative; height: 28px; background: #0c0b18; border: 4px solid #000;
@@ -670,6 +707,16 @@ label.range input { flex: 1; max-width: 160px; accent-color: var(--yellow); }
 
 /* ---------- In-game dialogs ---------- */
 .ask-dialog { width: min(420px, calc(100vw - 32px)); }
+.mode-dialog { width: min(640px, calc(100vw - 24px)); max-height: calc(100vh - 40px); overflow: auto; }
+.mode-options { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+.mode-option { display: flex; flex-direction: column; align-items: stretch; gap: 6px; text-align: left; padding: 12px; white-space: normal; height: auto; font-family: "VT323", monospace; background: var(--panel-lo); color: var(--text); }
+.mode-option:hover, .mode-option:focus-visible { box-shadow: inset 0 0 0 2px var(--yellow); }
+.mode-option b { font-family: "Press Start 2P", monospace; font-size: 11px; color: var(--yellow); font-weight: normal; }
+.mode-option span { font-size: 18px; color: var(--text); }
+.mode-option ul { margin: 0; padding-left: 18px; font-size: 16px; color: var(--muted); line-height: 1.15; }
+.mode-option .pick { margin-top: auto; padding-top: 6px; font-family: "Press Start 2P", monospace; font-size: 8px; color: #7df9ff; }
+.mode-tag { background: #7df9ff; }
+@media (max-width: 560px) { .mode-options { grid-template-columns: 1fr; } }
 .ask-text { white-space: pre-line; font-size: 19px; line-height: 1.2; margin: 0 0 12px; }
 #ask-input {
   width: 100%; margin-bottom: 12px; padding: 8px; font-family: "VT323", monospace; font-size: 20px;
@@ -731,6 +778,17 @@ button.linkish { background: none; border: none; box-shadow: none; padding: 0; f
 .report-row b { font-weight: normal; color: var(--text); font-family: "Press Start 2P", monospace; font-size: 8px; white-space: nowrap; }
 .report-row.variant span { flex: 1; }
 .report-row canvas { width: 26px; height: 30px; image-rendering: pixelated; }
+.report-growth + .report-growth, .report-cols + .report-growth { margin-bottom: 12px; }
+.feedback-score { font-size: 18px; margin: 0 0 6px; color: var(--text); }
+.feedback-score.good { color: #6ee07a; }
+.feedback-score.bad { color: var(--danger); }
+.feedback-row { padding: 4px 0; border-bottom: 1px solid var(--line); }
+.feedback-head { display: flex; justify-content: space-between; gap: 8px; font-size: 18px; }
+.feedback-head b { font-weight: normal; font-family: "Press Start 2P", monospace; font-size: 8px; white-space: nowrap; color: var(--danger); align-self: center; }
+.feedback-quote { color: var(--text); }
+.feedback-fix { margin: 2px 0 0; font-size: 16px; color: #7df9ff; }
+.feedback-recent h3 { margin-top: 10px; }
+.feedback-recent p { margin: 0 0 2px; }
 .note-version { margin-bottom: 12px; }
 .note-version h4 { margin: 0 0 6px; font-family: "Press Start 2P", monospace; font-size: 9px; color: var(--yellow); }
 .note-version ul { margin: 0; padding-left: 20px; font-size: 18px; line-height: 1.2; }

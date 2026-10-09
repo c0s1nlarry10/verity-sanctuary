@@ -14,27 +14,43 @@ const TUT_STEPS = [
     enter: s => { s.view = [view.x, view.y, view.zoom]; },
     done: s => Math.abs(view.x - s.view[0]) + Math.abs(view.y - s.view[1]) > 8 || view.zoom !== s.view[2] },
   { title: "Day and night", target: "#hours-bar",
-    text: "The park is open from 8 AM to 10 PM and closed at night. Night is when you build. The clock is paused until this tour ends." },
+    text: "The park is open from 8 AM to 10 PM and closed at night. Night is when you build. The clock is paused until this tour ends.",
+    simpleText: "The park is open from 8 AM to 10 PM and closed at night. You can build at any time. The clock is paused until this tour ends." },
+  { title: "Build your first pen", tab: "park", target: "#game", task: "Build an enclosure",
+    text: "Your park is empty! The Enclosure tool is ready: click the grass beside the path to build your first pen. A Small pen costs 100 coins.",
+    enter: s => {
+      s.pens = state.enclosures.length;
+      s.already = !state.tutorialDone && s.pens > 0;   // first tour: they got ahead of us
+      encChoice.shape = "square"; encChoice.size = "small";
+      setCollapsed(document.querySelector(tutPark(1)), false);   // show the Build card
+      if (!buildLocked()) setTool("enclosure");
+      centerOn((GATE.x + 6) * TILE, (GATE.y - 2) * TILE);
+      renderUI(true);
+    },
+    done: s => s.already || state.enclosures.length > s.pens },
   { title: "Hatch an egg", tab: "park", target: "#hatch", task: "Hatch an egg",
-    text: "Every variant starts as an egg. Hatch one to get a random variant. Most are common, but you might get lucky.",
-    enter: s => { s.hatched = state.stats.hatched; },
-    done: s => state.stats.hatched > s.hatched },
+    text: "Every variant starts as an egg. Your first egg always hatches a Verity. After that most are common, but you might get lucky.",
+    enter: s => { s.hatched = state.stats.hatched; s.already = !state.tutorialDone && s.hatched > 0; },
+    done: s => s.already || state.stats.hatched > s.hatched },
   { title: "Give it a home", target: "#game", task: "Place a variant in your enclosure",
     text: "New variants wait in the Incubator. Pick one, then click your enclosure on the map to put it inside. Each pen has limited space, so build more as you grow.",
     enter: s => {
       s.placed = tutPlacedCount();
+      s.already = !state.tutorialDone && s.placed > 0 && !state.inventory.length;
       const e = state.enclosures[0];
       if (e) centerOn((e.x + encW(e) / 2) * TILE, (e.y + encH(e) / 2) * TILE);
       if (state.inventory.length && !buildLocked()) { setTool("place"); selectedUid = state.inventory[0].id; renderUI(true); }
     },
-    done: s => tutPlacedCount() > s.placed },
+    done: s => s.already || tutPlacedCount() > s.placed },
   { title: "Build your park", tab: "park", target: tutPark(1),
-    text: "At night, lay paths so guests can walk to your pens, and build new enclosures. Bulldozing refunds half the cost. These tools lock while the park is open." },
+    text: "At night, lay paths so guests can walk to your pens, and build new enclosures. Bulldozing refunds half the cost. These tools lock while the park is open.",
+    simpleText: "Lay paths so guests can walk to your pens, and build new enclosures. Bulldozing refunds half the cost." },
   { title: "Shops and decor", tab: "park", target: tutPark(2),
     text: "Snack stands earn coins from guests walking past. Decorations raise your park's appeal, which brings in more visitors." },
   { title: "Keep them happy", target: "#game",
-    text: "With Inspect selected, click any variant to see it up close, feed it and pet it. Fed, happy variants earn more coins." },
-  { title: "Parking", tab: "park", target: "#parking-card",
+    text: "With Inspect selected, click any variant to see it up close, feed it and pet it. Fed, happy variants earn more coins.",
+    simpleText: "With Inspect selected, click any variant to see it up close and pet it. Each one has its own ability." },
+  { title: "Parking", tab: "park", target: "#parking-card", pro: true,
     text: "Every guest arrives by car, so parking spaces limit how many can visit at once. Upgrade the lot as your park grows." },
   { title: "Level up", target: ".lvl-box",
     text: "Guests, hatching and goals all give park XP. Each new level unlocks something: bigger pens, land, staff, the Fusion Lab and more." },
@@ -43,6 +59,8 @@ const TUT_STEPS = [
   { title: "Open the park!", target: "#hours-btn",
     text: "When you're ready, press Open park now to let the first guests in. Have fun!" },
 ];
+// Steps for this game mode (Simple mode skips the Pro-only ones).
+const tutSteps = () => TUT_STEPS.filter(s => !(s.pro && isSimple()));
 
 const tut = { active: false, i: 0, s: {}, doneAt: 0, el: null };
 
@@ -70,7 +88,14 @@ function endTutorial(skipped) {
   state.tutorialDone = true;
   saveGame();
   if (skipped) toast("Tutorial skipped. You can replay it from the Save tab.", 4000);
+  if (!state.enclosures.length) setTimeout(emptyParkHint, 600);
   else { sfx("achievement"); toast("Tutorial complete! Good luck with your sanctuary.", 4000, "verity"); }
+}
+
+// For an empty park with no tour running: say what to do first.
+function emptyParkHint() {
+  if (state.enclosures.length || tutorialActive()) return;
+  toast("Your park is empty! Build an enclosure beside the path, then hatch an egg. Your first egg is always a Verity.", 7000, "verity");
 }
 
 function clearTutTarget() {
@@ -79,24 +104,26 @@ function clearTutTarget() {
 }
 
 function showTutStep() {
-  const step = TUT_STEPS[tut.i];
+  const step = tutSteps()[tut.i];
   clearTutTarget();
   if (step.tab && activeTab !== step.tab) switchTab(step.tab);
   tut.s = {};
   tut.doneAt = 0;
   if (step.enter) step.enter(tut.s);
-  $("tut-step").textContent = `${tut.i + 1} / ${TUT_STEPS.length}`;
+  $("tut-step").textContent = `${tut.i + 1} / ${tutSteps().length}`;
   $("tut-title").textContent = step.title;
-  $("tut-text").textContent = step.text;
+  $("tut-text").textContent = isSimple() && step.simpleText || step.text;
   const task = $("tut-task");
   task.hidden = !step.task;
   task.classList.remove("done");
   $("tut-task-text").textContent = step.task || "";
   $("tut-back").disabled = tut.i === 0;
-  $("tut-next").textContent = tut.i === TUT_STEPS.length - 1 ? "Finish" : "Next";
+  $("tut-next").textContent = tut.i === tutSteps().length - 1 ? "Finish" : "Next";
   $("tut-next").classList.remove("ready");
   const el = step.target ? document.querySelector(step.target) : null;
   if (el) {
+    const card = el.closest(".page > .card.collapsed");
+    if (card) setCollapsed(card, false);   // never point at something folded away
     tut.el = el;
     el.classList.add("tut-target");
     el.scrollIntoView({ block: "nearest", behavior: "smooth" });
@@ -106,7 +133,7 @@ function showTutStep() {
 
 function tutNext() {
   sfx("click");
-  if (tut.i >= TUT_STEPS.length - 1) return endTutorial(false);
+  if (tut.i >= tutSteps().length - 1) return endTutorial(false);
   tut.i++;
   showTutStep();
 }
@@ -143,7 +170,7 @@ function placeTutorial() {
 // Called every frame from the main loop.
 function updateTutorial() {
   if (!tut.active) return;
-  const step = TUT_STEPS[tut.i];
+  const step = tutSteps()[tut.i];
   if (step.done && !tut.doneAt && step.done(tut.s)) {
     tut.doneAt = performance.now();
     $("tut-task").classList.add("done");

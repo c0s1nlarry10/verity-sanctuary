@@ -17,6 +17,7 @@ homeView();
 buildTerrain();
 buildTrees();
 renderSettings();
+applyCollapsed();
 renderStars();
 applyLocks();
 setTool("inspect");
@@ -27,7 +28,7 @@ function frame(now) {
   const dt = Math.min(0.1, (now - lastTime) / 1000);
   lastTime = now;
   const time = now / 1000;
-  update(dt);
+  if (gameStarted) update(dt);   // nothing happens behind the loading screen (no day ending there)
   render(dt, time);
   updateCamera(dt);
   updateTutorial();
@@ -36,7 +37,7 @@ function frame(now) {
   drawCard(dt, time);
   uiTimer += dt;
   if (uiTimer > 0.25) { uiTimer = 0; renderUI(false); drawMinimap(); }
-  if (hintTimer > 0) { hintTimer -= dt; if (hintTimer <= 0) setTool(tool); }
+  updateHintBar(dt);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
@@ -76,12 +77,24 @@ requestAnimationFrame(frame);
     startMusic();
     startFeedbackReminders();
     sfx("fanfare", 1);
-    checkDaily();
     resizeView();
-    if (!loaded || !state.tutorialDone && state.eggsHatched === 0) startTutorial();
-    else if (state.seenVersion !== GAME_VERSION) showPatchNotes();
-    state.seenVersion = GAME_VERSION;
-    renderUI(true);
-    canvas.focus();
+    chooseMode().then(() => {
+      gameStarted = true;
+      lastTime = performance.now();
+      checkDaily();
+      // the first time a returning player loads a new version, show what changed (once)
+      const freshPark = !loaded || !state.tutorialDone && state.eggsHatched === 0;
+      const played = !!state.seenVersion || state.tutorialDone || state.eggsHatched > 0;   // not just a save written on the loading screen
+      const newVersion = loaded && played && state.seenVersion !== GAME_VERSION;
+      state.seenVersion = GAME_VERSION;
+      saveGame();
+      if (newVersion) {
+        showPatchNotes();
+        if (freshPark) $("notes-dialog").addEventListener("close", startTutorial, { once: true });
+      } else if (freshPark) startTutorial();
+      else emptyParkHint();
+      renderUI(true);
+      canvas.focus();
+    });
   });
 })();
