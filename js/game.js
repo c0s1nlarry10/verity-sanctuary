@@ -1013,7 +1013,7 @@ function admitVisitor(w) {
     prog: 1, speed: (type === "kid" ? 1.4 : 1.1) + Math.random() * 0.6,
     steps: 25 + Math.floor(Math.random() * 40) + Math.min(90, state.enclosures.length * 4),   // bigger parks: longer walks
     seen: new Set(), alpha: 0.4, leaving: false,
-    off: Math.floor(Math.random() * 5) - 2,
+    off: Math.floor(Math.random() * 9) - 4, offY: Math.floor(Math.random() * 7) - 3,   // where across the path this guest walks
     phase: Math.random() * 6,
   });
   const ticket = starRating() * (activeEvent && activeEvent.type === "parade" ? 3 : 1) * globalMult();
@@ -1652,7 +1652,7 @@ function drawVisitor(v) {
   const fy_ = v.ty + (v.ny - v.ty) * v.prog;
   const walking = v.prog < 1 && !v.leaving;
   const frame = walking ? (Math.floor(v.phase) % 2 ? 1 : 2) : 0;
-  const vx = fx_ * TILE + 4.5 + v.off, vy = fy_ * TILE + 3 + v.off * 0.5;
+  const vx = fx_ * TILE + 4.5 + v.off, vy = fy_ * TILE + 3 + (v.offY ?? v.off * 0.5);
   ctx.globalAlpha = Math.max(0, v.alpha);
   ctx.fillStyle = "rgba(0,0,0,0.25)";
   const spr = v.frames[frame], head = vy + 12 - uH(spr);

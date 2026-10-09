@@ -372,12 +372,12 @@ function showDayReport(d) {
 const lightMap = document.createElement("canvas"), lightCtx = lightMap.getContext("2d");
 // Every light source at night: [x, y, radius, warm?]. Radii are how far the light reaches.
 function nightLights() {
-  const L = state.objects.filter(o => o.t === "lamp" || OBJECTS[o.t].kind === "stand").map(o => [o.x * TILE + 8, o.y * TILE + 10, o.t === "lamp" ? 46 : 26]);
-  L.push([GATE.x * TILE + 8, GATE.y * TILE - 14, 34], [GATE.x * TILE + 8, GATE.y * TILE + 10, 34], [GATE.x * TILE - 9, GATE.y * TILE - 2, 18]);
-  for (const [lx, ly] of streetLamps()) L.push([lx + 1, ly - 4, 40]);
-  for (const ox of [2, VAULT.w * TILE - 2]) L.push([VAULT.x * TILE + ox, (VAULT.y + VAULT.h) * TILE - 10, 22]);   // the vault's gold orbs
-  for (const sec of securities) L.push([sec.c.x + sec.c.vx * 1.6, sec.c.y + sec.c.vy * 1.6, 16, false]);       // guards' flashlights
-  for (const c of cars) if (c.state !== "parked" && !(c.delay > 0)) L.push([c.x + (c.dir === 1 ? 18 : c.dir === 3 ? -18 : 0), c.y + (c.dir === 2 ? 18 : c.dir === 0 ? -18 : 0), 20, false]);   // headlights
+  const L = state.objects.filter(o => o.t === "lamp" || OBJECTS[o.t].kind === "stand").map(o => [o.x * TILE + 8, o.y * TILE + 10, o.t === "lamp" ? 72 : 40]);
+  L.push([GATE.x * TILE + 8, GATE.y * TILE - 14, 52], [GATE.x * TILE + 8, GATE.y * TILE + 10, 52], [GATE.x * TILE - 9, GATE.y * TILE - 2, 28]);
+  for (const [lx, ly] of streetLamps()) L.push([lx + 1, ly - 4, 64]);
+  for (const ox of [2, VAULT.w * TILE - 2]) L.push([VAULT.x * TILE + ox, (VAULT.y + VAULT.h) * TILE - 10, 36]);   // the vault's gold orbs
+  for (const sec of securities) L.push([sec.c.x + sec.c.vx * 2.2, sec.c.y + sec.c.vy * 2.2, 26, false]);       // guards' flashlights
+  for (const c of cars) if (c.state !== "parked" && !(c.delay > 0)) L.push([c.x + (c.dir === 1 ? 26 : c.dir === 3 ? -26 : 0), c.y + (c.dir === 2 ? 26 : c.dir === 0 ? -26 : 0), 30, false]);   // headlights
   return L;
 }
 function drawSky(time) {
