@@ -36,6 +36,7 @@ const PATCH_NOTES = [
       ] },
       { title: "Interface", notes: [
         "A skippable tutorial, patch notes button and Instagram link.",
+        "A Feedback button for suggestions and bug reports.",
         "Show on a plot of land highlights it in yellow.",
       ] },
     ],

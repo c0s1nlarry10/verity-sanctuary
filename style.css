@@ -845,3 +845,13 @@ body.park-open .build-only { display: none !important; }
 
 #money.bank-full { color: #ff8a3c; }
 #bank .progress { margin: 6px 0; }
+
+/* ---------- Feedback links ---------- */
+.feedback-btn span { color: #7df9ff; }
+.insta-credit a.feedback-link { color: #7df9ff; }
+a.feedback-wide {
+  display: block; margin-top: 8px; padding: 8px 10px; text-align: center; text-decoration: none;
+  font-family: "Press Start 2P", monospace; font-size: 8px; color: #000; background: #7df9ff;
+  border: 3px solid #000; box-shadow: 3px 3px 0 #000;
+}
+a.feedback-wide:hover { background: #a8fbff; }
