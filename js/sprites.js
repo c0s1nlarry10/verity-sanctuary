@@ -747,16 +747,95 @@ const FENCES = {
   stone:  { dark: "#55555f", hi: "#c4c4ce", mid: "#8e8e98", post: "#3e3e48" },
 };
 const THEME_FENCE = { meadow: "wood", pool: "wood", lab: "metal", stage: "wood", backrooms: "wall" };
-const encGroundCache = {};
-function makeEncGround(size, theme = "meadow", fenceKey = null) {
-  const key = size + ":" + theme + ":" + (fenceKey || "");
-  if (encGroundCache[key]) return encGroundCache[key];
+// ---- small random touches, so no two pens look quite the same ----
+// Each one draws at (x, y) in about 4x3 units. `wet` details sit in pool water, `dry` ones on grass or deck.
+const PEN_DETAILS = {
+  meadow: [
+    (R, g, x, y, r) => { const cols = ["#ff8fb8", "#fff3a1", "#c9a7ff", "#ffffff", "#ff5c7a"]; for (let i = 0; i < 3; i++) { const fx = x + i * 1.5, fy = y + (i % 2) * 0.5; R("#2f7a2c", fx + 0.25, fy + 1, 0.5, 1.5); R(cols[Math.floor(r() * cols.length)], fx, fy, 1, 1); } },
+    (R, g, x, y, r) => { for (let i = 0; i < 3; i++) { const px = x + r() * 3, py = y + r() * 2; R("#7a7f86", px, py + 0.5, 1, 0.5); R("#b4b9c0", px, py, 1, 0.5); } },
+    (R, g, x, y) => { litBlob(g, x + 2, y + 1.5, 1.8, 1.3, ramp("#8a8f96")); },
+    (R, g, x, y) => { R("#e8dcc0", x + 1.25, y + 1, 0.5, 1.5); R("#000", x, y - 0.5, 2, 1.5); R("#d63a3a", x + 0.25, y - 0.25, 1.5, 1); R("#fff", x + 0.5, y, 0.5, 0.5); },
+    (R, g, x, y, r) => { for (let i = 0; i < 5; i++) R(r() < 0.5 ? "#3f8f3a" : "#4fa043", x + r() * 3, y + r() * 2, 1, 1); },
+    (R, g, x, y) => { R("#6b4122", x, y + 1, 3.5, 0.5); R("#8a5a32", x + 2, y + 0.5, 1, 0.5); },
+    (R, g, x, y) => { R("#2f7fd0", x, y + 0.5, 3.5, 1.5); R("#5fb4ff", x + 0.5, y + 0.5, 2.5, 1); R("#cfe9ff", x + 0.5, y + 0.5, 1, 0.5); },
+    (R, g, x, y) => { R("#2f7a2c", x + 0.75, y + 1, 0.5, 1.5); R("#f4f4f4", x, y, 2, 1); R("#ffffff", x + 0.5, y - 0.5, 1, 0.5); },
+    (R, g, x, y) => { R("#8fb25a", x, y, 3, 2); R("#a3be6c", x + 0.5, y + 0.5, 1.5, 1); },
+  ],
+  pool: {
+    wet: [
+      (R, g, x, y) => { R("#000", x, y, 2.5, 2); R("#ffd23f", x + 0.5, y + 0.5, 1.5, 1); R("#ffd23f", x + 1.5, y - 0.5, 1, 1); R("#ff8a2a", x + 2.5, y, 0.5, 0.5); },
+      (R, g, x, y) => { R("#4fbf3a", x, y, 2, 1); R("#2f7a2c", x + 0.5, y + 0.5, 1, 0.5); },
+      (R, g, x, y, r) => { const c = r() < 0.5 ? "#ff5c7a" : "#ff8fb8"; R(c, x, y, 3, 0.5); R(c, x, y + 2, 3, 0.5); R(c, x, y, 0.5, 2.5); R(c, x + 2.5, y, 0.5, 2.5); R("#fff", x + 1, y, 1, 0.5); },
+      (R, g, x, y) => { R("#e33d3d", x, y, 1, 2); R("#fff", x + 1, y, 1, 2); R("#3d8fe0", x + 2, y, 1, 2); R("#000", x, y + 2, 3, 0.5); },
+    ],
+    dry: [
+      (R, g, x, y, r) => { const c = ["#ff5c7a", "#5fb4ff", "#ffd23f", "#6ee07a"][Math.floor(r() * 4)]; R(c, x, y, 4.5, 2); R("#fff", x + 1, y, 0.5, 2); R("#fff", x + 3, y, 0.5, 2); },
+      (R, g, x, y, r) => { const c = r() < 0.5 ? "#ff7eb6" : "#5fb4ff"; R(c, x, y, 1, 2); R(c, x + 1.5, y + 0.5, 1, 2); R("#fff", x + 0.25, y + 0.25, 0.5, 0.5); },
+      (R, g, x, y) => { R("#000", x, y, 3.5, 1); R("#2a2a3a", x + 0.5, y + 0.25, 1, 0.5); R("#2a2a3a", x + 2, y + 0.25, 1, 0.5); },
+    ],
+  },
+  lab: [
+    (R, g, x, y) => { R("#5a6070", x, y, 1, 1); R("#c4cad6", x, y, 0.5, 0.5); R("#5a6070", x + 2.5, y + 1, 1, 1); R("#c4cad6", x + 2.5, y + 1, 0.5, 0.5); },
+    (R, g, x, y) => { R("rgba(30,30,40,0.35)", x, y, 3.5, 2); R("rgba(30,30,40,0.25)", x + 0.5, y - 0.5, 2, 3); R("rgba(160,120,255,0.35)", x + 1, y + 0.5, 1, 0.5); },
+    (R, g, x, y, r) => { const c = r() < 0.5 ? "#2b2b3a" : "#3a5fd0"; R(c, x, y + 1, 1.5, 0.5); R(c, x + 1, y + 0.5, 1.5, 0.5); R(c, x + 2, y + 1, 1.5, 0.5); R(c, x + 3, y + 1.5, 1, 0.5); },
+    (R, g, x, y, r) => { const c = ["#6ee07a", "#ff7eb6", "#5fb4ff"][Math.floor(r() * 3)]; R("#000", x, y, 2, 2.5); R("#e8f2ff", x + 0.5, y + 0.5, 1, 1.5); R(c, x + 0.5, y + 1.25, 1, 0.75); R("#fff", x + 0.5, y + 0.5, 0.5, 0.5); },
+    (R, g, x, y) => { for (let i = 0; i < 4; i++) R(i % 2 ? "#222" : "#ffd23f", x + i, y, 1, 1); },
+    (R, g, x, y) => { R("#000", x, y, 3.5, 2.5); R("#7a8292", x + 0.5, y + 0.5, 2.5, 1.5); for (let i = 0; i < 3; i++) R("#3a3f4c", x + 0.5, y + 0.75 + i * 0.5, 2.5, 0.25); },
+    (R, g, x, y) => { R("#f4f4f4", x, y, 2.5, 3); R("#9a9aae", x + 0.5, y + 0.75, 1.5, 0.25); R("#9a9aae", x + 0.5, y + 1.5, 1.5, 0.25); R("#9a9aae", x + 0.5, y + 2.25, 1, 0.25); },
+  ],
+  stage: [
+    (R, g, x, y) => { R("#f4f4f4", x, y, 0.5, 0.5); R("#f4f4f4", x + 0.5, y + 0.5, 0.5, 0.5); R("#f4f4f4", x + 1, y + 1, 0.5, 0.5); R("#f4f4f4", x + 1, y, 0.5, 0.5); R("#f4f4f4", x, y + 1, 0.5, 0.5); },
+    (R, g, x, y) => { R("#2f7a2c", x, y + 1, 2.5, 0.5); R("#d63a3a", x + 2.5, y + 0.5, 1, 1); R("#ff7070", x + 2.5, y + 0.5, 0.5, 0.5); },
+    (R, g, x, y) => { g.fillStyle = "rgba(255,240,180,0.22)"; g.beginPath(); g.ellipse(x + 2, y + 1.5, 4, 2.5, 0, 0, Math.PI * 2); g.fill(); },
+    (R, g, x, y) => { R("#000", x, y, 2.5, 3); R("#2a2a3a", x + 0.5, y + 0.5, 1.5, 2); R("#7a7a8e", x + 0.75, y + 1.25, 1, 1); },
+    (R, g, x, y) => { R("#ffd23f", x + 1, y, 1, 3); R("#ffd23f", x, y + 1, 3, 1); R("#fff09a", x + 1, y + 1, 0.5, 0.5); },
+    (R, g, x, y, r) => { const cols = ["#ff5c7a", "#ffd23f", "#5fb4ff", "#6ee07a", "#c9a7ff"]; for (let i = 0; i < 6; i++) R(cols[Math.floor(r() * cols.length)], x + r() * 4, y + r() * 3, 0.5, 0.5); },
+  ],
+  backrooms: [
+    (R, g, x, y) => { R("rgba(110,90,30,0.35)", x, y, 4, 2.5); R("rgba(110,90,30,0.25)", x + 0.5, y - 0.5, 3, 3.5); },
+    (R, g, x, y) => { g.fillStyle = "rgba(255,250,210,0.18)"; g.fillRect(x - 1, y - 1, 6, 4); R("#fffbe0", x, y, 4, 2); R("#fff3a1", x + 0.5, y + 0.5, 3, 1); },
+    (R, g, x, y) => { R("#f2ecd0", x, y, 1.5, 2); R("#5a4a20", x + 0.5, y + 0.5, 0.25, 0.5); R("#5a4a20", x + 1, y + 0.5, 0.25, 0.5); },
+    (R, g, x, y) => { R("#6b5a1e", x, y + 2, 0.5, 1.5); R("#6b5a1e", x + 2, y + 2, 0.5, 1.5); R("#8a7a3a", x, y + 1.5, 2.5, 0.75); R("#6b5a1e", x, y, 0.5, 2); },
+    (R, g, x, y) => { R("#8a7a3a", x, y, 0.75, 1); R("#8a7a3a", x + 1.25, y + 1.5, 0.75, 1); R("#8a7a3a", x + 0.25, y + 3, 0.75, 1); },
+    (R, g, x, y) => { R("#8a7a3a", x, y, 1, 0.5); R("#8a7a3a", x + 1, y + 0.5, 1, 0.5); R("#8a7a3a", x + 1.5, y + 1, 1.5, 0.5); },
+  ],
+};
+// Scatters `n` details for a theme. `spot(wet)` returns a free {x, y} or null.
+function scatterPenDetails(g, R, theme, n, r, spot, wetOnly = false) {
+  for (let i = 0; i < n; i++) {
+    let list = PEN_DETAILS[theme] || PEN_DETAILS.meadow, wet = false;
+    if (theme === "pool") { wet = wetOnly || r() < 0.65; list = wet ? list.wet : list.dry; }
+    const p = spot(wet);
+    if (!p) continue;
+    list[Math.floor(r() * list.length)](R, g, p.x, p.y, r);
+  }
+}
+const penBowl = (R, X, Y) => { R("#000", X, Y, 8, 5); R("#c94a4a", X + 1, Y + 1, 6, 3); R("#e8c15a", X + 2, Y + 1, 4, 1); R("#ffe9a0", X + 2, Y + 1, 2, 0.5); R("#ff8080", X + 1, Y + 1, 6, 0.5); };
+
+// A square pen. Each pen passes its own seed for its details, and `turn` (0-3) spins
+// everything inside the fence by 90 degrees.
+const encGroundCache = new Map();
+function makeEncGround(size, theme = "meadow", fenceKey = null, seed = 0, turn = 0) {
+  const key = [size, theme, fenceKey || "", seed, turn & 3].join(":");
+  if (encGroundCache.has(key)) return encGroundCache.get(key);
   const W = size * TILE;
   const [c, g] = hiCanvas(W, W);
+  const [ic, ig] = hiCanvas(W, W);   // the floor and details, drawn upright then turned into place
   const r = seeded(42 + size * 7 + theme.length * 13);
-  const R = (col, x, y, w, h) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
+  const rd = seeded(seed * 7 + size * 131 + theme.length * 17 + 3);
+  const R = (col, x, y, w, h) => { ig.fillStyle = col; ig.fillRect(x, y, w, h); };
   const sprinkle = (cols, n, x0 = 0, y0 = 0, w = W, h = W, sz = 0.5) => { for (let i = 0; i < n; i++) R(cols[Math.floor(r() * cols.length)], x0 + Math.floor(r() * w * 2) / 2, y0 + Math.floor(r() * h * 2) / 2, sz, sz); };
   let fence = FENCES.wood;
+  const taken = [[4, W - 11, 10, 7]];   // the food bowl's corner
+  const free = (x, y, w, h) => !taken.some(([tx, ty, tw, th]) => x < tx + tw && x + w > tx && y < ty + th && y + h > ty);
+  // a free spot for a detail inside the rectangle [x0, y0, x1, y1]
+  const spotIn = (x0, y0, x1, y1) => {
+    for (let t = 0; t < 12; t++) {
+      const x = x0 + Math.floor(rd() * (x1 - x0) * 2) / 2, y = y0 + Math.floor(rd() * (y1 - y0) * 2) / 2;
+      if (free(x - 1, y - 1, 6, 5)) { taken.push([x - 1, y - 1, 6, 5]); return { x, y }; }
+    }
+    return null;
+  };
   if (theme === "pool") {
     R("#6cbf55", 0, 0, W, W); sprinkle(["#5aad47", "#83d06a"], W * 6);
     R("#000", 6, 7, W - 12, W - 16); R("#e8e0c8", 7, 8, W - 14, W - 18);
@@ -764,58 +843,52 @@ function makeEncGround(size, theme = "meadow", fenceKey = null) {
     R("#2f7fd0", 9, 10, W - 18, W - 22); R("#3d8fe0", 10, 11, W - 20, W - 24);
     for (let i = 0; i < size * 6; i++) R(r() < 0.5 ? "#9fd4ff" : "#6fb4f0", 11 + Math.floor(r() * (W - 26)), 12 + Math.floor(r() * (W - 28)), 1 + r() * 2, 0.5);
     R("#c9c9d9", W - 14, 8, 1, 6); R("#c9c9d9", W - 11, 8, 1, 6); R("#c9c9d9", W - 14, 10, 4, 0.5); R("#c9c9d9", W - 14, 12, 4, 0.5);
-    R("#ff5c7a", 9, W - 9, 6, 2); R("#fff", 11, W - 9, 2, 2); R("#ffd23f", 15, W - 9, 3, 2);
+    taken.push([W - 15, 7, 6, 8]);
   } else if (theme === "lab") {
     fence = FENCES.metal;
     for (let y = 0; y < W; y += 4) for (let x = 0; x < W; x += 4) {
       R(((x + y) / 4) % 2 ? "#cfd6e0" : "#b8c2d0", x, y, 4, 4);
       R("rgba(255,255,255,0.35)", x, y, 4, 0.5); R("rgba(0,0,0,0.12)", x + 3.5, y, 0.5, 4);
     }
-    R("#000", W - 18, 5, 13, 6); R("#5a6070", W - 17, 6, 11, 4); R("#7a8292", W - 17, 6, 11, 0.5);
-    R("#6ee07a", W - 16, 4, 2, 3); R("#ff7eb6", W - 12, 3, 2, 4); R("#5fb4ff", W - 9, 4, 2, 3);
-    R("#fff", W - 16, 4, 0.5, 1); R("#fff", W - 12, 3, 0.5, 1); R("#fff", W - 9, 4, 0.5, 1);
-    for (let x = 4; x < W - 4; x += 4) { R("#ffd23f", x, W - 7, 2, 2); R("#222", x + 2, W - 7, 2, 2); }
-    R("#2b2b3a", 6, 14, 1, W - 24); R("#ff5c7a", 6, 14, 1, 1);
   } else if (theme === "stage") {
     for (let y = 0; y < W; y += 3) {
       R(y % 6 ? "#b07a44" : "#9a6838", 0, y, W, 3); R("#6b4220", 0, y + 2.5, W, 0.5);
       for (let x = (y * 7) % 11; x < W; x += 11) R("#6b4220", x, y, 0.5, 2.5);
     }
     for (let i = 0; i < size * 10; i++) R("rgba(80,40,10,0.35)", Math.floor(r() * W * 2) / 2, Math.floor(r() * W / 3) * 3 + 1, 2, 0.5);
-    R("#7a1020", 3, 3, W - 6, 7);
-    for (let x = 3; x < W - 3; x += 3) { R("#a3203a", x, 3, 2, 7); R("#c43a52", x, 3, 0.5, 7); }
-    R("#ffd23f", 3, 10, W - 6, 1); R("#fff09a", 3, 10, W - 6, 0.5);
-    g.fillStyle = "rgba(255,240,180,0.18)";
-    for (const cx of [W * 0.3, W * 0.7]) { g.beginPath(); g.ellipse(cx, W * 0.62, W * 0.18, W * 0.12, 0, 0, Math.PI * 2); g.fill(); }
   } else if (theme === "backrooms") {
     fence = FENCES.wall;
     R("#b8a35a", 0, 0, W, W);
     for (let y = 0; y < W; y += 0.5) for (let x = 0; x < W; x += 0.5) if (r() < 0.18) R(r() < 0.5 ? "#a8934a" : "#c4b066", x, y, 0.5, 0.5);
-    for (let x = 0; x < W; x += 3) { R(x % 6 ? "#e0cf7a" : "#cdbb63", x, 3, 3, 7); R("#f2e49a", x, 3, 0.5, 7); }
-    R("#fffbe0", W / 2 - 6, 14, 12, 3); R("#fff3a1", W / 2 - 5, 15, 10, 1);
-    sprinkle(["#8a7a3a"], size * 8, 4, 12, W - 8, W - 16, 1);
   } else {
     R("#6cbf55", 0, 0, W, W); sprinkle(["#5aad47", "#83d06a", "#5aad47"], W * 8);
-    for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) if (Math.hypot(x - W / 2, (y - W / 2 - 1) * 1.3) < W * 0.19 && r() < 0.55) R(r() < 0.5 ? "#8fb25a" : "#a3be6c", x, y, 1, 1);
-    for (let i = 0; i < size * 14; i++) { const x = Math.floor(r() * W * 2) / 2, y = Math.floor(r() * W * 2) / 2; R("#3f8f3a", x, y, 0.5, 1.5); R("#9ade7c", x, y - 0.5, 0.5, 0.5); }
-    R("#000", W - 17, W - 11, 12, 7); R("#7a4a22", W - 16, W - 10, 10, 5); R("#a8703c", W - 16, W - 10, 10, 0.5); R("#3d8fe0", W - 15, W - 9, 8, 2); R("#9fd4ff", W - 14, W - 9, 3, 0.5);
-    litBlob(g, W - 8, 6.5, 4.5, 3.8, ramp("#3f8f3a"));
-    R("#ff8fb8", W - 7, 6, 1, 1); R("#fff3a1", W - 10, 7, 0.5, 0.5);
+    for (let i = 0; i < size * 10; i++) { const x = Math.floor(r() * W * 2) / 2, y = Math.floor(r() * W * 2) / 2; R("#3f8f3a", x, y, 0.5, 1.5); R("#9ade7c", x, y - 0.5, 0.5, 0.5); }
   }
-  R("#000", 5, W - 10, 8, 5); R("#c94a4a", 6, W - 9, 6, 3); R("#e8c15a", 7, W - 9, 4, 1); R("#ffe9a0", 7, W - 9, 2, 0.5); R("#ff8080", 6, W - 9, 6, 0.5);
+  // a handful of small details, more in bigger pens
+  const n = 1 + size + Math.floor(rd() * 2);   // 4-5 in a small pen, 6-7 in a large one
+  scatterPenDetails(ig, R, theme, n, rd, wet => theme === "pool"
+    ? (wet ? spotIn(11, 12, W - 15, W - 16) : spotIn(14, W - 9, W - 10, W - 7))
+    : spotIn(5, 5, W - 9, W - 9));
+  penBowl(R, 5, W - 10);
+  g.save(); g.translate(W / 2, W / 2); g.rotate((turn & 3) * Math.PI / 2); g.translate(-W / 2, -W / 2);
+  g.drawImage(ic, 0, 0, W, W);
+  g.restore();
+  const F = (col, x, y, w, h) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
   if (fenceKey && FENCES[fenceKey]) fence = FENCES[fenceKey];
-  R(fence.dark, 0, 0, W, 3); R(fence.dark, 0, W - 3, W, 3); R(fence.dark, 0, 0, 3, W); R(fence.dark, W - 3, 0, 3, W);
-  R(fence.hi, 0, 0, W, 1); R(fence.hi, 0, W - 3, W, 1); R(fence.hi, 0, 0, 1, W); R(fence.hi, W - 3, 0, 1, W);
-  R(fence.mid, 1, 1, W - 2, 1); R(fence.mid, 1, W - 2, W - 2, 1); R(fence.mid, 1, 1, 1, W - 2); R(fence.mid, W - 2, 1, 1, W - 2);
-  for (let x = 2; x < W - 2; x += 5) { R("rgba(0,0,0,0.25)", x, 1.5, 2, 0.5); R("rgba(0,0,0,0.25)", x, W - 1.5, 2, 0.5); }
+  F(fence.dark, 0, 0, W, 3); F(fence.dark, 0, W - 3, W, 3); F(fence.dark, 0, 0, 3, W); F(fence.dark, W - 3, 0, 3, W);
+  F(fence.hi, 0, 0, W, 1); F(fence.hi, 0, W - 3, W, 1); F(fence.hi, 0, 0, 1, W); F(fence.hi, W - 3, 0, 1, W);
+  F(fence.mid, 1, 1, W - 2, 1); F(fence.mid, 1, W - 2, W - 2, 1); F(fence.mid, 1, 1, 1, W - 2); F(fence.mid, W - 2, 1, 1, W - 2);
+  for (let x = 2; x < W - 2; x += 5) { F("rgba(0,0,0,0.25)", x, 1.5, 2, 0.5); F("rgba(0,0,0,0.25)", x, W - 1.5, 2, 0.5); }
   for (let p = 0; p < W; p += 8) {
     const q = Math.min(p, W - 4);
     for (const [px, py] of [[q, 0], [q, W - 4], [0, q], [W - 4, q]]) {
-      R(fence.post, px, py, 4, 4); R(fence.hi, px + 0.5, py + 0.5, 3, 0.5); R(fence.hi, px + 0.5, py + 0.5, 0.5, 3);
-      R(fence.mid, px + 1.5, py + 1.5, 1, 1);
+      F(fence.post, px, py, 4, 4); F(fence.hi, px + 0.5, py + 0.5, 3, 0.5); F(fence.hi, px + 0.5, py + 0.5, 0.5, 3);
+      F(fence.mid, px + 1.5, py + 1.5, 1, 1);
     }
   }
-  return (encGroundCache[key] = c);
+  while (encGroundCache.size >= 200) encGroundCache.delete(encGroundCache.keys().next().value);
+  encGroundCache.set(key, c);
+  return c;
 }
 const encGround = makeEncGround(3, "meadow");
 
@@ -825,8 +898,8 @@ const encGround = makeEncGround(3, "meadow");
 const penSpriteCache = new Map();
 // cache: where to keep the result. The live preview of a pen being painted passes its own
 // one-slot cache, so big drafts don't pile up in memory.
-function makePenSprite(w, h, cells, theme = "meadow", fenceKey = null, cache = penSpriteCache, maxCached = 120) {
-  const key = [w, h, [...cells].sort().join(";"), theme, fenceKey || ""].join("|");
+function makePenSprite(w, h, cells, theme = "meadow", fenceKey = null, cache = penSpriteCache, maxCached = 120, seed = 0) {
+  const key = [w, h, [...cells].sort().join(";"), theme, fenceKey || "", seed].join("|");
   if (cache.has(key)) return cache.get(key);
   const [c, g] = hiCanvas(w * TILE, h * TILE);
   const r = seeded(w * 31 + h * 17 + cells.size * 7 + theme.length);
@@ -865,14 +938,24 @@ function makePenSprite(w, h, cells, theme = "meadow", fenceKey = null, cache = p
       for (let i = 0; i < 3; i++) R(r() < 0.5 ? "#9fd4ff" : "#6fb4f0", X + l + r() * (TILE - l - rr - 3), Y + t + r() * (TILE - t - b - 1), 1 + r() * 2, 0.5);
     }
   }
-  // decor: theme features along the top edge and a food bowl near the bottom
-  const tops = list.filter(([x, y]) => !has(x, y - 1));
-  if (theme === "stage") for (const [cx, cy] of tops) { const X = cx * TILE, Y = cy * TILE; R("#7a1020", X, Y + 3, TILE, 7); for (let x = 0; x < TILE; x += 3) { R("#a3203a", X + x, Y + 3, 2, 7); R("#c43a52", X + x, Y + 3, 0.5, 7); } R("#ffd23f", X, Y + 10, TILE, 1); }
-  if (theme === "backrooms") for (const [cx, cy] of tops) { const X = cx * TILE, Y = cy * TILE; for (let x = 0; x < TILE; x += 3) { R(x % 6 ? "#e0cf7a" : "#cdbb63", X + x, Y + 3, 3, 7); R("#f2e49a", X + x, Y + 3, 0.5, 7); } }
-  if (theme === "lab" && tops.length) { const [cx, cy] = tops[Math.floor(tops.length / 2)]; const X = cx * TILE, Y = cy * TILE; R("#000", X + 2, Y + 5, 12, 6); R("#5a6070", X + 3, Y + 6, 10, 4); R("#6ee07a", X + 4, Y + 4, 2, 3); R("#ff7eb6", X + 8, Y + 3, 2, 4); }
-  if (theme === "meadow" && list.length > 3) { const [cx, cy] = list[Math.floor(list.length / 2)]; litBlob(g, cx * TILE + 8, cy * TILE + 7, 4, 3.4, ramp("#3f8f3a")); R("#ff8fb8", cx * TILE + 9, cy * TILE + 6, 1, 1); }
+  // a few small random details, then a food bowl near the bottom
   const bottom = list[list.length - 1];
-  { const X = bottom[0] * TILE, Y = bottom[1] * TILE; R("#000", X + 4, Y + 6, 8, 5); R("#c94a4a", X + 5, Y + 7, 6, 3); R("#e8c15a", X + 6, Y + 7, 4, 1); R("#ff8080", X + 5, Y + 7, 6, 0.5); }
+  const rd = seeded(seed * 7 + w * 31 + h * 17 + theme.length + 5);
+  const inner = list.filter(c => c !== bottom);
+  const used = new Set();
+  const n = Math.min(8, 1 + Math.floor(list.length / 3) + Math.floor(rd() * 2));
+  scatterPenDetails(g, R, theme, n, rd, () => {
+    const open = inner.filter(c => !used.has(c));
+    if (!open.length) return null;
+    const cell = open[Math.floor(rd() * open.length)], [cx, cy] = cell;
+    used.add(cell);
+    // keep clear of the fence on outside edges (and the pool deck)
+    const m = theme === "pool" ? 7 : 4;
+    const x0 = has(cx - 1, cy) ? 1 : m, x1 = TILE - (has(cx + 1, cy) ? 1 : m) - 4;
+    const y0 = has(cx, cy - 1) ? 1 : m, y1 = TILE - (has(cx, cy + 1) ? 1 : m) - 3;
+    return { x: cx * TILE + x0 + Math.floor(rd() * Math.max(0, x1 - x0) * 2) / 2, y: cy * TILE + y0 + Math.floor(rd() * Math.max(0, y1 - y0) * 2) / 2 };
+  }, true);   // custom pools are all water inside the deck
+  penBowl(R, bottom[0] * TILE + 4, bottom[1] * TILE + 6);
   // fences along every outside edge, with posts at the corners and every 8 units
   for (const [cx, cy] of list) {
     const X = cx * TILE, Y = cy * TILE;
@@ -1256,11 +1339,47 @@ function gateSprite() {
 }
 
 // ================= Shops & decor sprites (16x20, bottom-anchored) =================
-function makeObjSprite(type) {
+// Props face one of four ways: 0 front, 1 right, 2 back, 3 left (a mirrored 1).
+// Only the ones with `turns` in OBJECTS have side and back views; the rest look the same from every side.
+function makeObjSprite(type, face = 0) {
+  if (type === "staffhouse") return makeStaffHouseSprite();
   const [c, g] = hiCanvas(16, 20);
   const R = (col, x, y, w, h) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
+  // the food each stand sells, drawn on its front counter (or smaller elsewhere)
+  const goods = () => {
+    if (type === "fries") { R("#000", 6, 6, 5, 5); R("#e33d3d", 7, 8, 3, 3); R("#ff7070", 7, 8, 0.5, 3); R("#ffd23f", 7, 6, 1, 2); R("#ffd23f", 9, 6, 1, 2); R("#ffe98a", 8, 5, 1, 3); R("#fff6c0", 8, 5, 0.5, 1); }
+    if (type === "lemonade") { R("#000", 6, 5, 5, 6); R("#fff8b0", 7, 6, 3, 4); R("#ffd23f", 7, 8, 3, 2); R("#fff", 7, 6, 0.5, 4); R("#ff7eb6", 9, 3, 1, 4); R("#6ee07a", 7.5, 7, 1, 1); }
+    if (type === "burger") { R("#000", 5, 5, 7, 6); R("#d98b3a", 6, 6, 5, 1); R("#e8a85a", 6, 5, 5, 1); R("#fff3c0", 7, 5, 0.5, 0.5); R("#fff3c0", 9, 5, 0.5, 0.5); R("#5ab84a", 6, 7, 5, 1); R("#ffd23f", 6, 7.5, 5, 0.5); R("#6b3a1a", 6, 8, 5, 1); R("#d98b3a", 6, 9, 5, 1); }
+  };
+  const smallGoods = (cx, cy, k) => { g.save(); g.translate(cx, cy); g.scale(k, k); g.translate(-8.5, -8); goods(); g.restore(); };
   const stand = (c1, c2) => {
+    if (face === 1) {
+      // side on, counter to the right
+      R("rgba(0,0,0,0.25)", 2, 18, 13, 2);
+      R("#000", 3, 10, 10, 9); R("#a8703c", 4, 11, 8, 7); R("#7a4a22", 4, 16, 8, 2);
+      for (let y = 12.5; y < 16; y += 1.5) R("#8a5a2c", 4, y, 8, 0.5);
+      R("#000", 11, 9, 4.5, 2.5); R("#e8d3b0", 11.5, 9.5, 3.5, 1.5); R("#fff4dc", 11.5, 9.5, 3.5, 0.5);
+      R("#2a1a0c", 4, 4, 1, 6); R("#2a1a0c", 12, 4, 1, 6); R("#5a3a1e", 4, 4, 0.5, 6); R("#5a3a1e", 12, 4, 0.5, 6);
+      R("#000", 2, 0, 14, 6);
+      R(c1, 3, 1, 12, 4); R(c2, 3, 2, 12, 1.5);
+      R("rgba(255,255,255,0.35)", 3, 1, 12, 0.5); R("rgba(0,0,0,0.18)", 3, 4.5, 12, 0.5);
+      R(c1, 13, 5, 2, 1); R("#000", 13, 6, 2, 0.5);
+      smallGoods(12.5, 7, 0.55);
+      return;
+    }
     R("rgba(0,0,0,0.25)", 1, 18, 15, 2);
+    if (face === 2) {
+      // from behind: a plain back wall, with a small sign so you can still tell the stands apart
+      R("#000", 1, 10, 14, 9); R("#8a5a2c", 2, 11, 12, 7); R("#5a3a1e", 2, 16, 12, 2);
+      for (let x = 4; x < 14; x += 3) R("#6e4520", x, 11, 0.5, 5);
+      R("#2a1a0c", 2, 4, 1, 6); R("#2a1a0c", 13, 4, 1, 6);
+      R("#000", 0, 0, 16, 6);
+      for (let x = 1; x < 15; x++) { R(Math.floor((x - 1) / 2) % 2 ? c2 : c1, x, 1, 1, 4); }
+      R("rgba(0,0,0,0.25)", 1, 3.5, 14, 1.5);
+      R("#000", 5.5, 11.5, 5, 4); R("#e8d3b0", 6, 12, 4, 3);
+      smallGoods(8, 13.5, 0.4);
+      return;
+    }
     R("#000", 1, 10, 14, 9); R("#a8703c", 2, 11, 12, 7); R("#c48a4a", 2, 12, 12, 1); R("#7a4a22", 2, 16, 12, 2);
     for (let x = 3; x < 14; x += 3) R("#8a5a2c", x, 13, 0.5, 3);
     R("#e8d3b0", 1, 9, 14, 2); R("#fff4dc", 1, 9, 14, 0.5); R("#000", 1, 9, 14, 0.5);
@@ -1269,20 +1388,12 @@ function makeObjSprite(type) {
     for (let x = 1; x < 15; x++) { R(Math.floor((x - 1) / 2) % 2 ? c2 : c1, x, 1, 1, 4); }
     R("rgba(255,255,255,0.35)", 1, 1, 14, 0.5); R("rgba(0,0,0,0.18)", 1, 4.5, 14, 0.5);
     for (let x = 0; x < 16; x += 4) { R(c1, x + 1, 5, 2, 1); R("#000", x + 1, 6, 2, 0.5); }
+    goods();
   };
   switch (type) {
-    case "fries":
-      stand("#e33d3d", "#fff");
-      R("#000", 6, 6, 5, 5); R("#e33d3d", 7, 8, 3, 3); R("#ff7070", 7, 8, 0.5, 3); R("#ffd23f", 7, 6, 1, 2); R("#ffd23f", 9, 6, 1, 2); R("#ffe98a", 8, 5, 1, 3); R("#fff6c0", 8, 5, 0.5, 1);
-      break;
-    case "lemonade":
-      stand("#ff7eb6", "#fff");
-      R("#000", 6, 5, 5, 6); R("#fff8b0", 7, 6, 3, 4); R("#ffd23f", 7, 8, 3, 2); R("#fff", 7, 6, 0.5, 4); R("#ff7eb6", 9, 3, 1, 4); R("#6ee07a", 7.5, 7, 1, 1);
-      break;
-    case "burger":
-      stand("#3fa34d", "#fff");
-      R("#000", 5, 5, 7, 6); R("#d98b3a", 6, 6, 5, 1); R("#e8a85a", 6, 5, 5, 1); R("#fff3c0", 7, 5, 0.5, 0.5); R("#fff3c0", 9, 5, 0.5, 0.5); R("#5ab84a", 6, 7, 5, 1); R("#ffd23f", 6, 7.5, 5, 0.5); R("#6b3a1a", 6, 8, 5, 1); R("#d98b3a", 6, 9, 5, 1);
-      break;
+    case "fries": stand("#e33d3d", "#fff"); break;
+    case "lemonade": stand("#ff7eb6", "#fff"); break;
+    case "burger": stand("#3fa34d", "#fff"); break;
     case "flowers": {
       R("rgba(0,0,0,0.2)", 2, 17, 13, 2);
       R("#000", 2, 12, 12, 6); R("#6b4122", 3, 13, 10, 4); R("#8a5a32", 3, 13, 10, 1);
@@ -1296,7 +1407,24 @@ function makeObjSprite(type) {
       break;
     }
     case "bench":
+      if (face === 1) {
+        // side on: the seat runs away from you, backrest on the left
+        R("rgba(0,0,0,0.25)", 3, 17, 10, 2);
+        R("#2a1a0c", 6.5, 15, 1, 3); R("#2a1a0c", 10, 15, 1, 3);
+        R("#000", 5, 5, 7, 11); R("#c48a4a", 6, 6, 5, 9); R("#e0a868", 6, 6, 0.5, 9);
+        R("#a8703c", 7.5, 6, 0.5, 9); R("#a8703c", 9.5, 6, 0.5, 9); R("#a8703c", 6, 14, 5, 1);
+        R("#000", 3, 2, 3.5, 14); R("#a8703c", 4, 3, 1.5, 12); R("#c48a4a", 4, 3, 0.5, 12);
+        R("#2a1a0c", 4, 15, 1, 3);
+        break;
+      }
       R("rgba(0,0,0,0.25)", 1, 17, 15, 2);
+      if (face === 2) {
+        // from behind: the backrest is in front of the seat
+        R("#2a1a0c", 3, 14, 1, 4); R("#2a1a0c", 12, 14, 1, 4);
+        R("#000", 1, 8, 14, 3); R("#c48a4a", 2, 9, 12, 1); R("#e0a868", 2, 9, 12, 0.5);
+        R("#000", 1, 10.5, 14, 4.5); R("#8a5a2c", 2, 11.5, 12, 1); R("#a8703c", 2, 13, 12, 1); R("#6e4520", 2, 12.5, 12, 0.5);
+        break;
+      }
       R("#2a1a0c", 3, 14, 1, 4); R("#2a1a0c", 12, 14, 1, 4);
       R("#000", 1, 8, 14, 3); R("#a8703c", 2, 9, 12, 1); R("#c48a4a", 2, 9, 12, 0.5);
       R("#000", 1, 12, 14, 3); R("#c48a4a", 2, 13, 12, 1); R("#e0a868", 2, 13, 12, 0.5);
@@ -1319,18 +1447,66 @@ function makeObjSprite(type) {
     case "statue": {
       R("rgba(0,0,0,0.25)", 1, 18, 15, 2);
       R("#000", 2, 12, 12, 7); R("#9a9aae", 3, 13, 10, 5); R("#c9c9d9", 3, 13, 10, 1); R("#6f6f84", 3, 17, 10, 1);
-      R("#ffd23f", 5, 15, 6, 1);
+      R(face === 2 ? "#c9a227" : "#ffd23f", 5, 15, 6, 1);   // the plaque is on the front
       const [og, gg] = hiCanvas(12, 12);
       drawBody(gg, 1, 1, 10, "#e8b830", null, null);
-      dots(gg, { x: 0, y: 0 }, "#6b4a00", [[4, 4], [4, 5], [7, 4], [7, 5], [3, 7], [4, 8], [5, 8], [6, 8], [7, 8], [8, 7]]);
+      const FACES = [
+        [[4, 4], [4, 5], [7, 4], [7, 5], [3, 7], [4, 8], [5, 8], [6, 8], [7, 8], [8, 7]],   // front
+        [[8, 4], [8, 5], [7, 8], [8, 8], [9, 7]],                                         // looking right
+        [],                                                                               // back of the head
+      ];
+      dots(gg, { x: 0, y: 0 }, "#6b4a00", FACES[face]);
       blit(g, og, 2, 1);
       break;
     }
   }
   return c;
 }
+// The Staff House: a 2x2-tile cottage where the staff rest at night. Glass panes at (5, 18)
+// and (18, 18), 2x2 each, light up while anyone is home (see drawObject).
+function makeStaffHouseSprite() {
+  const [c, g] = hiCanvas(25, 28);
+  const R = (col, x, y, w, h) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
+  R("rgba(0,0,0,0.25)", 1, 26, 24, 2);
+  // chimney, then the stepped roof in front of it
+  R("#000", 17, 0, 4, 7); R("#7a7a8e", 18, 1, 2, 6); R("#9a9aae", 18, 1, 1, 6);
+  R("#000", 7, 0, 11, 4); R("#b84a3a", 8, 1, 9, 3); R("#d9624a", 8, 1, 9, 1);
+  R("#000", 3, 3, 19, 5); R("#b84a3a", 4, 4, 17, 4); R("#d9624a", 4, 4, 17, 1);
+  R("#000", 0, 7, 25, 6); R("#b84a3a", 1, 8, 23, 4); R("#d9624a", 1, 8, 23, 1); R("#8a3426", 1, 11, 23, 1);
+  for (let x = 3; x < 23; x += 4) { R("#a33e30", x, 5, 1, 2); R("#a33e30", x + 2, 9, 1, 2); }
+  // walls
+  R("#000", 2, 12, 21, 15); R("#e3d3ac", 3, 13, 19, 13); R("#c9b68a", 3, 25, 19, 1);
+  for (const y of [16, 19, 22]) R("#d6c49a", 3, y, 19, 1);
+  // sign, door and step
+  R("#000", 8, 12, 9, 4); R("#3fa34d", 9, 13, 7, 2); R("#6ec05a", 9, 13, 7, 1);
+  for (let x = 10; x < 16; x += 2) R("#fff", x, 14, 1, 1);
+  R("#5a3418", 10, 17, 5, 9); R("#7a4a22", 11, 18, 3, 8); R("#a8703c", 11, 18, 1, 8); R("#ffd23f", 13, 22, 1, 1);
+  R("#9a9aae", 9, 26, 7, 1);
+  R("#ffd23f", 16, 18, 1, 1); R("#a8703c", 16, 19, 1, 1);
+  // windows with flower boxes
+  for (const wx of [4, 17]) {
+    R("#5a3418", wx, 17, 4, 4); R("#5f7fa8", wx + 1, 18, 2, 2); R("#9fc4e8", wx + 1, 18, 1, 1);
+    R("#a8703c", wx, 21, 4, 1); R("#2f7a2c", wx, 22, 4, 1); R("#ff8fb8", wx, 22, 1, 1); R("#fff3a1", wx + 2, 22, 1, 1);
+  }
+  return c;
+}
+function mirrorSprite(src) {
+  const [c, g] = hiCanvas(uW(src), uH(src));
+  g.translate(uW(src), 0); g.scale(-1, 1);
+  g.drawImage(src, 0, 0, uW(src), uH(src));
+  return c;
+}
+// OBJ_FACES[type][face]: one sprite per facing (all four the same for props that don't turn)
+const OBJ_FACES = {};
+for (const k of Object.keys(OBJECTS)) {
+  const front = enlarge(makeObjSprite(k, 0), PROP_K);
+  if (!OBJECTS[k].turns) { OBJ_FACES[k] = [front, front, front, front]; continue; }
+  const side = makeObjSprite(k, 1);
+  OBJ_FACES[k] = [front, enlarge(side, PROP_K), enlarge(makeObjSprite(k, 2), PROP_K), enlarge(mirrorSprite(side), PROP_K)];
+}
 const OBJ_SPRITES = {};
-for (const k of Object.keys(OBJECTS)) OBJ_SPRITES[k] = enlarge(makeObjSprite(k), PROP_K);
+for (const k of Object.keys(OBJECTS)) OBJ_SPRITES[k] = OBJ_FACES[k][0];
+const objSprite = (t, face) => OBJ_FACES[t][(face || 0) & 3];
 
 // ================= UI icons =================
 const ICONS = {

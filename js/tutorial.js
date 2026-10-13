@@ -74,7 +74,7 @@ const TUT_STEPS = [
   { title: "Guests", target: "#game", tour: "advanced",
     text: "Guests arrive by car, pay at the gate, and pay again for every pen they walk past. They wander for a while, then walk back to their car. Food critics leave star reviews, and influencers can make a variant go viral." },
   { title: "Staff", tab: "park", target: "#staff-card", tour: "advanced", pro: true,
-    text: "Janitors sweep up litter, keepers feed hungry pens, and the Verity Mascot cheers guests up. Staff are paid wages every second while the park is open." },
+    text: "Janitors sweep up litter, keepers feed hungry pens, and the Verity Mascot cheers guests up. Build a Staff House first: at night they tidy up and walk home to it. Staff are paid wages every second while the park is open." },
   { title: "The gold pile", tab: "park", target: "#bank-card", tour: "advanced", pro: true,
     text: "Your coins are kept in the gold pile by the gate, guarded by the Securities. It has a limit: coins beyond it are lost, so upgrade it at night. You can also move it." },
   { title: "Parking", tab: "park", target: "#parking-card", pro: true,

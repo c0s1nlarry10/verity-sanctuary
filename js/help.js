@@ -34,6 +34,9 @@ const GAME_TIPS = [
   { t: "A bigger car park lets more guests visit at once.", only: "pro" },
   { t: "Escaped variants scare guests. Click them to catch them.", only: "pro" },
   { t: "Custom pens can be painted in any shape you like.", only: "pro" },
+  { t: "Staff need a Staff House. At night they tidy up and walk home to it.", only: "pro" },
+  { t: "Press R to turn snack stands, benches, statues and pens. You can also click a stand twice." },
+  { t: "Nothing can be built right next to the gold pile. The Securities need room to patrol." },
   { t: "In Simple mode you can build at any time, even with guests in the park.", only: "simple" },
   { t: "Your car park grows by itself as your park levels up.", only: "simple" },
 ];
@@ -137,7 +140,7 @@ const UI_TIPS = [
   ["#hatch", "Hatch an egg", () => "Buy an egg to get a random variant. Most are common, a few are rare, and 1% are shiny."],
   ["#request-card h2", "Visitor requests", () => "Now and then a guest asks to see certain variants. Put them on display before time runs out for a big reward."],
   ["#feedback-card h2", "Guest feedback", () => "What guests thought of today's visit. Fix their top complaints to keep them happy."],
-  ["#staff-card h2", "Staff", () => "Janitors sweep litter, keepers feed hungry pens, and the mascot cheers guests up. Staff are paid wages every second."],
+  ["#staff-card h2", "Staff", () => "Janitors sweep litter, keepers feed hungry pens, and the mascot cheers guests up. They need a Staff House to live in, and are paid wages every second."],
   ["#parking-card h2", "Parking lot", () => "Every guest arrives by car, so parking spaces limit how many guests can visit at once."],
   ["#bank-card h2", "Gold pile", () => "Where your coins are kept. Coins beyond its limit are lost, so upgrade it as you earn more."],
   [".goal-strip", "Goal", () => "Your next goal. Complete it for coins and park XP."],
@@ -191,8 +194,7 @@ function explainAt(p) {
     }
   }
   for (const w of staffWalkers) {
-    const wx = (w.tx + (w.nx - w.tx) * w.prog) * TILE + 8, wy = (w.ty + (w.ny - w.ty) * w.prog) * TILE + 8;
-    if (near(wx, wy, 7)) return [STAFF[w.type].label, STAFF[w.type].desc];
+    if (!w.home && near(w.x, w.y - 6, 7)) return [STAFF[w.type].label, STAFF[w.type].desc];
   }
   for (const sec of securities) if (near(sec.c.x, sec.c.y - 4, 8)) return ["Security", "Guards the gold pile, day and night."];
   if (!inBounds(x, y)) return ["The city", "The town around your sanctuary. Some of its people visit as guests."];
@@ -206,7 +208,9 @@ function explainAt(p) {
   const oid = objAt(x, y);
   if (oid) {
     const def = OBJECTS[getObj(oid).t];
-    return [def.name, def.kind === "stand" ? `Guests who walk right past buy a snack for ${def.price} coins.` : `Decoration: +${def.appeal} appeal, which brings more guests.`];
+    return [def.name, def.kind === "stand" ? `Guests who walk right past buy a snack for ${def.price} coins.`
+      : def.kind === "service" ? "Where your staff live. You need one to hire staff, and they walk home here at night once the litter is swept up."
+      : `Decoration: +${def.appeal} appeal, which brings more guests.`];
   }
   if (isVault(x, y)) return ["The gold pile", isSimple() ? "All your coins, guarded by the Securities. It never fills up." : `All your coins, guarded by the Securities. Holds ${fmt(bankCap())} coins; upgrade it at night to keep more.`];
   if (x === GATE.x && y === GATE.y) return ["The front gate", "Guests pay for their ticket here. Better ratings mean pricier tickets."];

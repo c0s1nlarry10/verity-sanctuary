@@ -207,6 +207,8 @@ function sanitize(data) {
     .map(e => {
       const out = { id: e.id, x: e.x, y: e.y, lostUntil: Number(e.lostUntil) || 0, theme: THEMES[e.theme] ? e.theme : "meadow",
         fence: FENCE_TYPES[e.fence] ? e.fence : "theme", paid: Math.max(0, Number(e.paid) || 0) };
+      if (Number.isInteger(e.seed) && e.seed > 0) out.seed = e.seed;
+      if (e.r >= 1 && e.r <= 3) out.r = e.r;
       const okBox = Number.isInteger(e.w) && Number.isInteger(e.h) && e.w > 0 && e.h > 0 && e.w <= CUSTOM_PEN.maxSpan && e.h <= CUSTOM_PEN.maxSpan;
       const mask = okBox && Array.isArray(e.mask) ? [...new Set(e.mask.filter(i => Number.isInteger(i) && i >= 0 && i < e.w * e.h))] : [];
       if (mask.length) { Object.assign(out, { w: e.w, h: e.h, mask }); if (oldPens || e.oldCap) out.oldCap = true; }
@@ -344,10 +346,13 @@ const encAppeal = e => e.mask ? appealForTiles(e.mask.length) : encType(e).appea
 const fenceKeyOf = e => e.fence && e.fence !== "theme" ? e.fence : null;
 // Each pen remembers its own sprite until its shape, theme or fence changes.
 const encSprites = new WeakMap();
+// Every pen has its own seed for the small details inside it (older pens get one from their id).
+const penSeed = e => e.seed || e.id * 7919 + 1;
 function encSprite(e) {
-  const k = [e.theme, fenceKeyOf(e), e.s, e.w, e.h].join("|"), hit = encSprites.get(e);
+  const k = [e.theme, fenceKeyOf(e), e.s, e.w, e.h, penSeed(e), e.r || 0].join("|"), hit = encSprites.get(e);
   if (hit && hit.k === k && hit.mask === e.mask) return hit.spr;
-  const spr = e.mask ? makePenSprite(encW(e), encH(e), encMaskSet(e), e.theme, fenceKeyOf(e)) : makeEncGround(encSize(e), e.theme, fenceKeyOf(e));
+  const spr = e.mask ? makePenSprite(encW(e), encH(e), encMaskSet(e), e.theme, fenceKeyOf(e), undefined, undefined, penSeed(e))
+    : makeEncGround(encSize(e), e.theme, fenceKeyOf(e), penSeed(e), e.r || 0);
   encSprites.set(e, { k, mask: e.mask, spr });
   return spr;
 }
@@ -357,6 +362,8 @@ const encAt = (x, y) => inBounds(x, y) ? encGrid[idx(x, y)] : 0;
 const objAt = (x, y) => inBounds(x, y) ? objGrid[idx(x, y)] : 0;
 const getEnc = id => state.enclosures.find(e => e.id === id);
 const getObj = id => state.objects.find(o => o.id === id);
+// Most props fill one tile; bigger buildings (the Staff House) fill size x size, from their top-left tile.
+const objSize = t => OBJECTS[t].size || 1;
 const randItem = arr => arr[Math.floor(Math.random() * arr.length)];
 // a pen lost in the Backrooms comes back after 60 seconds of game time
 const isLost = e => e.lostUntil > state.worldClock;
@@ -402,7 +409,7 @@ function rebuildGrids() {
   objGrid.fill(0);
   for (const e of state.enclosures)
     for (const [x, y] of encCells(e)) if (inBounds(x, y)) encGrid[idx(x, y)] = e.id;
-  for (const o of state.objects) if (inBounds(o.x, o.y)) objGrid[idx(o.x, o.y)] = o.id;
+  for (const o of state.objects) { const n = objSize(o.t); for (let dy = 0; dy < n; dy++) for (let dx = 0; dx < n; dx++) if (inBounds(o.x + dx, o.y + dy)) objGrid[idx(o.x + dx, o.y + dy)] = o.id; }
   nearPens = new Map();
   for (const a of state.enclosures) {
     nearPens.set(a.id, state.enclosures.filter(b => {
@@ -565,6 +572,10 @@ function payFor(ind, e) {
 const bankLevelCap = () => BANK_LEVELS[Math.max(0, Math.min(BANK_LEVELS.length, state.bankLevel || 1) - 1)].cap;
 const bankCap = () => isSimple() ? Infinity : bankLevelCap();   // Simple mode: the pile never fills up
 const isVault = (x, y) => x >= VAULT.x && x < VAULT.x + VAULT.w && y >= VAULT.y && y < VAULT.y + VAULT.h;
+// Nothing can be built on or right next to the gold pile: the Securities need room to patrol.
+const VAULT_CLEARANCE = 1;
+const nearVault = (x, y, m = VAULT_CLEARANCE) => x >= VAULT.x - m && x < VAULT.x + VAULT.w + m && y >= VAULT.y - m && y < VAULT.y + VAULT.h + m;
+const VAULT_HINT = "Too close to the gold pile. The Securities need a tile of space all around it.";
 let bankFullNoticeAt = 0;
 // Adds coins up to the bank's capacity and returns how many fit.
 function bankDeposit(amount) {
@@ -577,7 +588,11 @@ function bankDeposit(amount) {
   return add;
 }
 // Moving the gold pile: the one buildable that can be picked up and set down elsewhere.
-function canPlaceVault(x, y, n = VAULT.w) {
+function canPlaceVault(x, y, n = VAULT.w, clearance = VAULT_CLEARANCE) {
+  for (let dy = -clearance; dy < n + clearance; dy++) for (let dx = -clearance; dx < n + clearance; dx++) {
+    const tx = x + dx, ty = y + dy;
+    if (inBounds(tx, ty) && (state.tiles[idx(tx, ty)] || encAt(tx, ty) || objAt(tx, ty))) return false;   // nothing built right beside it
+  }
   for (let dy = 0; dy < n; dy++) for (let dx = 0; dx < n; dx++) {
     const tx = x + dx, ty = y + dy;
     if (!inBounds(tx, ty)) return false;
@@ -633,7 +648,8 @@ function upgradeBank() {
     const d = n2 - n;
     const options = [];
     for (let dy = d; dy >= 0; dy--) for (let dx = 0; dx <= d; dx++) options.push({ x: VAULT.x - dx, y: VAULT.y - dy });
-    spot = options.find(p => canPlaceVault(p.x, p.y, n2)) || findVaultSpot(n2);   // no room to grow here: move to the nearest free spot
+    // grow in place with a clear tile around it, or in place if older builds already sit beside it, or move to the nearest free spot
+    spot = options.find(p => canPlaceVault(p.x, p.y, n2)) || options.find(p => canPlaceVault(p.x, p.y, n2, 0)) || findVaultSpot(n2);
     if (!spot) return hintOnce(`The bigger vault needs a clear ${n2}x${n2} space somewhere. Clear some room first.`);
   }
   if (state.money < next.cost) return hintOnce(`The next gold pile size costs ${fmt(next.cost)} coins.`);
@@ -704,7 +720,7 @@ function canPlaceEnclosure(x, y, n = ENC_TYPES[encChoice.size].size) {
   for (let dy = 0; dy < n; dy++)
     for (let dx = 0; dx < n; dx++) {
       const tx = x + dx, ty = y + dy;
-      if (!inBounds(tx, ty) || !isOwned(tx, ty) || state.tiles[idx(tx, ty)] !== 0 || encAt(tx, ty) || objAt(tx, ty) || isVault(tx, ty)) return false;
+      if (!inBounds(tx, ty) || !isOwned(tx, ty) || state.tiles[idx(tx, ty)] !== 0 || encAt(tx, ty) || objAt(tx, ty) || nearVault(tx, ty)) return false;
     }
   return true;
 }
@@ -725,11 +741,21 @@ function growOldPens() {
 }
 // Everything you build has to touch a path, except decorations.
 const needsPath = t => OBJECTS[t].kind !== "decor";
-const canPlaceObject = (x, y) => inBounds(x, y) && isOwned(x, y) && !isPath(x, y) && !encAt(x, y) && !objAt(x, y) && !isVault(x, y);
+const canPlaceObject = (x, y) => inBounds(x, y) && isOwned(x, y) && !isPath(x, y) && !encAt(x, y) && !objAt(x, y) && !nearVault(x, y);
+function canPlaceObjectOf(t, x, y) {
+  const n = objSize(t);
+  for (let dy = 0; dy < n; dy++) for (let dx = 0; dx < n; dx++) if (!canPlaceObject(x + dx, y + dy)) return false;
+  return true;
+}
 const encOffset = n => Math.floor((n - 1) / 2);
+function rectNearVault(x, y, w, h) {
+  for (let dy = 0; dy < h; dy++) for (let dx = 0; dx < w; dx++) if (nearVault(x + dx, y + dy)) return true;
+  return false;
+}
 
 function placePath(x, y) {
-  if (!inBounds(x, y) || !isOwned(x, y) || encAt(x, y) || objAt(x, y) || isVault(x, y) || buildLocked()) return;
+  if (!inBounds(x, y) || !isOwned(x, y) || encAt(x, y) || objAt(x, y) || buildLocked()) return;
+  if (nearVault(x, y)) return hintOnce(VAULT_HINT);
   const cur = state.tiles[idx(x, y)];
   if (cur === pathChoice) return;
   const cost = PATH_TYPES[pathChoice].cost;
@@ -744,11 +770,12 @@ function placeEnclosure(x, y) {
   const n = ENC_TYPES[encChoice.size].size;
   const ex = x - encOffset(n), ey = y - encOffset(n);
   if (state.enclosures.length >= maxEnclosures()) return hintOnce(`Enclosure limit reached (${maxEnclosures()}). Level up your park for more slots.`);
-  if (!canPlaceEnclosure(ex, ey)) return hintOnce(`This enclosure needs a clear ${n}x${n} patch of your own grass.`);
+  if (!canPlaceEnclosure(ex, ey)) return hintOnce(rectNearVault(ex, ey, n, n) ? VAULT_HINT : `This enclosure needs a clear ${n}x${n} patch of your own grass.`);
   if (!touchesPath(ex, ey, n, n)) return hintOnce("Pens must touch a path, so guests can walk past them.");
   const cost = enclosureCost();
   if (!spend(cost)) return hintOnce(`Enclosures cost ${fmt(cost)} coins.`);
-  state.enclosures.push({ id: state.nextId++, x: ex, y: ey, s: n, k: encChoice.size, theme: encChoice.theme, fence: encChoice.fence || "theme", paid: cost, variants: [], lostUntil: 0 });
+  state.enclosures.push({ id: state.nextId++, x: ex, y: ey, s: n, k: encChoice.size, theme: encChoice.theme, fence: encChoice.fence || "theme", paid: cost, variants: [], lostUntil: 0, seed: nextPenSeed, r: encFace });
+  nextPenSeed = newPenSeed();
   rebuildGrids();
   sfx("build");
   gainParkXp(XP.enclosure);
@@ -758,14 +785,14 @@ function placeEnclosure(x, y) {
 // ---- custom-shaped pens: paint tiles into a draft, then build it ----
 let penDraft = new Set();
 let draftMode = "add";
-const canPenTile = (x, y) => inBounds(x, y) && isOwned(x, y) && state.tiles[idx(x, y)] === 0 && !encAt(x, y) && !objAt(x, y) && !isVault(x, y);
+const canPenTile = (x, y) => inBounds(x, y) && isOwned(x, y) && state.tiles[idx(x, y)] === 0 && !encAt(x, y) && !objAt(x, y) && !nearVault(x, y);
 function paintDraft(x, y, isDrag) {
   if (buildLocked()) return;
   const k = x + "," + y;
   if (!isDrag) draftMode = penDraft.has(k) ? "erase" : "add";
   if (draftMode === "erase") { if (penDraft.delete(k)) sfx("click"); }
   else if (!penDraft.has(k)) {
-    if (!canPenTile(x, y)) { if (!isDrag) hintOnce("Pens go on empty grass you own."); return; }
+    if (!canPenTile(x, y)) { if (!isDrag) hintOnce(nearVault(x, y) ? VAULT_HINT : "Pens go on empty grass you own."); return; }
     if (penDraft.size >= customMaxTiles()) return hintOnce(`Custom pens can be up to ${customMaxTiles()} tiles. Unlock bigger enclosure sizes for more.`);
     penDraft.add(k); sfx("click");
   }
@@ -795,7 +822,8 @@ function buildCustomPen() {
   const x0 = Math.min(...cells.map(c => c[0])), y0 = Math.min(...cells.map(c => c[1]));
   const w = Math.max(...cells.map(c => c[0])) - x0 + 1, h = Math.max(...cells.map(c => c[1])) - y0 + 1;
   const mask = cells.map(([x, y]) => (y - y0) * w + (x - x0)).sort((a, b) => a - b);
-  state.enclosures.push({ id: state.nextId++, x: x0, y: y0, w, h, mask, theme: encChoice.theme, fence: encChoice.fence || "theme", paid: cost, variants: [], lostUntil: 0 });
+  state.enclosures.push({ id: state.nextId++, x: x0, y: y0, w, h, mask, theme: encChoice.theme, fence: encChoice.fence || "theme", paid: cost, variants: [], lostUntil: 0, seed: nextPenSeed });
+  nextPenSeed = newPenSeed();
   penDraft = new Set();
   rebuildGrids();
   sfx("build");
@@ -815,14 +843,76 @@ function remodelPen(e, theme, fence) {
 
 function placeObject(t, x, y) {
   if (!isUnlocked("obj:" + t) || buildLocked()) return;
-  if (!canPlaceObject(x, y)) return hintOnce("That spot is taken. Pick an empty grass tile.");
-  if (needsPath(t) && !touchesPath(x, y, 1, 1)) return hintOnce(`${OBJECTS[t].name} must touch a path. Only decorations can go anywhere.`);
+  if (t === "staffhouse" && staffHouse()) return hintOnce("You already have a Staff House. One is plenty.");
+  const n = objSize(t);
+  if (!canPlaceObjectOf(t, x, y)) return hintOnce(rectNearVault(x, y, n, n) ? VAULT_HINT : n > 1 ? `The ${OBJECTS[t].name} needs a clear ${n}x${n} patch of your own grass.` : "That spot is taken. Pick an empty grass tile.");
+  if (needsPath(t) && !touchesPath(x, y, n, n)) return hintOnce(`${OBJECTS[t].name} must touch a path. Only decorations can go anywhere.`);
   const cost = objectCost(t);
   if (!spend(cost)) return hintOnce(`${OBJECTS[t].name} costs ${fmt(cost)} coins.`);
-  state.objects.push({ id: state.nextId++, t, x, y });
+  state.objects.push({ id: state.nextId++, t, x, y, r: OBJECTS[t].turns ? objFace : 0 });
   rebuildGrids();
   sfx("build");
   gainParkXp(XP.object);
+  renderUI(true);
+}
+
+// ---- turning props: stands, benches and statues can face any of four ways ----
+let objFace = 0;   // the way the next prop you place will face
+const FACE_NAMES = ["the front", "the right", "the back", "the left"];
+function turnObject(o) {
+  const def = OBJECTS[o.t];
+  if (!def.turns) return hintOnce(`A ${def.name} looks the same from every side.`);
+  o.r = ((o.r || 0) + 1) % 4;
+  sfx("click");
+  hintOnce(`${def.name} now faces ${FACE_NAMES[o.r]}.`);
+}
+function turnPreview() {
+  const def = OBJECTS[tool.slice(4)];
+  if (!def.turns) return hintOnce(`A ${def.name} looks the same from every side.`);
+  objFace = (objFace + 1) % 4;
+  sfx("click");
+  hintOnce(`Placing ${def.name}s facing ${FACE_NAMES[objFace]}.`);
+}
+// R turns the prop you're about to place, or the placed prop under the mouse
+function turnKey() {
+  if (tool.startsWith("obj:")) return turnPreview();
+  if (tool === "enclosure") {
+    if (encChoice.shape === "custom") return hintOnce("Paint the shape you want. Once it's built you can turn it from its pen card.");
+    encFace = (encFace + 1) % 4;
+    sfx("click");
+    return hintOnce("Turned the new pen's layout.");
+  }
+  if (!hover || !inBounds(hover.x, hover.y)) return;
+  const oid = objAt(hover.x, hover.y);
+  if (oid) return turnObject(getObj(oid));
+  const eid = encAt(hover.x, hover.y);
+  if (eid) turnPen(getEnc(eid));
+}
+
+// ---- turning pens ----
+// A square pen spins its layout. A custom pen turns its whole shape a quarter turn clockwise
+// about its middle, as long as the new tiles are free and it still touches a path.
+const newPenSeed = () => 1 + Math.floor(Math.random() * 1e9);
+let nextPenSeed = newPenSeed();   // the details of the next pen you build (so the preview matches)
+let encFace = 0;                  // the layout turn of the next square pen
+function turnPen(e) {
+  if (!e || buildLocked()) return;
+  if (!e.mask) {
+    e.r = ((e.r || 0) + 1) % 4;
+    sfx("build");
+    renderUI(true);
+    return;
+  }
+  const w = encW(e), h = encH(e);
+  const nx = e.x + Math.trunc((w - h) / 2), ny = e.y + Math.trunc((h - w) / 2);   // trunc, so four turns land back where it started
+  const mask = e.mask.map(i => { const dx = i % w, dy = Math.floor(i / w); return dx * h + (h - 1 - dy); }).sort((a, b) => a - b);
+  const cells = mask.map(i => [nx + i % h, ny + Math.floor(i / h)]);
+  if (cells.some(([x, y]) => encAt(x, y) !== e.id && !canPenTile(x, y))) return hintOnce("There isn't room to turn this pen here. Clear the tiles around it first.");
+  if (!cells.some(([x, y]) => DIRS.some(([dx, dy]) => isPath(x + dx, y + dy)))) return hintOnce("Turned this way the pen wouldn't touch a path, so guests couldn't see it.");
+  Object.assign(e, { x: nx, y: ny, w: h, h: w, mask });
+  for (const ind of e.variants) critterPos.delete(ind.id);   // they hop to new spots inside
+  rebuildGrids();
+  sfx("build");
   renderUI(true);
 }
 
@@ -845,6 +935,7 @@ function bulldoze(x, y) {
   const oid = objAt(x, y);
   if (oid) {
     const o = getObj(oid);
+    if (o.t === "staffhouse" && staffTotal()) return hintOnce("Your staff live here! Fire them before knocking it down.");
     state.objects = state.objects.filter(ob => ob.id !== oid);
     earn(Math.floor(OBJECTS[o.t].cost / 2), undefined, undefined, undefined, "Refunds");
     rebuildGrids();
@@ -1262,7 +1353,7 @@ function roamGoal(v) {
     const ox = (x - v.tx) * TILE, oy = (y - v.ty) * TILE, od = Math.hypot(ox, oy);
     const fresh = !v.recent.includes(x + "," + y);
     const ahead = v.heading ? Math.max(0, (ox * v.heading[0] + oy * v.heading[1]) / od) : 0.5;
-    const w = (fresh ? 1 : 0.06) * (0.2 + ahead * ahead * 2) * (0.3 + od / (ROAM_RADIUS * TILE)) * (nearUnseen(v, x, y) ? 4 : 1);
+    const w = (fresh ? 1 : 0.06) * (0.2 + ahead * ahead * 2) * (0.3 + od / (ROAM_RADIUS * TILE)) * (v.seen && nearUnseen(v, x, y) ? 4 : 1);   // staff have no seen list
     cands.push({ x, y, w, r: w * (0.2 + Math.random() * 1.6) });   // plenty of randomness, so guests spread out
   }
   cands.sort((a, b) => b.r - a.r);
@@ -1525,19 +1616,6 @@ function drawEnclosure(e, time) {
       ctx.fillRect(lx, ly, 2 + hash2(e.id, i, 6) * 2, 0.5);
     }
   }
-  const cap = capOf(e), sw = cap * 3 + 4;
-  const top = e.mask ? encCells(e).filter(([, y]) => y === e.y) : null;
-  const signX = top ? (top[0][0] + top[top.length - 1][0] + 1) / 2 * TILE : px + W / 2;
-  const sx = Math.round(signX - sw / 2), sy = py - 5;
-  ctx.fillStyle = "#000"; ctx.fillRect(sx, sy, sw, 7);
-  ctx.fillStyle = "#c48a4a"; ctx.fillRect(sx + 1, sy + 1, sw - 2, 5);
-  ctx.fillStyle = "#e0a868"; ctx.fillRect(sx + 1, sy + 1, sw - 2, 0.5);
-  for (let i = 0; i < cap; i++) {
-    const ind = e.variants[i];
-    ctx.fillStyle = ind ? VARIANTS[ind.k].color : "#7a4a22";
-    ctx.fillRect(sx + 2 + i * 3, sy + 2, 2, 3);
-    if (ind) { ctx.fillStyle = "rgba(255,255,255,0.6)"; ctx.fillRect(sx + 2 + i * 3, sy + 2, 0.5, 0.5); }
-  }
   if (e.id === inspectedId) outlineCells(encCells(e), "#ffd23f");
 }
 
@@ -1747,8 +1825,17 @@ function drawObject(o, time) {
     ctx.fillStyle = "rgba(255,233,138,0.12)";
     ctx.beginPath(); ctx.arc(lx, ly, 12 + Math.sin(time * 3) * 0.6, 0, Math.PI * 2); ctx.fill();
   }
-  blitFeet(ctx, OBJ_SPRITES[o.t], px + 8, py + 16);
-  if (OBJECTS[o.t].kind === "stand" && state.settings.effects) {
+  const n = objSize(o.t), spr = objSprite(o.t, o.r);
+  blitFeet(ctx, spr, px + n * 8, py + n * TILE);
+  if (o.t === "staffhouse" && staffWalkers.some(w => w.home)) {
+    // lit windows while the staff are home
+    const sx = px + n * 8 - uW(spr) / 2, sy = py + n * TILE - uH(spr);
+    ctx.fillStyle = "#ffe98a";
+    for (const wx of [5, 18]) ctx.fillRect(Math.round(sx + wx * PROP_K), Math.round(sy + 18 * PROP_K), 3, 3);   // whole pixels, like the sprite
+    ctx.fillStyle = "rgba(255,233,138,0.1)";
+    ctx.beginPath(); ctx.arc(px + 16, py + 20, 24, 0, Math.PI * 2); ctx.fill();
+  }
+  if (OBJECTS[o.t].kind === "stand" && !o.r && state.settings.effects) {
     // fluttering awning edge
     ctx.fillStyle = "rgba(255,255,255,0.35)";
     const f = Math.floor(time * 4 + o.id) % 4;
@@ -1813,7 +1900,7 @@ function drawPenDraft() {
   const x0 = Math.min(...cells.map(c => c[0])), y0 = Math.min(...cells.map(c => c[1]));
   const w = Math.max(...cells.map(c => c[0])) - x0 + 1, h = Math.max(...cells.map(c => c[1])) - y0 + 1;
   ctx.globalAlpha = 0.75;
-  blit(ctx, makePenSprite(w, h, new Set(cells.map(([x, y]) => (x - x0) + "," + (y - y0))), encChoice.theme, encChoice.fence === "theme" ? null : encChoice.fence, draftSprites, 1), x0 * TILE, y0 * TILE);
+  blit(ctx, makePenSprite(w, h, new Set(cells.map(([x, y]) => (x - x0) + "," + (y - y0))), encChoice.theme, encChoice.fence === "theme" ? null : encChoice.fence, draftSprites, 1, nextPenSeed), x0 * TILE, y0 * TILE);
   ctx.globalAlpha = 1;
   const bad = cells.filter(([x, y]) => !canPenTile(x, y));
   ctx.fillStyle = "rgba(255,60,90,0.45)";
@@ -1825,6 +1912,17 @@ function drawHover() {
   if (!hover || !inBounds(hover.x, hover.y)) return;
   let x = hover.x, y = hover.y, w = 1, h = 1, ok = true;
   const objType = tool.startsWith("obj:") ? tool.slice(4) : null;
+  if (objType || tool === "path" || tool === "enclosure") {
+    // while building, mark the no-build ring around the gold pile
+    const m = VAULT_CLEARANCE, X = (VAULT.x - m) * TILE, Y = (VAULT.y - m) * TILE, W = (VAULT.w + 2 * m) * TILE, H = (VAULT.h + 2 * m) * TILE;
+    ctx.fillStyle = "rgba(255,80,80,0.12)";
+    ctx.fillRect(X, Y, W, H);
+    ctx.strokeStyle = "rgba(255,80,80,0.7)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 2]);
+    ctx.strokeRect(X + 0.5, Y + 0.5, W - 1, H - 1);
+    ctx.setLineDash([]);
+  }
   if (!isOwned(x, y)) {
     const k = plotOf(x, y);
     if (!k) return;
@@ -1846,12 +1944,14 @@ function drawHover() {
     const n = ENC_TYPES[encChoice.size].size;
     x -= encOffset(n); y -= encOffset(n); w = h = n;
     ok = canPlaceEnclosure(x, y) && touchesPath(x, y, n, n) && state.money >= enclosureCost() && state.enclosures.length < maxEnclosures() && !dayLocked();
-    ctx.globalAlpha = 0.55; blit(ctx, makeEncGround(n, encChoice.theme, encChoice.fence === "theme" ? null : encChoice.fence), x * TILE, y * TILE); ctx.globalAlpha = 1;
+    ctx.globalAlpha = 0.55; blit(ctx, makeEncGround(n, encChoice.theme, encChoice.fence === "theme" ? null : encChoice.fence, nextPenSeed, encFace), x * TILE, y * TILE); ctx.globalAlpha = 1;
   } else if (objType) {
-    ok = canPlaceObject(x, y) && (!needsPath(objType) || touchesPath(x, y, 1, 1)) && state.money >= objectCost(objType) && !dayLocked();
-    ctx.globalAlpha = 0.6; blitFeet(ctx, OBJ_SPRITES[objType], x * TILE + 8, y * TILE + 16); ctx.globalAlpha = 1;
+    const n = objSize(objType);
+    w = h = n;
+    ok = canPlaceObjectOf(objType, x, y) && (!needsPath(objType) || touchesPath(x, y, n, n)) && state.money >= objectCost(objType) && !dayLocked();
+    ctx.globalAlpha = 0.6; blitFeet(ctx, objSprite(objType, objFace), x * TILE + n * 8, y * TILE + n * TILE); ctx.globalAlpha = 1;
   } else if (tool === "path") {
-    ok = state.tiles[idx(x, y)] !== pathChoice && !encAt(x, y) && !objAt(x, y) && state.money >= PATH_TYPES[pathChoice].cost && !dayLocked();
+    ok = state.tiles[idx(x, y)] !== pathChoice && !encAt(x, y) && !objAt(x, y) && !nearVault(x, y) && state.money >= PATH_TYPES[pathChoice].cost && !dayLocked();
     if (ok) { ctx.globalAlpha = 0.6; blit(ctx, pathTiles[pathChoice], x * TILE, y * TILE); ctx.globalAlpha = 1; }
   } else if (tool === "bulldoze") {
     const id = encAt(x, y);
@@ -1935,12 +2035,12 @@ function render(dt, time) {
   drawVault(time, dt, x0, y0, x1, y1);
   // props and guests share one depth order, so a guest walking behind a snack stand is hidden by it
   const depth = [];
-  for (const o of state.objects) if (o.x * TILE >= x0 - 20 && o.x * TILE <= x1 + 4 && o.y * TILE >= y0 - 8 && o.y * TILE <= y1 + 24) depth.push([(o.y + 1) * TILE, o]);
+  for (const o of state.objects) if (o.x * TILE >= x0 - 36 && o.x * TILE <= x1 + 4 && o.y * TILE >= y0 - 24 && o.y * TILE <= y1 + 24) depth.push([(o.y + objSize(o.t)) * TILE, o]);
   for (const v of visitors) { const f = visitorFeet(v); if (f[0] >= x0 - 16 && f[0] <= x1 + 16 && f[1] >= y0 - 4 && f[1] <= y1 + 24) depth.push([f[1], v]); }
+  for (const w of staffWalkers) if (!w.home && w.x >= x0 - 16 && w.x <= x1 + 16 && w.y >= y0 - 4 && w.y <= y1 + 30) depth.push([w.y, w]);
   depth.sort((a, b) => a[0] - b[0]);
-  for (const [, it] of depth) if (it.frames) drawVisitor(it); else drawObject(it, time);
+  for (const [, it] of depth) if (it.frames) drawVisitor(it); else if (it.staff) drawWalkerSprite(it); else drawObject(it, time);
   drawCars(x0, y0, x1, y1);
-  for (const w of staffWalkers) drawWalkerSprite(w);
   drawEscapes(time);
 
   drawGate(time);
@@ -2473,7 +2573,7 @@ const TOOL_HINTS = {
   inspect: "Click a variant for a close-up, or an enclosure to manage it.",
   movevault: "Click where the gold pile should go (a clear 3x3 spot on your land or by the entrance).",
   path: "Click or drag to lay paths. Visitors only walk on paths.",
-  enclosure: "Click grass to build the selected enclosure. It must touch a path.",
+  enclosure: "Click grass to build the selected enclosure. It must touch a path. Press R to turn its layout.",
   bulldoze: "Click or drag to remove paths, enclosures and objects.",
   place: "Click an enclosure to place the selected variant.",
 };
@@ -2485,7 +2585,7 @@ function setTool(t) {
   // the tool's instructions take over the tips bar for a few seconds
   if (t.startsWith("obj:")) {
     const def = OBJECTS[t.slice(4)];
-    showHint(`Click grass to place a ${def.name}.` + (def.kind === "stand" ? " Stands must touch a path to sell." : ""), 6);
+    showHint(`Click grass to place a ${def.name}.` + (def.kind === "stand" ? " Stands must touch a path to sell." : def.kind === "service" ? " It must touch a path so staff can walk home." : "") + (def.turns ? " Press R to turn it." : ""), 6);
   } else if (t !== "inspect") showHint(TOOL_HINTS[t], 6);
   renderBuildOptions();
   renderUI(true);
@@ -2604,6 +2704,9 @@ function renderShopState() {
     b.classList.toggle("active", tool === "obj:" + t);
     b.classList.toggle("poor", state.money < cost);
   }
+  const t = tool.startsWith("obj:") ? tool.slice(4) : "";
+  $("obj-turn").hidden = !(t && OBJECTS[t].turns);
+  $("obj-turn").textContent = `↻ Turn (R) · facing ${FACE_NAMES[objFace]}`;
 }
 
 let remodelOpen = false;
@@ -2653,6 +2756,10 @@ function renderInspect() {
   rm.open = remodelOpen;
   rm.addEventListener("toggle", () => { remodelOpen = rm.open; });
   box.appendChild(rm);
+  const tb = el("button", "wide build-only", e.mask ? "↻ Turn pen (R)" : "↻ Turn layout (R)");
+  tb.title = e.mask ? "Turn the whole pen a quarter turn, if there's room" : "Spin the bowl, pool and details inside the fence";
+  tb.addEventListener("click", () => turnPen(e));
+  box.appendChild(tb);
   if (careActive() && e.variants.length) {
     const hungry = hungryIn(e).length;
     const fb = el("button", "wide", hungry ? `Feed pen (${fmt(feedCost(e))}c)` : "Everyone is full");
@@ -3053,6 +3160,7 @@ function critterAt(gx, gy) {
   return 0;
 }
 
+let lastObjClick = { id: 0, at: 0 };
 function handleTileAction(x, y, isDrag) {
   if (!inBounds(x, y)) return;
   if (tool === "path") placePath(x, y);
@@ -3067,9 +3175,15 @@ function handleTileAction(x, y, isDrag) {
   else if (tool === "inspect") {
     inspectedId = encAt(x, y);
     const oid = objAt(x, y);
-    if (oid) {
+    if (oid && oid === lastObjClick.id && performance.now() - lastObjClick.at < 5000) {
+      turnObject(getObj(oid));   // clicking the same prop again turns it
+      lastObjClick.at = performance.now();
+    } else if (oid) {
       const def = OBJECTS[getObj(oid).t];
-      hintOnce(def.kind === "stand" ? `${def.name}: visitors who pass buy for ${def.price} coins (${Math.round(STAND_BUY_CHANCE * (hasElectricity ? 1.5 : 1) * 100)}% chance).` : `${def.name}: +${def.appeal} appeal.`);
+      hintOnce((def.kind === "stand" ? `${def.name}: visitors who pass buy for ${def.price} coins (${Math.round(STAND_BUY_CHANCE * (hasElectricity ? 1.5 : 1) * 100)}% chance).`
+        : def.kind === "service" ? `${def.name}: your staff head here at night once the park is clean.` : `${def.name}: +${def.appeal} appeal.`)
+        + (def.turns ? " Click it again or press R to turn it." : ""));
+      lastObjClick = { id: oid, at: performance.now() };
     }
     renderUI(true);
   }
@@ -3218,6 +3332,7 @@ $("set-musicvol").addEventListener("input", e => { state.settings.musicVol = +e.
 $("set-effects").addEventListener("change", e => { state.settings.effects = e.target.checked; });
 $("set-shake").addEventListener("change", e => { state.settings.shake = e.target.checked; });
 $("set-hovertips").addEventListener("change", e => { state.settings.hoverTips = e.target.checked; if (!e.target.checked) cancelTip(); });
+$("obj-turn").addEventListener("click", () => { turnPreview(); renderShopState(); });
 $("set-feedback").addEventListener("change", e => { state.settings.noFeedbackReminder = !e.target.checked; if (e.target.checked) startFeedbackReminders(); else clearTimeout(feedbackTimer); });
 $("snapshot").addEventListener("click", () => downloadSnapshot());
 $("snapshot2").addEventListener("click", () => downloadSnapshot());

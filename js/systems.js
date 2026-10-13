@@ -107,12 +107,16 @@ function feedPen(e, free = false) {
 let staffWalkers = [];
 let staffTick = 0;
 const staffCount = t => state.staff[t] || 0;
+const staffTotal = () => Object.keys(STAFF).reduce((n, t) => n + staffCount(t), 0);
+// Staff need a Staff House: you can't hire without one, and they rest there at night.
+const staffHouse = () => state.objects.find(o => o.t === "staffhouse") || null;
 // No limit on staff: each extra hire of the same role costs 25% more than the last.
 function hireCost(t) { return Math.round(STAFF[t].hire * Math.pow(1 + 0.3 * staffCount(t), 1.4)); }
 function wagesPerSec() { return Object.keys(STAFF).reduce((s, t) => s + staffCount(t) * STAFF[t].wage, 0); }
 
 function hireStaff(t) {
   if (!isUnlocked("staff:" + t)) return;
+  if (!staffHouse()) return hintOnce("Build a Staff House first. Your staff need somewhere to rest at night.");
   if (!spend(hireCost(t), "Staff")) return hintOnce(`Hiring a ${STAFF[t].label} costs ${fmt(hireCost(t))} coins.`);
   state.staff[t] = staffCount(t) + 1;
   syncStaff();
@@ -128,11 +132,19 @@ function fireStaff(t) {
 }
 
 // Staff start on a random path tile, so they spread around the park instead of stacking at the gate.
+// Like guests, they walk freely along the paths (diagonals too) rather than hopping tile to tile.
 function newWalker(type) {
   const paths = [];
   for (let y = 0; y < ROWS; y++) for (let x = OX; x < COLS; x++) if (isPath(x, y)) paths.push([x, y]);
   const [x, y] = paths.length ? paths[Math.floor(Math.random() * paths.length)] : [GATE.x, GATE.y];
-  return { type, tx: x, ty: y, px: x, py: y, nx: x, ny: y, prog: 1, speed: (type === "mascot" ? 0.7 : 0.9) * (0.9 + Math.random() * 0.2), phase: Math.random() * 6 };
+  const w = { type, tx: x, ty: y, x: 0, y: 0, goal: null, via: [], wait: Math.random() * 2, recent: [], heading: null, moving: false,
+    speed: (type === "mascot" ? 0.7 : 0.9) * (0.9 + Math.random() * 0.2), phase: Math.random() * 6, staff: true };
+  placeWalker(w, x, y);
+  return w;
+}
+function placeWalker(w, x, y) {
+  [w.x, w.y] = guestAnchor(x, y);
+  Object.assign(w, { tx: x, ty: y, goal: null, via: [] });
 }
 function syncStaff() {
   for (const t of Object.keys(STAFF)) {
@@ -142,36 +154,127 @@ function syncStaff() {
   }
 }
 
-// Shared path-walking step for staff (never leave the park)
-function stepWalker(w, dt, onArrive) {
-  w.phase += dt * 10;
-  if (!isPath(w.tx, w.ty)) { Object.assign(w, newWalker(w.type)); return; }
-  if (w.prog < 1) {
-    w.prog = Math.min(1, w.prog + dt * w.speed * PATH_TYPES[state.tiles[idx(w.tx, w.ty)]].speed);
-    if (w.prog >= 1) { w.tx = w.nx; w.ty = w.ny; if (onArrive) onArrive(w); }
-    return;
+// Turns a route of path tiles into straight walks: from where the walker stands, head for the
+// furthest tile along the route it can reach in a straight line, and repeat. So staff cut
+// corners and cross wide paths on the diagonal, like guests.
+function routeLegs(w, route) {
+  const legs = [];
+  let from = [w.x, w.y], i = 0;
+  while (i < route.length && legs.length < 40) {
+    let best = -1;
+    for (let j = Math.min(route.length - 1, i + 8); j >= i; j--) {
+      const a = guestAnchor(route[j][0], route[j][1]);
+      if (guestLineOK(from[0], from[1], a[0], a[1])) { best = j; break; }
+    }
+    if (best < 0) {
+      // no straight line even to the next tile: line up in the middle of this one first
+      legs.push(guestAnchor(Math.floor(from[0] / TILE), Math.floor(from[1] / TILE)));
+      best = i;
+    }
+    from = guestAnchor(route[best][0], route[best][1]);
+    legs.push(from);
+    i = best + 1;
   }
-  const opts = DIRS.map(([dx, dy]) => ({ x: w.tx + dx, y: w.ty + dy })).filter(p => isPath(p.x, p.y));
-  if (!opts.length) return;
-  const forward = opts.filter(p => !(p.x === w.px && p.y === w.py));
-  // janitors head for trash when they can see it next door
-  let choice = null;
-  if (w.type === "janitor") choice = opts.find(p => trashIndexAt(p.x, p.y) >= 0) || null;
-  if (!choice) choice = randItem(forward.length ? forward : opts);
-  w.px = w.tx; w.py = w.ty;
-  w.nx = choice.x; w.ny = choice.y;
-  w.prog = 0;
+  return legs.length ? legs : null;
+}
+// Where a staff member heads next: home or to litter at night, nearby litter for janitors by
+// day, otherwise a wander like a guest's. Returns walk legs, "home", or null to wait a moment.
+function staffGoal(w, plan, doors) {
+  if (w.type === "janitor") {
+    const i = trashIndexAt(w.tx, w.ty);
+    if (i >= 0) { cleanTrash(i); w.bubble = { icon: "star", t: 1 }; w.wait = 0.4; return null; }
+  }
+  if (plan === "home" && doors.has(w.tx + "," + w.ty)) return "home";
+  if (plan) {
+    const route = plan === "home" ? pathRoute(w.tx, w.ty, (x, y) => doors.has(x + "," + y)) : pathRoute(w.tx, w.ty, (x, y) => trashIndexAt(x, y) >= 0);
+    if (route && route.length) return routeLegs(w, route);
+    // can't get there from here (the paths don't join up): wander for a bit and try again
+  } else if (w.type === "janitor" && state.trash.length) {
+    const near = new Set(state.trash.filter(t => Math.abs(t.x - w.tx) <= ROAM_RADIUS && Math.abs(t.y - w.ty) <= ROAM_RADIUS).map(t => t.x + "," + t.y));
+    const route = near.size ? pathRoute(w.tx, w.ty, (x, y) => near.has(x + "," + y)) : null;
+    if (route && route.length && route.length <= ROAM_RADIUS * 2) return routeLegs(w, route);
+  }
+  return roamGoal(w);
 }
 
-function updateStaff(dt) {
-  for (const w of staffWalkers) {
-    stepWalker(w, dt, s => {
-      if (s.type === "janitor") {
-        const i = trashIndexAt(s.tx, s.ty);
-        if (i >= 0) { cleanTrash(i); s.bubble = { icon: "star", t: 1 }; }
+// Shortest walk along paths from (x, y) to the nearest tile where goal(x, y) is true.
+// Returns the tiles to step through (empty if already there), or null if it can't be reached.
+function pathRoute(x, y, goal) {
+  if (goal(x, y)) return [];
+  const prev = new Map([[x + "," + y, null]]), queue = [[x, y]];
+  for (let i = 0; i < queue.length; i++) {
+    const [cx, cy] = queue[i];
+    for (const [dx, dy] of DIRS) {
+      const nx = cx + dx, ny = cy + dy, k = nx + "," + ny;
+      if (prev.has(k) || !isPath(nx, ny)) continue;
+      prev.set(k, cx + "," + cy);
+      if (goal(nx, ny)) {
+        const out = [];
+        for (let at = k; at !== x + "," + y; at = prev.get(at)) out.unshift(at.split(",").map(Number));
+        return out;
       }
-    });
+      queue.push([nx, ny]);
+    }
+  }
+  return null;
+}
+// The path tiles right outside the Staff House door (any side that touches a path).
+function houseDoors(h) {
+  const n = objSize(h.t), out = new Set();
+  for (let i = 0; i < n; i++) for (const [x, y] of [[h.x + i, h.y - 1], [h.x + i, h.y + n], [h.x - 1, h.y + i], [h.x + n, h.y + i]]) if (isPath(x, y)) out.add(x + "," + y);
+  return out;
+}
+
+// At night, janitors sweep up whatever litter is left, then everyone walks home to the
+// Staff House and goes inside. In the morning they come back out and get to work.
+function staffNightPlan(w, house) {
+  if (isOpen() || !house) return null;
+  if (w.type === "janitor" && state.trash.length) return "trash";
+  return "home";
+}
+function updateStaff(dt) {
+  const house = staffHouse(), doors = house ? houseDoors(house) : null;
+  for (const w of staffWalkers) {
     if (w.bubble) { w.bubble.t -= dt; if (w.bubble.t <= 0) w.bubble = null; }
+    if (w.home) {
+      if (!isOpen() && house && doors.size && !(w.type === "janitor" && state.trash.length)) continue;   // janitors pop back out for fresh litter
+      // morning: out the door and back to work
+      const [dx, dy] = doors && doors.size ? [...doors][0].split(",").map(Number) : [w.tx, w.ty];
+      w.home = false; w.plan = null; w.wait = Math.random();
+      placeWalker(w, dx, dy);
+    }
+    if (!isPath(w.tx, w.ty)) { Object.assign(w, newWalker(w.type)); continue; }   // the path was bulldozed under them
+    w.phase += dt * 10;
+    const plan = staffNightPlan(w, house);
+    if (plan !== w.plan) { w.plan = plan; w.goal = null; w.via = []; w.wait = 0; }   // a new job: drop what they were doing
+    if (w.goal && !guestPointOK(w.goal[0], w.goal[1])) { w.goal = null; w.via = []; }   // something was built in the way
+    if (!w.goal) {
+      w.moving = false;
+      if (w.wait > 0) { w.wait -= dt; continue; }
+      const legs = staffGoal(w, plan, doors);
+      if (legs === "home") { w.home = true; w.bubble = null; continue; }
+      if (!legs) { if (!(w.wait > 0)) w.wait = 0.5; continue; }
+      [w.goal, ...w.via] = legs;
+    }
+    const step = dt * w.speed * (plan ? 1.3 : 1) * PATH_TYPES[state.tiles[idx(w.tx, w.ty)]].speed * TILE;
+    const dx = w.goal[0] - w.x, dy = w.goal[1] - w.y, dist = Math.hypot(dx, dy);
+    w.moving = dist > 0.01;
+    if (dist <= step) {
+      w.x = w.goal[0]; w.y = w.goal[1];
+      w.goal = w.via.length ? w.via.shift() : null;
+      if (!w.goal && !plan && Math.random() < 0.15) w.wait = 0.5 + Math.random() * 2;   // a little pause now and then
+    } else { w.x += dx / dist * step; w.y += dy / dist * step; }
+    if (dist > 0.01) w.heading = [dx / dist, dy / dist];
+    const tx = Math.floor(w.x / TILE), ty = Math.floor(w.y / TILE);
+    if (tx !== w.tx || ty !== w.ty) {
+      w.tx = tx; w.ty = ty;
+      w.recent.push(tx + "," + ty);
+      if (w.recent.length > RECENT_TILES) w.recent.shift();
+      if (w.type === "janitor") {
+        const i = trashIndexAt(tx, ty);
+        if (i >= 0) { cleanTrash(i); w.bubble = { icon: "star", t: 1 }; }
+      }
+    }
   }
 }
 
@@ -200,11 +303,10 @@ function staffSecond() {
 }
 
 function drawWalkerSprite(w) {
-  const walking = w.prog < 1;
-  const spr = STAFF_FRAMES[w.type][walking ? (Math.floor(w.phase) % 2 ? 1 : 2) : 0];
-  const fx = w.tx + (w.nx - w.tx) * w.prog, fy = w.ty + (w.ny - w.ty) * w.prog;
+  if (w.home) return;
+  const spr = STAFF_FRAMES[w.type][w.moving ? (Math.floor(w.phase) % 2 ? 1 : 2) : 0];
   const SW = uW(spr), SH = uH(spr);
-  const x = Math.round((fx * TILE + 8 - SW / 2) * 2) / 2, y = Math.round((fy * TILE + 14 - SH) * 2) / 2;
+  const x = Math.round((w.x - SW / 2) * 2) / 2, y = Math.round((w.y + 1 - SH) * 2) / 2;   // feet where they stand, like guests
   ctx.fillStyle = "rgba(0,0,0,0.25)";
   ctx.beginPath(); ctx.ellipse(x + SW / 2, y + SH - 0.5, SW / 2 - 1, 1.2, 0, 0, Math.PI * 2); ctx.fill();
   blit(ctx, spr, x, y);
@@ -1033,6 +1135,24 @@ function renderStaff() {
   $("wages").textContent = wagesPerSec() ? `-${fmtVal(wagesPerSec())}c/s` : "";
   const box = $("staff");
   box.innerHTML = "";
+  const house = staffHouse();
+  if (!house && isUnlocked("obj:staffhouse")) {
+    const row = el("div", "row-item");
+    row.appendChild(thumb(OBJ_SPRITES.staffhouse, 22, 25));
+    const g = el("div", "grow");
+    g.appendChild(el("b", "", "Staff House needed"));
+    g.appendChild(document.createTextNode("Build one next to a path before hiring. Staff walk home to it at night once the park is clean."));
+    row.appendChild(g);
+    const b = el("button", "primary", `Build ${fmt(objectCost("staffhouse"))}c`);
+    b.addEventListener("click", () => { if (tool !== "obj:staffhouse" && buildLocked()) return; setTool(tool === "obj:staffhouse" ? "inspect" : "obj:staffhouse"); });
+    b.classList.toggle("active", tool === "obj:staffhouse");
+    row.appendChild(b);
+    box.appendChild(row);
+  } else if (house && staffTotal()) {
+    const home = staffWalkers.filter(w => w.home).length;
+    box.appendChild(el("p", "small", isOpen() ? "Your staff are at work. They head to the Staff House at night once the litter is gone."
+      : home === staffWalkers.length ? "Everyone's home at the Staff House for the night." : `${home}/${staffWalkers.length} staff home. The rest are finishing up.`));
+  }
   for (const t of types) {
     const def = STAFF[t];
     const row = el("div", "row-item" + (isUnlocked("staff:" + t) ? "" : " is-locked"));
@@ -1053,7 +1173,8 @@ function renderStaff() {
     g.appendChild(document.createTextNode(`${def.desc} Wage ${def.wage}c/s.`));
     row.appendChild(g);
     const hire = el("button", "primary", `Hire ${fmt(hireCost(t))}c`);
-    hire.disabled = state.money < hireCost(t);
+    hire.disabled = state.money < hireCost(t) || !house;
+    if (!house) hire.title = "Build a Staff House first";
     hire.addEventListener("click", () => hireStaff(t));
     row.appendChild(hire);
     if (staffCount(t)) {

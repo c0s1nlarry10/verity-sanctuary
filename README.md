@@ -25,13 +25,15 @@ Every major version stays playable in [`versions/`](versions/index.html), each w
 
 ## Features
 
-Version 2.1.1. See the in-game patch notes for what changed.
+Version 2.2. See the in-game patch notes for what changed.
 
 - 27 Verity variants to discover through eggs and fusion recipes, each with its own ability
 - Every variant you own is unique: name, size, color, markings, accessory, personality and level
 - Fusion Lab, Variant Index and recipe book
 - Park XP with unlocks: enclosure sizes and themes, land, path types, staff, special eggs and more
 - Hunger and happiness, staff, trash, visitor moods, critics and influencers
+- A Staff House where your staff rest at night, once the litter is swept up
+- Turn snack stands, benches, statues and pens; every pen gets its own small random details
 - Guests who come and go by car, and a Guest Feedback card that tells you what to improve
 - Meme events, including "He belongs to the Backrooms", where Pirate Clark tries to drag a variant away
 - Day/night cycle, weather, chiptune music and sound effects

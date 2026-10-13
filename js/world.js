@@ -589,6 +589,7 @@ window.addEventListener("keydown", e => {
   if (KEYMAP[e.key]) { keysDown.add(KEYMAP[e.key]); if (e.key.startsWith("Arrow")) e.preventDefault(); }
   else if (e.key === "-" || e.key === "_") { zoomStep(-1); e.preventDefault(); }
   else if (e.key === "=" || e.key === "+") { zoomStep(1); e.preventDefault(); }
+  else if (e.key === "r" || e.key === "R") { turnKey(); renderShopState(); }
 });
 window.addEventListener("keyup", e => { if (KEYMAP[e.key]) keysDown.delete(KEYMAP[e.key]); });
 window.addEventListener("blur", () => keysDown.clear());

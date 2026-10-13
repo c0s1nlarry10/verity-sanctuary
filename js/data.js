@@ -1,8 +1,32 @@
 "use strict";
 
 // ================= Version =================
-const GAME_VERSION = "2.1.1";
+const GAME_VERSION = "2.2";
 const PATCH_NOTES = [
+  {
+    version: "2.2", title: "Clocking Off",
+    sections: [
+      { title: "Staff", notes: [
+        "New: the Staff House (Pro, park level 4). Turns out your staff had been sleeping in the bushes. Build one next to a path before you can hire anyone. It's a big 2x2 cottage, so plan ahead.",
+        "At night, janitors sweep up every last scrap of litter, then everyone walks home and puts the lights on. They wander back out in the morning, roughly on time.",
+        "Staff now roam freely like guests, cutting corners and strolling on the diagonal instead of shuffling tile to tile like haunted chess pieces.",
+        "Janitors spot litter a few tiles away and march straight over to it. Somebody has to clean up after your guests' crap.",
+      ] },
+      { title: "Turning things", notes: [
+        "Press R, or the new Turn button, to turn snack stands, benches and the Verity Statue. They finally have side and back views. Yes, the statue has a back of the head now. You're welcome.",
+        "Already placed? Hover and press R, or click it twice.",
+        "Lamps, flower beds and fountains look the same whichever way you spin them, so please stop trying.",
+      ] },
+      { title: "Pens", notes: [
+        "Pens are plainer, with a few small random details instead of the same damn trough and bush copy-pasted into every single one. Flowers, puddles, rubber ducks, oil stains, a lone Backrooms chair... no two pens look quite alike.",
+        "Turn a square pen's layout with R before you build it, or with Turn layout on its card. Custom pens turn their whole shape a quarter turn, if there's room and it still touches a path.",
+        "The little wooden signs on top of pens are gone. Nobody was reading them. Occupancy is on the pen card.",
+      ] },
+      { title: "The gold pile", notes: [
+        "The Securities now demand a one-tile gap all the way round the gold pile. Nothing can be built on or right next to it, and it can't be moved up against anything either. There's a red dashed box. You'll see it.",
+      ] },
+    ],
+  },
   {
     version: "2.1.1", title: "Hotfix: On the Path",
     sections: [
@@ -134,7 +158,7 @@ const MODES = {
   ] },
 };
 // Unlocks that never arrive in Simple mode (ids, or prefixes ending in ":").
-const SIMPLE_OFF = ["care", "staff:", "fence:", "size:custom", "remodel", "path:2", "path:3", "prestige", "lot:"];
+const SIMPLE_OFF = ["care", "staff:", "obj:staffhouse", "fence:", "size:custom", "remodel", "path:2", "path:3", "prestige", "lot:"];
 
 // ================= Core constants =================
 const TILE = 16;            // world units per tile
@@ -289,14 +313,15 @@ const NAME_B = ["by", "ster", "o", "ix", "ly", "bert", "kins", "zy", "pop", "ty"
 
 // ================= Shops & decorations =================
 const OBJECTS = {
-  fries:    { name: "Verity Fries",    kind: "stand", cost: 150,  price: 3,  appeal: 0.5 },
-  lemonade: { name: "Lovity Lemonade", kind: "stand", cost: 450,  price: 7,  appeal: 0.5 },
-  burger:   { name: "Mog Burger",      kind: "stand", cost: 1500, price: 18, appeal: 1 },
+  fries:    { name: "Verity Fries",    kind: "stand", turns: true, cost: 150,  price: 3,  appeal: 0.5 },
+  lemonade: { name: "Lovity Lemonade", kind: "stand", turns: true, cost: 450,  price: 7,  appeal: 0.5 },
+  burger:   { name: "Mog Burger",      kind: "stand", turns: true, cost: 1500, price: 18, appeal: 1 },
   flowers:  { name: "Flower Bed",      kind: "decor", cost: 25,   appeal: 0.5 },
-  bench:    { name: "Bench",           kind: "decor", cost: 60,   appeal: 1 },
+  bench:    { name: "Bench",           kind: "decor", turns: true, cost: 60,   appeal: 1 },
   lamp:     { name: "Lamp Post",       kind: "decor", cost: 100,  appeal: 1.5 },
   fountain: { name: "Fountain",        kind: "decor", cost: 600,  appeal: 5 },
-  statue:   { name: "Verity Statue",   kind: "decor", cost: 2500, appeal: 15 },
+  staffhouse: { name: "Staff House",   kind: "service", cost: 400, appeal: 0, size: 2 },
+  statue:   { name: "Verity Statue",   kind: "decor", turns: true, cost: 2500, appeal: 15 },
 };
 const STAND_BUY_CHANCE = 0.3;
 const STAR_THRESHOLDS = [0, 15, 50, 120, 250];   // appeal needed for 1..5 stars
@@ -404,6 +429,7 @@ const UNLOCKS = [
   { level: 3,  id: "plot:east",    name: "New land for sale" },
   { level: 3,  id: "requests",     name: "Visitor requests" },
   { level: 4,  id: "theme:pool",   name: "Pool enclosures" },
+  { level: 4,  id: "obj:staffhouse", name: "Staff House (needed to hire staff)" },
   { level: 4,  id: "staff:janitor", name: "Janitors" },
   { level: 5,  id: "size:medium",  name: "Medium 12x12 enclosures" },
   { level: 5,  id: "path:2",       name: "Stone paths" },
