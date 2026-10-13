@@ -4,4 +4,5 @@ const VERSIONS = [
   { v: "2.0", title: "Bigger, Brighter, Busier", date: "2026-10-09" },
   { v: "2.1", title: "Simple & Pro", date: "2026-10-09" },
   { v: "2.1.1", title: "On the Path", date: "2026-10-09" },
+  { v: "2.2", title: "Clocking Off", date: "2026-10-13" },
 ];

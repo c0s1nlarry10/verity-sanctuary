@@ -8,5 +8,6 @@ One entry per **pushed** version of Verity Sanctuary, describing how its final b
 | 2.0 | Bigger, Brighter, Busier | 2026-10-09 | [v2.0.md](v2.0.md) |
 | 2.1 | Simple & Pro | 2026-10-09 | [v2.1.md](v2.1.md) |
 | 2.1.1 | On the Path | 2026-10-09 | [v2.1.1.md](v2.1.1.md) |
+| 2.2 | Clocking Off | 2026-10-13 | [v2.2.md](v2.2.md) |
 
 A new entry is added each time a version is pushed. Playable copies of each pushed version are in [`../versions/`](../versions/index.html).
